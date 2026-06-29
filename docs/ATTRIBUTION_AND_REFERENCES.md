@@ -35,6 +35,17 @@ Documentation-only references that still matter:
   https://developers.openai.com/cookbook/examples/multimodal/image-gen-models-prompting-guide
 - OpenAI image generation API guide:
   https://developers.openai.com/api/docs/guides/image-generation
+- Chinese and Asian image-prompt community references:
+  https://cloud.tencent.com/developer/article/2671009
+  https://aibook.ren/archives/ai-use-prompt-for-xiaohongshu
+  https://youmind.com/zh-CN/skills/xiaohongshu-cover-generator-KLJOoeDLiEZVD9
+  https://www.woshipm.com/ai/6305723.html
+  https://www.liblib.art/tutorial/1
+  https://iworldt.tistory.com/326
+  https://newneek.co/@dalpha/article/16526
+  https://note.com/guriham_lab/n/n98eb76678b91
+  https://nijijourney.com/ja/blog/niji-7-prompting
+  https://docs.novelai.net/ja/image/tutorial-charactercreation/
 - InvokeAI, Hugging Face Diffusers, and Midjourney public prompting docs:
   https://invoke.ai/concepts/prompting-guide/
   https://huggingface.co/docs/diffusers/en/using-diffusers/weighted_prompts
@@ -75,7 +86,7 @@ reviewing, testing, accepting, and publishing changes.
 | OpenClaw compatibility layer | Patch governance and compatibility-shim discipline from normal downstream runtime maintenance. | Local patch set, manifest, retirement contract, and tests are project-specific engineering. |
 | Sender-scoped tool policy | OpenClaw `tools.allow`, `tools.deny`, and `tools.toolsBySender` configuration. | Local operator-only tool list and generated global/agent policy are project-specific deployment hardening. |
 | Plugin/tool/manual layout | OpenHands extensions and plugin packaging separate skills, hooks, tools, agents, commands, manifests, and docs. Cline separates runtime-agnostic agent loop primitives from host-specific tools and persistence. | Local OpenClaw plugins, tool manuals, allowed-tool config, and feature health checks are project-specific. |
-| Image generation prompt recipes | OpenAI GPT Image 2 docs plus public InvokeAI, Hugging Face Diffusers, Midjourney, and data-visualization guidance. | Local prompt-library cards are rewritten, short on-demand recipes for the imagebot workflow; they are not copied prompt packs. |
+| Image generation prompt recipes | OpenAI GPT Image 2 docs; public InvokeAI, Hugging Face Diffusers, Midjourney, Niji, and NovelAI guidance; Chinese/Asian community references for 小红书/抖音/公众号 covers, Korean/Japanese social portraits, guofeng/hanfu boards, and anime tag ordering. | Local prompt-library cards are rewritten, short on-demand recipes for the imagebot workflow; they are not copied prompt packs. Community/social-media sources are treated as trend signals, not authoritative standards. |
 | Bot plugin surface | Koishi, AstrBot, and Red show plugin catalogs, consoles, permissions, and hot-reload or module discipline as mature bot patterns. | Local feature health and control-panel checks are a small, private-deployment version of that pattern. |
 | Multi-step Telegram workflows | grammY conversations and python-telegram-bot ConversationHandler make state, owner, chat/user scope, fallback, persistence, and timeout explicit. | Local callback/session ownership and Telegram scenario replay follow the same engineering shape. |
 | Rate limits and abuse bounds | grammY rate-limit/flood-control ecosystem treats resource protection as middleware. | Local quota and cooldown plans belong in plugins/policy, not in prompt text. |

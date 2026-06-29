@@ -282,7 +282,7 @@ assert.throws(() => __testing.validateModelSettings({
 const cards = await tools.get("prompt_library").execute("cards-list", {
   action: "list",
   type: "recipe",
-  count: 10
+  count: 20
 });
 assert.equal(cards.details.status, "ok");
 assert.ok(cards.details.results.some((card) => card.id === "recipe.official_character_generation"));
@@ -290,6 +290,10 @@ for (const id of [
   "recipe.gpt_image_2_prompt_blueprint",
   "recipe.academic_figure",
   "recipe.anime_character_scene",
+  "recipe.asian_anime_tag_order",
+  "recipe.xiaohongshu_douyin_visual_note",
+  "recipe.asian_social_portrait_grid",
+  "recipe.guofeng_hanfu_moodboard",
   "recipe.photoreal_scene",
   "recipe.product_template_asset"
 ]) {
@@ -303,6 +307,7 @@ const negativeCards = await tools.get("prompt_library").execute("negative-list",
 });
 assert.equal(negativeCards.details.status, "ok");
 assert.ok(negativeCards.details.results.some((card) => card.id === "negative.common_image_generation_failures"));
+assert.ok(negativeCards.details.results.some((card) => card.id === "negative.chinese_asian_aesthetic_failures"));
 
 const search = await tools.get("prompt_library").execute("cards-search", {
   action: "search",
@@ -339,6 +344,34 @@ const photorealSearch = await tools.get("prompt_library").execute("photo-search"
 assert.equal(photorealSearch.details.status, "ok");
 assert.equal(photorealSearch.details.results[0].id, "recipe.photoreal_scene");
 
+const xhsSearch = await tools.get("prompt_library").execute("xhs-search", {
+  action: "search",
+  query: "xiaohongshu douyin chinese social cover visual note"
+});
+assert.equal(xhsSearch.details.status, "ok");
+assert.equal(xhsSearch.details.results[0].id, "recipe.xiaohongshu_douyin_visual_note");
+
+const guofengSearch = await tools.get("prompt_library").execute("guofeng-search", {
+  action: "search",
+  query: "guofeng hanfu chinese moodboard makeup fashion proposal"
+});
+assert.equal(guofengSearch.details.status, "ok");
+assert.equal(guofengSearch.details.results[0].id, "recipe.guofeng_hanfu_moodboard");
+
+const asianAnimeSearch = await tools.get("prompt_library").execute("asian-anime-search", {
+  action: "search",
+  query: "niji novelai japanese anime tag order full body boots background"
+});
+assert.equal(asianAnimeSearch.details.status, "ok");
+assert.equal(asianAnimeSearch.details.results[0].id, "recipe.asian_anime_tag_order");
+
+const asianPortraitSearch = await tools.get("prompt_library").execute("asian-portrait-search", {
+  action: "search",
+  query: "korean japanese xiaohongshu portrait grid jiugongge social photo"
+});
+assert.equal(asianPortraitSearch.details.status, "ok");
+assert.equal(asianPortraitSearch.details.results[0].id, "recipe.asian_social_portrait_grid");
+
 const got = await tools.get("prompt_library").execute("cards-get", {
   action: "get",
   id: "official_character_generation"
@@ -362,6 +395,19 @@ const academicComposed = await tools.get("prompt_library").execute("academic-com
 });
 assert.equal(academicComposed.details.status, "ok");
 assert.match(academicComposed.content[0].text, /Academic Figure Or Scientific Diagram/);
+
+const asianSocialComposed = await tools.get("prompt_library").execute("asian-social-compose", {
+  action: "compose",
+  request: "Generate a Xiaohongshu cover with Asian social-media visual taste.",
+  card_ids: [
+    "recipe.xiaohongshu_douyin_visual_note",
+    "recipe.asian_social_portrait_grid",
+    "negative.chinese_asian_aesthetic_failures"
+  ]
+});
+assert.equal(asianSocialComposed.details.status, "ok");
+assert.match(asianSocialComposed.content[0].text, /Xiaohongshu Or Douyin Visual Note/);
+assert.match(asianSocialComposed.content[0].text, /Chinese And Asian Aesthetic Failures/);
 
 const feedback = await tools.get("image_feedback").execute("feedback-record", {
   action: "record",

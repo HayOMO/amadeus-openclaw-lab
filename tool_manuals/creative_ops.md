@@ -75,6 +75,8 @@ Good uses:
 - GPT Image 2 / image2 prompt blueprints.
 - Academic figures, scientific diagrams, and infographics.
 - Anime character scenes and photoreal scenes.
+- Chinese/Asian social-media visuals: 小红书/抖音 covers, Asian portrait grids,
+  国风/汉服 moodboards, and Japanese/Niji/NovelAI-style anime tag ordering.
 - Product mockups, template-like layouts, and marketing assets.
 - Meme/sticker prompts.
 - Wallpaper/poster prompts.
