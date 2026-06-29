@@ -44,6 +44,20 @@ for (const tool of ["telegram_media_spoiler", "download_image_url", "download_im
 assert.ok(!settings.allowedTools.includes("browser"), "OpenClaw built-in browser must not be exposed; use Playwright web_snapshot/download tools");
 assert.ok(!settings.allowedTools.includes("web_search"), "provider-native search must not be exposed as a fake callable tool");
 
+assert.ok(Array.isArray(settings.operatorSenderIds) && settings.operatorSenderIds.length >= 1, "operator sender ids must be configured");
+assert.equal(settings.toolAccess?.strategy, "default_chat_plus_operator_unlock");
+assert.ok(settings.toolAccess?.operatorOnlyTools?.includes("knowledge_ingest"), "knowledge_ingest must be operator-only");
+assert.ok(settings.toolAccess?.operatorOnlyTools?.includes("script_action"), "script_action must be operator-only");
+assert.ok(settings.toolAccess?.operatorOnlyTools?.includes("model_config"), "model_config must be operator-only");
+assert.ok(settings.toolAccess?.operatorOnlyTools?.includes("desktop_media_control"), "desktop_media_control must be operator-only");
+assert.ok(settings.toolAccess?.operatorOnlyTools?.includes("sticker_pack"), "sticker_pack must be operator-only");
+assert.ok(!settings.toolAccess?.operatorOnlyTools?.includes("feature_action"), "ordinary feature execution should remain a normal chat capability");
+assert.ok(!settings.toolAccess?.operatorOnlyTools?.includes("message"), "message send must not be blocked by default sender policy");
+for (const tool of settings.toolAccess?.operatorOnlyTools || []) {
+  assert.ok(settings.allowedTools.includes(tool), `operator-only tool must remain in total allowedTools: ${tool}`);
+  assert.ok(!settings.deniedTools.includes(tool), `operator-only tool must not be globally denied: ${tool}`);
+}
+
 for (const pathName of ["tools.allow", "agents.list[0].tools.allow"]) {
   const op = configOps.find((item) => item.path === pathName);
   assert.ok(op, `missing config op ${pathName}`);
@@ -51,6 +65,16 @@ for (const pathName of ["tools.allow", "agents.list[0].tools.allow"]) {
   assert.ok(op.value.includes("web_card"), `${pathName} must expose web_card`);
   assert.ok(op.value.includes("background_job"), `${pathName} must expose background_job`);
   assert.ok(!op.value.includes("browser"), `${pathName} must not expose OpenClaw built-in browser`);
+}
+
+for (const pathName of ["tools.toolsBySender", "agents.list[0].tools.toolsBySender"]) {
+  const op = configOps.find((item) => item.path === pathName);
+  assert.ok(op, `missing config op ${pathName}`);
+  assert.deepEqual(op.value["*"]?.deny, settings.toolAccess.operatorOnlyTools, `${pathName} wildcard policy must hide operator-only tools`);
+  for (const senderId of settings.operatorSenderIds) {
+    assert.deepEqual(op.value[`id:${senderId}`]?.alsoAllow, settings.toolAccess.operatorOnlyTools, `${pathName} must unlock tools for operator id:${senderId}`);
+    assert.deepEqual(op.value[`channel:telegram:${senderId}`]?.alsoAllow, settings.toolAccess.operatorOnlyTools, `${pathName} must unlock tools for Telegram operator ${senderId}`);
+  }
 }
 
 const webSearchOp = configOps.find((item) => item.path === "tools.web.search");

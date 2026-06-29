@@ -29,6 +29,8 @@ Projects worth starring from the research trail:
 
 Documentation-only references that still matter:
 
+- OpenClaw tool policy and sender-scoped tool restrictions:
+  https://docs.openclaw.ai/gateway/config-tools
 - GitHub repository best practices:
   https://docs.github.com/en/repositories/creating-and-managing-repositories/best-practices-for-repositories
 - GitHub community profile files:
@@ -61,6 +63,7 @@ reviewing, testing, accepting, and publishing changes.
 | --- | --- | --- |
 | Repository hygiene | GitHub README, license, citation, security, secret scanning, and conservative Actions guidance. | Standard open-source hygiene, not a project innovation. |
 | OpenClaw compatibility layer | Patch governance and compatibility-shim discipline from normal downstream runtime maintenance. | Local patch set, manifest, retirement contract, and tests are project-specific engineering. |
+| Sender-scoped tool policy | OpenClaw `tools.allow`, `tools.deny`, and `tools.toolsBySender` configuration. | Local operator-only tool list and generated global/agent policy are project-specific deployment hardening. |
 | Plugin/tool/manual layout | OpenHands extensions and plugin packaging separate skills, hooks, tools, agents, commands, manifests, and docs. Cline separates runtime-agnostic agent loop primitives from host-specific tools and persistence. | Local OpenClaw plugins, tool manuals, allowed-tool config, and feature health checks are project-specific. |
 | Bot plugin surface | Koishi, AstrBot, and Red show plugin catalogs, consoles, permissions, and hot-reload or module discipline as mature bot patterns. | Local feature health and control-panel checks are a small, private-deployment version of that pattern. |
 | Multi-step Telegram workflows | grammY conversations and python-telegram-bot ConversationHandler make state, owner, chat/user scope, fallback, persistence, and timeout explicit. | Local callback/session ownership and Telegram scenario replay follow the same engineering shape. |

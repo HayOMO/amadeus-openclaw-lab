@@ -314,6 +314,55 @@ function webSearchConfig(settings) {
   return result;
 }
 
+function normalizeStringList(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const result = [];
+  for (const item of value) {
+    const text = String(item || "").trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    result.push(text);
+  }
+  return result;
+}
+
+function normalizeToolList(value) {
+  return normalizeStringList(value).map((item) => item.toLowerCase());
+}
+
+function toolAccessConfig(settings) {
+  const allowed = new Set(normalizeToolList(settings.allowedTools));
+  const denied = new Set(normalizeToolList(settings.deniedTools));
+  const operatorOnlyTools = normalizeToolList(settings.toolAccess?.operatorOnlyTools);
+  const operatorSenderIds = normalizeStringList(settings.operatorSenderIds);
+  assert.ok(operatorSenderIds.length >= 1, "at least one operator sender id must be configured");
+  for (const toolName of operatorOnlyTools) {
+    assert.ok(allowed.has(toolName), `operator-only tool is not in allowedTools: ${toolName}`);
+    assert.ok(!denied.has(toolName), `operator-only tool is also globally denied: ${toolName}`);
+  }
+  return { operatorOnlyTools, operatorSenderIds };
+}
+
+function senderToolPolicy(settings) {
+  const access = toolAccessConfig(settings);
+  if (!access.operatorOnlyTools.length) return {};
+  const policy = {
+    "*": {
+      deny: access.operatorOnlyTools
+    }
+  };
+  for (const senderId of access.operatorSenderIds) {
+    policy[`id:${senderId}`] = {
+      alsoAllow: access.operatorOnlyTools
+    };
+    policy[`channel:telegram:${senderId}`] = {
+      alsoAllow: access.operatorOnlyTools
+    };
+  }
+  return policy;
+}
+
 function lifecycleHookPolicy({ promptInjection = false } = {}) {
   return {
     allowConversationAccess: true,
@@ -324,6 +373,7 @@ function lifecycleHookPolicy({ promptInjection = false } = {}) {
 function buildConfigOps(settings, customCommands) {
   const model = settings.modelParams;
   const chatModel = chatModelConfig(settings);
+  const toolsBySender = senderToolPolicy(settings);
   const ops = [
     { path: "agents.defaults.model.primary", value: chatModel.primary },
     { path: "agents.list[0].model", value: chatModel.primary },
@@ -603,10 +653,12 @@ function buildConfigOps(settings, customCommands) {
     { path: "browser", value: browserConfig() },
     { path: "tools.allow", value: settings.allowedTools },
     { path: "tools.deny", value: settings.deniedTools },
+    { path: "tools.toolsBySender", value: toolsBySender },
     { path: "tools.web.search", value: webSearchConfig(settings) },
     { path: "tools.message.actions.allow", value: ["send"] },
     { path: "agents.list[0].tools.allow", value: settings.allowedTools },
     { path: "agents.list[0].tools.deny", value: settings.deniedTools },
+    { path: "agents.list[0].tools.toolsBySender", value: toolsBySender },
     { path: "agents.list[0].tools.message.actions.allow", value: ["send"] },
     { path: "agents.list[0].tools.loopDetection", value: loopDetection() },
     { path: "agents.defaults.imageModel", value: { primary: "openai/gpt-5.5" } },

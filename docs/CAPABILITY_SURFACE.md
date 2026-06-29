@@ -45,6 +45,24 @@ The action-level architecture contract lives in
   raw clicks, raw typing, hotkeys, song search, or arbitrary application
   control.
 
+## Sender Tool Layers
+
+`settings.allowedTools` is the total capability set for plugin loading, tests,
+and manual operator work. Normal group-chat senders do not receive that whole
+surface. The generated OpenClaw config writes the same `toolsBySender` policy at
+the global and imagebot-agent levels:
+
+- `*` denies `settings.toolAccess.operatorOnlyTools`.
+- configured `operatorSenderIds` get those tools back through explicit
+  `id:<senderId>` and `channel:telegram:<senderId>` entries.
+
+The operator-only layer currently includes long-term shared writes, tool-memory
+mutation, diagnostics/log inspection, local desktop control, sticker publishing,
+persona/model/script controls, prompt/image feedback learning, web-watch writes,
+and gacha channel archival. Ordinary feature execution, public search/media
+read tools, Mars forward lookup, memory search, and the `message` send tool stay
+available for normal chat.
+
 ## Deferred Or Not Yet Granted
 
 - Bulk crawling, account automation loops, CAPTCHA/security-check handling, and

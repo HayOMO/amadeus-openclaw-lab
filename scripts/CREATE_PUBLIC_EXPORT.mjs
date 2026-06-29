@@ -104,6 +104,7 @@ function publicText(text) {
     .replaceAll("-1000000000000", "-1000000000000")
     .replaceAll("-1000000000001", "-1000000000001")
     .replaceAll("-1000000000002", "-1000000000002")
+    .replaceAll("1000000000", "1000000000")
     .replaceAll("YOUR_BOT_USERNAME", "YOUR_BOT_USERNAME")
     .replaceAll("HayOMO/amadeus-openclaw-lab", "HayOMO/amadeus-openclaw-lab")
     .replaceAll("amadeus-openclaw-lab", "amadeus-openclaw-lab")
@@ -152,6 +153,7 @@ async function writeSanitizedConfig() {
   const settings = JSON.parse(await fs.readFile(path.join(repoRoot, "config", "imagebot", "settings.json"), "utf8"));
   settings.mainGroupId = "-1000000000000";
   settings.groupIds = ["-1000000000000", "-1000000000001"];
+  settings.operatorSenderIds = ["1000000000"];
   settings.botUsernames = ["YOUR_BOT_USERNAME"];
   settings.mentionPatterns = [
     "^@?YOUR_BOT_USERNAME\\b",
@@ -229,6 +231,7 @@ async function main() {
       "config/imagebot/settings.json",
       "config/imagebot/model-state.json",
       "Telegram group ids",
+      "Telegram operator sender ids",
       "Telegram bot username",
       "local Windows user paths",
     ],

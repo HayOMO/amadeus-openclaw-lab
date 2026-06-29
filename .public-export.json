@@ -27,6 +27,7 @@
     "config/imagebot/settings.json",
     "config/imagebot/model-state.json",
     "Telegram group ids",
+    "Telegram operator sender ids",
     "Telegram bot username",
     "local Windows user paths"
   ],

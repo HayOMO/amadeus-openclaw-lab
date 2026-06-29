@@ -78,15 +78,19 @@ place to hide product logic.
 5. Add a focused test next to the existing test style.
 6. For model-selected plugin tools, run `npm run health:features` so manifest,
    manual, allowlist, and test coverage stay aligned.
-7. For multi-step Telegram interactions, add a fixture under
+7. For model-selected plugin tools, classify the tool as normal chat or
+   operator-only in `config/imagebot/settings.json`; update
+   `policy/capability_surface.json` and config-source tests when the boundary
+   changes.
+8. For multi-step Telegram interactions, add a fixture under
    `tests/telegram-scenarios`.
-8. Run the smallest useful test first, then `npm run test:core` for broader
+9. Run the smallest useful test first, then `npm run test:core` for broader
    changes.
-9. Rebuild config when prompt, tool, feature, command, or plugin registration
+10. Rebuild config when prompt, tool, feature, command, or plugin registration
    changes.
-10. Do not commit secrets, Telegram memory, raw logs, generated media, or local
+11. Do not commit secrets, Telegram memory, raw logs, generated media, or local
     browser/session state.
-11. If a mature project, paper, SDK, or official doc shaped the design, record
+12. If a mature project, paper, SDK, or official doc shaped the design, record
     it in `docs/ATTRIBUTION_AND_REFERENCES.md`.
 
 ## Good Next Feature Candidates

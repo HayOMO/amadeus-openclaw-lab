@@ -3,10 +3,44 @@
   "agentId": "imagebot",
   "accountId": "imagebot",
   "mainGroupId": "-1000000000000",
+  "testGroupId": "-1000000000001",
   "groupIds": [
     "-1000000000000",
     "-1000000000001"
   ],
+  "groupRoles": {
+    "-1000000000000": "production",
+    "-1000000000001": "test"
+  },
+  "operatorSenderIds": [
+    "1000000000"
+  ],
+  "toolAccess": {
+    "strategy": "default_chat_plus_operator_unlock",
+    "operatorOnlyTools": [
+      "image_skill_save_reference",
+      "image_skill_note_preference",
+      "knowledge_ingest",
+      "turn_observer_recent",
+      "generated_gallery_resend",
+      "web_watch_add",
+      "web_watch_check",
+      "web_watch_delete",
+      "desktop_media_control",
+      "sticker_pack",
+      "agent_mode",
+      "persona_config",
+      "learned_skill",
+      "failure_memory",
+      "evidence_pack",
+      "script_action",
+      "prompt_library",
+      "image_feedback",
+      "model_config",
+      "command_catalog",
+      "gacha_archive"
+    ]
+  },
   "botUsernames": [
     "YOUR_BOT_USERNAME"
   ],
