@@ -25,6 +25,19 @@ function isTracked(relativePath) {
   return trackedPosix.includes(toPosix(relativePath));
 }
 
+function topLevelYamlBlock(source, key) {
+  const lines = source.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => line === `${key}:`);
+  if (start < 0) return "";
+  const block = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^[A-Za-z0-9_-]+:/.test(line)) break;
+    block.push(line);
+  }
+  return block.join("\n");
+}
+
 const tracked = gitLines(["ls-files"]);
 const trackedPosix = tracked.map(toPosix);
 const deletedTrackedPosix = new Set(gitLines(["ls-files", "--deleted"]).map(toPosix));
@@ -57,6 +70,19 @@ for (const file of existingTrackedPosix) {
     !forbiddenTracked.some((pattern) => pattern.test(file)),
     `local/generated file must not be tracked: ${file}`,
   );
+}
+
+const workflowFiles = existingTrackedPosix.filter((file) => /^\.github\/workflows\/[^/]+\.ya?ml$/i.test(file));
+for (const file of workflowFiles) {
+  const workflow = await fs.readFile(path.join(repoRoot, file), "utf8");
+  const onBlock = topLevelYamlBlock(workflow, "on");
+  assert.match(onBlock, /(^|\n)\s+workflow_dispatch:/, `${file} must be manually runnable with workflow_dispatch`);
+  assert.doesNotMatch(
+    onBlock,
+    /(^|\n)\s+(push|pull_request|pull_request_target|schedule|workflow_run|release|deployment|registry_package):/,
+    `${file} must not auto-run from push, pull_request, schedule, release, or deployment triggers`,
+  );
+  assert.match(workflow, /permissions:\s*\n\s+contents:\s+read\b/, `${file} should keep default permissions read-only`);
 }
 
 const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, "package.json"), "utf8"));
