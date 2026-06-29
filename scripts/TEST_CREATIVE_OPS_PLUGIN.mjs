@@ -286,6 +286,23 @@ const cards = await tools.get("prompt_library").execute("cards-list", {
 });
 assert.equal(cards.details.status, "ok");
 assert.ok(cards.details.results.some((card) => card.id === "recipe.official_character_generation"));
+for (const id of [
+  "recipe.gpt_image_2_prompt_blueprint",
+  "recipe.academic_figure",
+  "recipe.anime_character_scene",
+  "recipe.photoreal_scene",
+  "recipe.product_template_asset"
+]) {
+  assert.ok(cards.details.results.some((card) => card.id === id), `prompt recipe card should be listed: ${id}`);
+}
+
+const negativeCards = await tools.get("prompt_library").execute("negative-list", {
+  action: "list",
+  type: "negative",
+  count: 10
+});
+assert.equal(negativeCards.details.status, "ok");
+assert.ok(negativeCards.details.results.some((card) => card.id === "negative.common_image_generation_failures"));
 
 const search = await tools.get("prompt_library").execute("cards-search", {
   action: "search",
@@ -293,6 +310,34 @@ const search = await tools.get("prompt_library").execute("cards-search", {
 });
 assert.equal(search.details.status, "ok");
 assert.equal(search.details.results[0].id, "recipe.official_character_generation");
+
+const blueprintSearch = await tools.get("prompt_library").execute("blueprint-search", {
+  action: "search",
+  query: "image2 gpt-image-2 prompt blueprint quality size"
+});
+assert.equal(blueprintSearch.details.status, "ok");
+assert.equal(blueprintSearch.details.results[0].id, "recipe.gpt_image_2_prompt_blueprint");
+
+const academicSearch = await tools.get("prompt_library").execute("academic-search", {
+  action: "search",
+  query: "academic scientific figure infographic direct labels"
+});
+assert.equal(academicSearch.details.status, "ok");
+assert.equal(academicSearch.details.results[0].id, "recipe.academic_figure");
+
+const animeSearch = await tools.get("prompt_library").execute("anime-search", {
+  action: "search",
+  query: "anime erciyuan character scene canonical reference"
+});
+assert.equal(animeSearch.details.status, "ok");
+assert.equal(animeSearch.details.results[0].id, "recipe.anime_character_scene");
+
+const photorealSearch = await tools.get("prompt_library").execute("photo-search", {
+  action: "search",
+  query: "photorealistic portrait real camera lighting"
+});
+assert.equal(photorealSearch.details.status, "ok");
+assert.equal(photorealSearch.details.results[0].id, "recipe.photoreal_scene");
 
 const got = await tools.get("prompt_library").execute("cards-get", {
   action: "get",
@@ -309,6 +354,14 @@ const composed = await tools.get("prompt_library").execute("cards-compose", {
 assert.equal(composed.details.status, "ok");
 assert.match(composed.content[0].text, /Selected cards/);
 assert.match(composed.content[0].text, /Meme And Sticker/);
+
+const academicComposed = await tools.get("prompt_library").execute("academic-compose", {
+  action: "compose",
+  request: "Generate a clean academic figure explaining a two-stage memory system.",
+  card_ids: ["recipe.gpt_image_2_prompt_blueprint", "recipe.academic_figure", "negative.common_image_generation_failures"]
+});
+assert.equal(academicComposed.details.status, "ok");
+assert.match(academicComposed.content[0].text, /Academic Figure Or Scientific Diagram/);
 
 const feedback = await tools.get("image_feedback").execute("feedback-record", {
   action: "record",

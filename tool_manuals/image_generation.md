@@ -11,6 +11,10 @@ when_to_read: Before using image_generate or deciding whether an image request i
 
 - `image_generate`: new image, edit, redraw, derivative image.
 - `image`: inspect images only; it does not draw.
+- For complex image generation, use `prompt_library search` / `compose` before
+  `image_generate` when the request matches a known recipe such as gpt-image-2
+  blueprint, academic figure, anime character, photoreal scene, product asset,
+  wallpaper/poster, sticker, or common negative failures.
 - One user request -> at most one `image_generate` call.
 - If image generation fails/times out/aborts: retry once only when the same local reference images are still required and the failure looks like transport/input delivery. Otherwise stop and reply briefly. No downgrade loop.
 - Public URL references are not stable generation inputs in imagebot. Use `web_image_search` returned `localMedia` paths when present; otherwise download selected public URLs with `download_image_url`, inspect the returned preview, then call `image_generate` with local MEDIA paths. If the download/reference step fails, report that failure or choose another reference.
@@ -58,3 +62,19 @@ when_to_read: Before using image_generate or deciding whether an image request i
 - Default: leave quality/size unset, match ChatGPT web-style defaults.
 - User asks fast/draft: use lower/provider-auto quality when supported.
 - User asks final/high/wallpaper: use high quality and requested aspect ratio when supported.
+
+## Prompt Library Recipes
+
+Use these prompt cards as on-demand skills, not permanent prompt text:
+
+- `recipe.gpt_image_2_prompt_blueprint`: universal image2/GPT Image 2 prompt
+  structure and size/quality habits.
+- `recipe.academic_figure`: scientific diagrams, visual abstracts, teaching
+  figures, and readable infographics.
+- `recipe.anime_character_scene`: two-dimensional character scenes with
+  reference-led identity.
+- `recipe.photoreal_scene`: realistic portraits and camera-like scenes.
+- `recipe.product_template_asset`: product mockups, ads, posters, UI/social
+  layout templates.
+- `negative.common_image_generation_failures`: short targeted avoid list for
+  non-anime image quality failures.

@@ -72,6 +72,10 @@ Good uses:
 
 - Specified character generation.
 - Official-reference workflows.
+- GPT Image 2 / image2 prompt blueprints.
+- Academic figures, scientific diagrams, and infographics.
+- Anime character scenes and photoreal scenes.
+- Product mockups, template-like layouts, and marketing assets.
 - Meme/sticker prompts.
 - Wallpaper/poster prompts.
 - Style stabilization.

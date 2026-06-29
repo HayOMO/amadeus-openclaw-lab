@@ -31,6 +31,16 @@ Documentation-only references that still matter:
 
 - OpenClaw tool policy and sender-scoped tool restrictions:
   https://docs.openclaw.ai/gateway/config-tools
+- OpenAI GPT Image 2 prompting and image API docs:
+  https://developers.openai.com/cookbook/examples/multimodal/image-gen-models-prompting-guide
+- OpenAI image generation API guide:
+  https://developers.openai.com/api/docs/guides/image-generation
+- InvokeAI, Hugging Face Diffusers, and Midjourney public prompting docs:
+  https://invoke.ai/concepts/prompting-guide/
+  https://huggingface.co/docs/diffusers/en/using-diffusers/weighted_prompts
+  https://docs.midjourney.com/hc/en-us/articles/33329261836941-Getting-Started-Guide
+- Harvard data visualization accessibility guide:
+  https://accessibility.huit.harvard.edu/data-viz-charts-graphs
 - GitHub repository best practices:
   https://docs.github.com/en/repositories/creating-and-managing-repositories/best-practices-for-repositories
 - GitHub community profile files:
@@ -65,6 +75,7 @@ reviewing, testing, accepting, and publishing changes.
 | OpenClaw compatibility layer | Patch governance and compatibility-shim discipline from normal downstream runtime maintenance. | Local patch set, manifest, retirement contract, and tests are project-specific engineering. |
 | Sender-scoped tool policy | OpenClaw `tools.allow`, `tools.deny`, and `tools.toolsBySender` configuration. | Local operator-only tool list and generated global/agent policy are project-specific deployment hardening. |
 | Plugin/tool/manual layout | OpenHands extensions and plugin packaging separate skills, hooks, tools, agents, commands, manifests, and docs. Cline separates runtime-agnostic agent loop primitives from host-specific tools and persistence. | Local OpenClaw plugins, tool manuals, allowed-tool config, and feature health checks are project-specific. |
+| Image generation prompt recipes | OpenAI GPT Image 2 docs plus public InvokeAI, Hugging Face Diffusers, Midjourney, and data-visualization guidance. | Local prompt-library cards are rewritten, short on-demand recipes for the imagebot workflow; they are not copied prompt packs. |
 | Bot plugin surface | Koishi, AstrBot, and Red show plugin catalogs, consoles, permissions, and hot-reload or module discipline as mature bot patterns. | Local feature health and control-panel checks are a small, private-deployment version of that pattern. |
 | Multi-step Telegram workflows | grammY conversations and python-telegram-bot ConversationHandler make state, owner, chat/user scope, fallback, persistence, and timeout explicit. | Local callback/session ownership and Telegram scenario replay follow the same engineering shape. |
 | Rate limits and abuse bounds | grammY rate-limit/flood-control ecosystem treats resource protection as middleware. | Local quota and cooldown plans belong in plugins/policy, not in prompt text. |
