@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 const tests = [
   ["node", ["scripts/TEST_IMAGEBOT_CONFIG_SOURCE.mjs"]],
   ["node", ["scripts/TEST_REPO_HYGIENE.mjs"]],
+  ["node", ["scripts/TEST_PUBLIC_EXPORT_SANITIZATION.mjs"]],
   ["node", ["scripts/TEST_AGENT_PERSONA_CATALOG.mjs"]],
   ["node", ["scripts/TEST_CAPABILITY_SURFACE.mjs"]],
   ["node", ["scripts/TEST_FEATURE_HEALTH.mjs"]],

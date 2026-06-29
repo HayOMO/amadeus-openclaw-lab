@@ -10,6 +10,16 @@ const repoRoot = path.resolve(scriptDir, "..");
 const result = await buildImagebotConfig({ write: false });
 const { settings, prompt, configOps, promptOps } = result;
 
+assert.ok(settings.groupIds.includes(settings.mainGroupId), "main group id must be in groupIds");
+assert.ok(settings.groupIds.includes(settings.testGroupId), "test group id must be in groupIds");
+assert.notEqual(settings.mainGroupId, settings.testGroupId, "main and test groups must be distinct");
+assert.equal(settings.groupRoles?.[settings.mainGroupId], "production", "main group must be labeled production");
+assert.equal(settings.groupRoles?.[settings.testGroupId], "test", "test group must be labeled test");
+assert.deepEqual([...new Set(settings.groupIds)], settings.groupIds, "groupIds must not contain duplicates");
+for (const groupId of settings.groupIds) {
+  assert.ok(["production", "test"].includes(settings.groupRoles?.[groupId]), `group must have a known role: ${groupId}`);
+}
+
 assert.ok(prompt.includes("Private Telegram group runtime."));
 assert.ok(prompt.includes("The base prompt contains no character persona."));
 assert.ok(!prompt.includes("You are YOUR_BOT_USERNAME in a private Telegram group chat."));
