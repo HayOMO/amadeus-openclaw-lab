@@ -1,0 +1,15 @@
+{
+  "name": "openclaw-local-web-image-search",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.js",
+  "private": true,
+  "dependencies": {
+    "sharp": "^0.34.2"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}

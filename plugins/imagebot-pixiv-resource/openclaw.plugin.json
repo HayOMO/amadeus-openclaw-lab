@@ -1,0 +1,32 @@
+{
+  "id": "imagebot-pixiv-resource",
+  "name": "Imagebot Pixiv Resource",
+  "description": "Read-only Pixiv ranking and artwork download helper backed by a refresh token.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "pixiv_resource"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "refreshTokenFile": { "type": "string" },
+      "storeDir": { "type": "string" },
+      "mediaDir": { "type": "string" },
+      "maxImageBytes": { "type": "number" },
+      "rankingDownloadConcurrency": { "type": "number" },
+      "visionImageCount": { "type": "number" },
+      "blockedTags": { "type": "array", "items": { "type": "string" } },
+      "additionalBlockedTags": { "type": "array", "items": { "type": "string" } }
+    }
+  }
+}

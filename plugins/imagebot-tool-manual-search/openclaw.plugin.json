@@ -1,0 +1,23 @@
+{
+  "id": "imagebot-tool-manual-search",
+  "name": "Imagebot Tool Manual Search",
+  "description": "Searches local tool workflow manuals for the Telegram imagebot.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "tool_manual_search"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

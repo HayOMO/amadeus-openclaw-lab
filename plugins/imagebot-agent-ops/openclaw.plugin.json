@@ -1,0 +1,60 @@
+{
+  "id": "imagebot-agent-ops",
+  "name": "Imagebot Agent Ops",
+  "description": "Bounded agent-operation tools for task modes, persona profile selection, learned workflows, failure memory, evidence packs, public GitHub lookup, and safe data utilities.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool",
+      "hook"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "agent_mode",
+      "persona_config",
+      "learned_skill",
+      "failure_memory",
+      "evidence_pack",
+      "github_lookup",
+      "data_tool"
+    ],
+    "hooks": [
+      "before_prompt_build",
+      "before_tool_call",
+      "after_tool_call"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "storeDir": {
+        "type": "string"
+      },
+      "repoRoot": {
+        "type": "string"
+      },
+      "personaCatalogPath": {
+        "type": "string"
+      },
+      "windowStorePath": {
+        "type": "string"
+      },
+      "appendPersonaContext": {
+        "type": "boolean"
+      },
+      "appendModeContext": {
+        "type": "boolean"
+      },
+      "appendRelevantSkills": {
+        "type": "boolean"
+      },
+      "failureSlowMs": {
+        "type": "number"
+      }
+    }
+  }
+}

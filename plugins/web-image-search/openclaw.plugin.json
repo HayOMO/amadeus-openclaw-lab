@@ -1,0 +1,47 @@
+{
+  "id": "web-image-search",
+  "name": "Local Web Image Search",
+  "description": "Returns public web image candidates for visual reference selection.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "web_text_search",
+      "explicit_web_text_search",
+      "web_image_search",
+      "download_image_url",
+      "download_image_urls",
+      "telegram_media_spoiler",
+      "reverse_image_search"
+    ],
+    "hooks": [
+      "before_tool_call"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "backgroundJobs": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "browserPool": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "autoDownloadSearchPreviews": {
+        "type": "boolean"
+      },
+      "searchPreviewCount": {
+        "type": "number"
+      }
+    }
+  }
+}

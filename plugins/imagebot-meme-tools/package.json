@@ -1,0 +1,7 @@
+{
+  "name": "openclaw-imagebot-meme-tools",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "main": "index.js"
+}

@@ -1,0 +1,31 @@
+{
+  "id": "imagebot-audio-transcribe",
+  "name": "Imagebot Audio Transcribe",
+  "description": "Probe and transcribe bot-local Telegram audio/video files with bounded local media access.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "audio_transcribe"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "mediaDir": { "type": "string" },
+      "storeDir": { "type": "string" },
+      "allowedMediaRoots": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "backgroundJobs": { "type": "object" }
+    }
+  }
+}

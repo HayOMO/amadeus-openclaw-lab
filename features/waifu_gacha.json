@@ -1,0 +1,139 @@
+{
+  "id": "waifu_gacha",
+  "title": "Waifu Gacha",
+  "version": "0.1.0",
+  "enabled": true,
+  "handler": "builtin.waifu_gacha",
+  "category": "fun",
+  "tags": ["gacha", "anime", "waifu", "collection", "stateful", "hybrid"],
+  "triggers": ["抽卡", "抽老婆", "今日老婆", "二次元老婆", "纸片人", "waifu", "gacha", "十连", "图鉴", "老婆榜"],
+  "description": "A lightweight Danbooru-backed anime image/card gacha. The tool owns draw state, score-band rarity, pity counters, collection, and leaderboard; the model wraps the result.",
+  "config": {
+    "danbooru": {
+      "enabled": true,
+      "cardMode": "danbooru_post",
+      "endpoint": "https://safebooru.donmai.us/posts.json",
+      "postBase": "https://safebooru.donmai.us/posts",
+      "useRandomOrder": true,
+      "baseTags": ["1girl"],
+      "fallbackTags": ["solo", "smile", "looking_at_viewer", "school_uniform", "dress", "casual"],
+      "preferTags": ["solo"],
+      "excludeTags": ["-animated", "-comic", "-manga", "-multiple_girls", "-2girls", "-3girls", "-4girls", "-text_focus", "-male_focus", "-boy"],
+      "quality": {
+        "minScore": 20,
+        "minFavCount": 0,
+        "minWidth": 512,
+        "minHeight": 512,
+        "minPixels": 300000,
+        "maxAspectRatio": 4,
+        "minTagCount": 12
+      },
+      "popularityThresholds": {
+        "R": 45,
+        "SR": 120,
+        "SSR": 300,
+        "UR": 900
+      },
+      "scoreBands": {
+        "N": { "min": 20, "max": 30, "randomPages": 1000 },
+        "R": { "min": 31, "max": 50, "randomPages": 1000 },
+        "SR": { "min": 51, "max": 100, "randomPages": 400 },
+        "SSR": { "min": 101, "max": 299, "randomPages": 100 },
+        "UR": { "min": 300, "max": null, "randomPages": 20 }
+      },
+      "rates": {
+        "N": 40,
+        "R": 50,
+        "SR": 8,
+        "SSR": 1.67,
+        "UR": 0.33
+      },
+      "pity": {
+        "urHard": 300,
+        "ssrSoftStart": 50,
+        "ssrBonusPerMiss": 2
+      },
+      "limit": 20,
+      "timeoutMs": 20000,
+      "retries": 1
+    }
+  },
+  "notes": [
+    "Use for playful anime/card gacha requests such as 抽卡, 抽老婆, 今日老婆, 十连, or 查看图鉴.",
+    "Draw/daily/ten_pull returns Safebooru/Danbooru posts as the card images. The feature tool downloads result media, writes the local archive, and posts to the configured Telegram archive channel before returning. Do not use generated_gallery or image_generate for gacha art.",
+    "The gacha first rolls rarity, then searches 1girl plus that rarity's score band. Rarity is not re-judged from the returned post.",
+    "Default rates are N 40%, R 50%, SR 8%, SSR 1.67%, UR 0.33%; UR has a 300-draw hard pity.",
+    "The rates in this manifest are written as percentages; UR 0.33 means 0.33%, not probability 0.33.",
+    "Score bands are N 20-30, R 31-50, SR 51-100, SSR 101-299, UR 300+.",
+    "One user gacha request is capped at 10 draws. If the model repeats the same ten-pull/multi-draw tool request shortly after, the tool returns a compact duplicate marker with suppressFinalReply and no resultImages/results.",
+    "Image URLs prefer the original file when available; sample/preview URLs are retained as fallback metadata.",
+    "Normal gacha cache/channel archival is script-owned inside feature_action. Use gacha_archive only for manual repair/backfill with existing bot-local media. Pass resultImages metadata such as pageUrl, sourceUrl, primaryTags, archiveTags, characterTags, copyrightTags, artistTags, and tagString through unchanged when doing manual repair; the archive tool owns Telegram caption and #hashtag formatting.",
+    "Ten-pull and multi-draw results expose resultImages for up to 10 images so the model can download, inspect, and send them as one reply/album when possible. If hiding is needed, use Telegram native spoiler; do not pixel-censor the original.",
+    "Gacha formatting is script-owned: use replyText as the factual output body and do not rewrite factual results.",
+    "Keep replies playful and non-explicit.",
+    "Preserve card name, rarity, affinity, primary tags, new/duplicate state, Danbooru post id/page URL, score, and collection counts exactly."
+  ],
+  "actions": [
+    {
+      "id": "draw",
+      "description": "Draw one Danbooru-backed anime image/card for one Telegram user.",
+      "risk": "local-write",
+      "permission": "member",
+      "cooldown": {
+        "scope": "user",
+        "seconds": 3
+      },
+      "modelWrap": true
+    },
+    {
+      "id": "ten_pull",
+      "description": "Draw ten cards with at least one SR-or-better result.",
+      "risk": "local-write",
+      "permission": "member",
+      "cooldown": {
+        "scope": "user",
+        "seconds": 8
+      },
+      "modelWrap": true
+    },
+    {
+      "id": "daily",
+      "description": "Draw or read today's deterministic waifu/card for one user.",
+      "risk": "local-write",
+      "permission": "member",
+      "cooldown": {
+        "scope": "user",
+        "seconds": 0
+      },
+      "modelWrap": true
+    },
+    {
+      "id": "collection",
+      "description": "Read one user's waifu/card collection.",
+      "risk": "read",
+      "permission": "member",
+      "modelWrap": true
+    },
+    {
+      "id": "profile",
+      "description": "Read one user's compact waifu/card gacha profile, pity counters, rarity counts, and recent draws.",
+      "risk": "read",
+      "permission": "member",
+      "modelWrap": true
+    },
+    {
+      "id": "stats",
+      "description": "Read aggregate gacha lab statistics for the group/state store.",
+      "risk": "read",
+      "permission": "member",
+      "modelWrap": true
+    },
+    {
+      "id": "leaderboard",
+      "description": "Read group waifu/card collection leaderboard.",
+      "risk": "read",
+      "permission": "member",
+      "modelWrap": true
+    }
+  ]
+}

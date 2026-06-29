@@ -1,0 +1,16 @@
+{
+  "name": "foreign targeted command is ignored",
+  "input": {
+    "text": "/amnew@OtherBot",
+    "userId": "555",
+    "displayName": "Eve",
+    "chatId": "-1001",
+    "isGroup": true,
+    "botUsernames": ["YOUR_BOT_USERNAME"]
+  },
+  "expect": {
+    "shouldRespond": false,
+    "reason": "ignored",
+    "windowMode": "sender_window"
+  }
+}

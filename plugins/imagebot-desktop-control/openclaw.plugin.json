@@ -1,0 +1,36 @@
+{
+  "id": "imagebot-desktop-control",
+  "name": "Imagebot Desktop Control",
+  "description": "Bounded local desktop control adapters for media sessions and future app-specific actions.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "desktop_media_control"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "storeDir": {
+        "type": "string"
+      },
+      "helperPath": {
+        "type": "string"
+      },
+      "timeoutMs": {
+        "type": "number"
+      },
+      "audit": {
+        "type": "boolean"
+      }
+    }
+  }
+}

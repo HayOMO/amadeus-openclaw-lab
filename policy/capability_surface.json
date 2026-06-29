@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "bot": "imagebot",
+  "principle": "LLM sees only bounded tools; tools own the risky side effects.",
+  "telegram": {
+    "groupPolicy": "allowlist",
+    "allowedGroupIds": ["-1000000000000", "-1000000000001"],
+    "outbound": ["send-message", "send-photo", "send-album", "edit-status-message", "bot-created-sticker-set-management"],
+    "privacyExpectation": "Local trigger filtering plus Telegram privacy mode; do not rely on prompts for privacy."
+  },
+  "filesystem": {
+    "read": [
+      "~/.openclaw/media/inbound",
+      "~/.openclaw/media/downloaded",
+      "~/.openclaw/media/tool-image-generation",
+      "~/.openclaw/media/gacha-archive",
+      "~/.openclaw/media/audio-transcribe",
+      "~/.openclaw/media/public-video",
+      "~/.openclaw/media/pixiv-resource",
+      "~/.openclaw/media/sticker-pack",
+      "~/.openclaw/feature-core/gacha-archive",
+      "~/.openclaw/public-video",
+      "~/.openclaw/resources/pixiv",
+      "~/.openclaw/group-adventure",
+      "~/.openclaw/knowledge-library/user-docs",
+      "~/.openclaw/agents/imagebot/sessions",
+      "repo/persona",
+      "repo/prompt_library",
+      "repo/tool_manuals"
+    ],
+    "write": [
+      "~/.openclaw/media/downloaded",
+      "~/.openclaw/media/tool-image-generation",
+      "~/.openclaw/media/gacha-archive",
+      "~/.openclaw/media/audio-transcribe",
+      "~/.openclaw/media/public-video",
+      "~/.openclaw/media/pixiv-resource",
+      "~/.openclaw/media/sticker-pack",
+      "~/.openclaw/feature-core",
+      "~/.openclaw/knowledge-library",
+      "~/.openclaw/audio-transcribe",
+      "~/.openclaw/public-video",
+      "~/.openclaw/resources/pixiv",
+      "~/.openclaw/group-adventure",
+      "~/.openclaw/agents/imagebot/sessions",
+      "~/.openclaw/turn-observer",
+      "~/.openclaw/background-jobs",
+      "~/.openclaw/agent-ops",
+      "~/.openclaw/desktop-control",
+      "~/.openclaw/practical-tools"
+    ],
+    "denied": ["arbitrary-owner-files", "browser-user-profiles", "shell-workspace-editing"]
+  },
+  "network": {
+    "publicWeb": "allowed through bounded search/download/snapshot tools",
+    "modelProviders": "OpenAI is active; DeepSeek provider registration is supported through a local secret file but does not switch the default model by itself",
+    "publicVideoDownload": "allowed for public http/https video metadata, subtitles, and bounded downloads",
+    "pixivResource": "allowed through gallery-dl with a dedicated Pixiv refresh token file and bounded media cache",
+    "privateNetwork": "denied by browser SSRF policy",
+    "telegramApi": "allowed through bot token file only",
+    "telegramStickerApi": "allowed through bot token file for bot-created sticker sets",
+    "accountBackedBrowser": "allowed only through bot-owned Playwright profile with web_snapshot/web_card risk guard: tiered cooldowns, budgets, bounded actions, risk-event backoff, and stop-on-verification",
+    "accountBackedMedia": "placeholder only; no cookies/profile/session connector"
+  },
+  "tooling": {
+    "scriptStyleCommands": ["amnew", "amhelp", "amstatus", "ammodel", "ampersona", "amtools"],
+    "diagnostics": ["turn_observer_recent", "failure_memory", "background_job"],
+    "personaOverlays": ["persona_config"],
+    "mediaProduction": ["audio_transcribe", "public_video", "pixiv_resource", "sticker_pack"],
+    "localDesktop": ["desktop_media_control"],
+    "games": ["group_adventure"],
+    "agentDelegation": {
+      "status": "planned",
+      "source": "config/imagebot/agents.catalog.json",
+      "currentlyDenied": ["sessions_send", "sessions_spawn", "sessions_yield", "sessions_history", "subagents", "agents_list"]
+    },
+    "explicitlyDenied": ["exec", "process", "code_execution", "read", "write", "edit", "apply_patch", "gateway", "sessions_send", "sessions_spawn", "sessions_yield", "sessions_history", "subagents", "agents_list"]
+  }
+}

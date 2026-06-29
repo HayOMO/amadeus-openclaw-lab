@@ -1,0 +1,43 @@
+{
+  "id": "daily_fortune",
+  "title": "Daily Fortune",
+  "version": "0.1.0",
+  "enabled": true,
+  "handler": "builtin.daily_fortune",
+  "category": "fun",
+  "tags": ["daily", "fortune", "group", "stateful", "hybrid"],
+  "triggers": ["今日运势", "每日实验", "今日实验", "fortune", "daily fortune", "运势", "今日状态"],
+  "description": "Deterministic daily fortune/lab-omen state. The tool owns scores and daily repeat behavior; the model reacts naturally.",
+  "notes": [
+    "Use for daily fortune, daily experiment, 今日运势, 今日状态, or similar lightweight group-state requests.",
+    "The same user receives the same result for the same day.",
+    "The model may comment on the result, but must not invent scores, themes, or leaderboard order."
+  ],
+  "actions": [
+    {
+      "id": "draw",
+      "description": "Draw or read today's deterministic fortune for one Telegram user.",
+      "risk": "local-write",
+      "permission": "member",
+      "cooldown": {
+        "scope": "user",
+        "seconds": 0
+      },
+      "modelWrap": true
+    },
+    {
+      "id": "status",
+      "description": "Read one user's daily fortune status.",
+      "risk": "read",
+      "permission": "member",
+      "modelWrap": true
+    },
+    {
+      "id": "leaderboard",
+      "description": "Show the daily fortune leaderboard.",
+      "risk": "read",
+      "permission": "member",
+      "modelWrap": true
+    }
+  ]
+}

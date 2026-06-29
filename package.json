@@ -1,0 +1,24 @@
+{
+  "name": "amadeus-openclaw-lab",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build:config": "node scripts/BUILD_IMAGEBOT_CONFIG.mjs --write",
+    "build:launcher": "powershell -ExecutionPolicy Bypass -File ./scripts/BUILD_NATIVE_LAUNCHER.ps1",
+    "bind:launcher": "powershell -ExecutionPolicy Bypass -File ./scripts/BIND_DESKTOP_LAUNCHER.ps1",
+    "audit:plugins": "node scripts/AUDIT_PLUGIN_DEPS.mjs",
+    "diag:media": "node scripts/DIAGNOSE_TELEGRAM_MEDIA_DELIVERY.mjs",
+    "export:public": "node scripts/CREATE_PUBLIC_EXPORT.mjs --force",
+    "health:features": "node scripts/CHECK_IMAGEBOT_FEATURE_HEALTH.mjs",
+    "lint:config": "node scripts/TEST_IMAGEBOT_CONFIG_SOURCE.mjs",
+    "prewarm:browser": "node scripts/PREWARM_IMAGEBOT_BROWSER.mjs",
+    "prewarm:memory": "node scripts/PREWARM_IMAGEBOT_MEMORY_SEARCH.mjs",
+    "prepare:runtime:ci": "node scripts/PREPARE_OPENCLAW_RUNTIME_FOR_TESTS.mjs",
+    "repair:sessions": "node scripts/REPAIR_IMAGEBOT_SESSIONS.mjs && node scripts/REPAIR_IMAGEBOT_WINDOW_STORE.mjs",
+    "setup:plugins": "powershell -ExecutionPolicy Bypass -File ./scripts/INSTALL_IMAGEBOT_PLUGIN_DEPS.ps1",
+    "test:all": "node scripts/TEST_IMAGEBOT_ALL.mjs",
+    "test:core": "node scripts/TEST_IMAGEBOT_CORE.mjs",
+    "test:patches": "node scripts/TEST_RUNTIME_PATCH_MANIFEST.mjs && node scripts/TEST_RUNTIME_PATCH_GOVERNANCE.mjs && powershell -ExecutionPolicy Bypass -File ./scripts/VERIFY_RUNTIME_PATCHES.ps1"
+  }
+}

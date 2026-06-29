@@ -1,0 +1,33 @@
+{
+  "id": "imagebot-knowledge-library",
+  "name": "Imagebot Knowledge Library",
+  "description": "Unified lightweight search over persona notes, prompt library, tool manuals, memory, artifacts, and user-ingested docs.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "knowledge_sources",
+      "knowledge_search",
+      "knowledge_recent",
+      "knowledge_ingest"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "storeDir": { "type": "string" },
+      "repoRoot": { "type": "string" },
+      "allowedFileRoots": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    }
+  }
+}

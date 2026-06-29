@@ -1,0 +1,17 @@
+{
+  "name": "assistant prefix opens sender window",
+  "input": {
+    "text": "助手 在吗",
+    "userId": "111",
+    "displayName": "Alice",
+    "chatId": "-1001",
+    "isGroup": true,
+    "botUsernames": ["YOUR_BOT_USERNAME"]
+  },
+  "expect": {
+    "shouldRespond": true,
+    "reason": "trigger_prefix",
+    "windowMode": "sender_window",
+    "normalizedText": "在吗"
+  }
+}

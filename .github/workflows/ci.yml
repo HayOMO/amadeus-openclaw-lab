@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Windows test suite
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install plugin dependencies
+        shell: pwsh
+        run: .\scripts\INSTALL_IMAGEBOT_PLUGIN_DEPS.ps1 -Force
+
+      - name: Prepare patched OpenClaw runtime
+        shell: pwsh
+        run: |
+          $runtimeLocalAppData = Join-Path $env:RUNNER_TEMP "LocalAppData"
+          "LOCALAPPDATA=$runtimeLocalAppData" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $env:LOCALAPPDATA = $runtimeLocalAppData
+          npm run prepare:runtime:ci
+
+      - name: Lint generated config
+        run: npm run lint:config
+
+      - name: Feature health
+        run: npm run health:features
+
+      - name: Full test suite
+        run: npm run test:all
+
+      - name: Runtime patch verification
+        run: npm run test:patches
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          extra_args: --results=verified

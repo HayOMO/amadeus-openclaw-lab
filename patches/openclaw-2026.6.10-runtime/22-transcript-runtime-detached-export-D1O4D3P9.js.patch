@@ -1,0 +1,10 @@
+diff --git a/dist/transcript.runtime-D1O4D3P9.js b/dist/transcript.runtime-D1O4D3P9.js
+index 831a3f6..003fa82 100644
+--- a/dist/transcript.runtime-D1O4D3P9.js
++++ b/dist/transcript.runtime-D1O4D3P9.js
+@@ -1,2 +1,3 @@
+-import { n as appendExactAssistantMessageToSessionTranscript, t as appendAssistantMessageToSessionTranscript } from "./transcript-D8-u9kVs.js";
+-export { appendAssistantMessageToSessionTranscript, appendExactAssistantMessageToSessionTranscript };
++import { b as withoutOwnedSessionTranscriptWrites } from "./transcript-write-context-B0xLNm13.js";
++import { n as appendExactAssistantMessageToSessionTranscript, t as appendAssistantMessageToSessionTranscript } from "./transcript-D8-u9kVs.js";
++export { appendAssistantMessageToSessionTranscript, appendExactAssistantMessageToSessionTranscript, withoutOwnedSessionTranscriptWrites };

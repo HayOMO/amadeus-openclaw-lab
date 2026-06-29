@@ -1,0 +1,34 @@
+{
+  "id": "imagebot-generated-gallery",
+  "name": "Imagebot Generated Gallery",
+  "description": "Lists and resends generated imagebot media from the local archive.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "generated_gallery_recent",
+      "generated_gallery_search",
+      "generated_gallery_resend",
+      "generated_gallery_stats"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "archiveRoot": { "type": "string" },
+      "storeDir": { "type": "string" },
+      "resendDir": { "type": "string" },
+      "previewDir": { "type": "string" },
+      "maxManifestLines": { "type": "number" },
+      "maxManifestReadBytes": { "type": "number" },
+      "maxVisualIndexEntries": { "type": "number" }
+    }
+  }
+}

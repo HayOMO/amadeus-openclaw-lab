@@ -1,0 +1,10 @@
+{
+  "name": "openclaw-imagebot-knowledge-library",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "@xenova/transformers": "2.0.1"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "imagebot-sticker-pack",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "sharp": "^0.34.5"
+  }
+}

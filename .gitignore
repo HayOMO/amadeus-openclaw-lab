@@ -1,0 +1,64 @@
+# Runtime state
+.runtime/
+logs/
+*.log
+*.pid
+*.logpath
+
+# Secrets and local OpenClaw state
+.env
+.env.*
+*.token
+*.secret
+*.secrets
+*.key
+*.pem
+*.p12
+*.pfx
+.openclaw/
+secrets/
+sessions/
+sessions-quarantine*/
+*.telegram-imagebot-memory/
+
+# Generated media and temporary files
+generated/
+media/
+downloads/
+tmp/
+.tmp/
+*.tmp
+
+# Local-only memory exports. Keep the scripts, not the group memory contents.
+backups/imagebot-memory/
+backups/imagebot-memory-desktop/
+
+# Native build output
+native/bin/
+native/obj/
+native/*.pdb
+native/*.exe
+native/beautified-preview*.png
+
+# Node/build/cache
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.cache/
+
+# Regenerable OpenClaw batch files. Source-of-truth lives under config/imagebot.
+scripts/*.batch.generated.json
+
+# Backups produced by OpenClaw or local patch scripts
+*.bak
+*.bak-*
+*.codex-*bak*
+codex-patch-backups-*/
+
+# OS/editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+.idea/
+.vscode/

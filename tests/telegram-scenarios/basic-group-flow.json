@@ -1,0 +1,55 @@
+{
+  "name": "basic-group-flow",
+  "steps": [
+    {
+      "name": "unaddressed text is ignored",
+      "input": {
+        "text": "今晚吃什么",
+        "chatId": "-1000000000000",
+        "userId": "100",
+        "displayName": "Alice",
+        "isGroup": true
+      },
+      "expect": {
+        "shouldRespond": false,
+        "reason": "ignored",
+        "windowMode": "sender_window"
+      }
+    },
+    {
+      "name": "mention enters sender window",
+      "input": {
+        "text": "@YOUR_BOT_USERNAME 画一只蓝色猫",
+        "chatId": "-1000000000000",
+        "userId": "100",
+        "displayName": "Alice",
+        "isGroup": true
+      },
+      "expect": {
+        "shouldRespond": true,
+        "reason": "bot_mention",
+        "windowMode": "sender_window",
+        "normalizedText": "画一只蓝色猫"
+      }
+    },
+    {
+      "name": "reply enters replied bot window",
+      "input": {
+        "text": "把背景改成夜晚",
+        "chatId": "-1000000000000",
+        "userId": "200",
+        "displayName": "Bob",
+        "isGroup": true,
+        "isReplyToBot": true,
+        "replySessionKey": "agent:imagebot:telegram:group:-1000000000000:sender:100:window:alice-1"
+      },
+      "expect": {
+        "shouldRespond": true,
+        "reason": "reply_to_bot",
+        "windowMode": "reply_window",
+        "windowKey": "agent:imagebot:telegram:group:-1000000000000:sender:100:window:alice-1",
+        "normalizedText": "把背景改成夜晚"
+      }
+    }
+  ]
+}

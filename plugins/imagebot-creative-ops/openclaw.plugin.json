@@ -1,0 +1,57 @@
+{
+  "id": "imagebot-creative-ops",
+  "name": "Imagebot Creative Ops",
+  "description": "Bounded command catalog, script registry, prompt/style/character library, image feedback learning, and model profile control for the Telegram imagebot.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool",
+      "hook"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "script_action",
+      "prompt_library",
+      "image_feedback",
+      "model_config",
+      "command_catalog"
+    ],
+    "hooks": [
+      "before_prompt_build"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "storeDir": {
+        "type": "string"
+      },
+      "appendFeedbackHints": {
+        "type": "boolean"
+      },
+      "allowMutatingScripts": {
+        "type": "boolean"
+      },
+      "backgroundJobs": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "repoRoot": {
+        "type": "string"
+      },
+      "modelProfilesPath": {
+        "type": "string"
+      },
+      "openClawConfigPath": {
+        "type": "string"
+      },
+      "commandCatalogPath": {
+        "type": "string"
+      }
+    }
+  }
+}

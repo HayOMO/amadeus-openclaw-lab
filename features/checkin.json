@@ -1,0 +1,43 @@
+{
+  "id": "checkin",
+  "title": "Daily Check-in",
+  "version": "0.1.0",
+  "enabled": true,
+  "handler": "builtin.checkin",
+  "category": "fun",
+  "tags": ["daily", "group", "stateful", "hybrid"],
+  "triggers": ["签到", "打卡", "checkin", "check in", "来了", "到"],
+  "description": "Deterministic daily check-in state. The tool updates local state; the model wraps the result in its own voice.",
+  "notes": [
+    "Use when the user asks to sign in, check in, 打卡, or says they arrived in a check-in context.",
+    "Do not expose local storage paths.",
+    "The model may comment on the result, but must not invent points/streak/rank."
+  ],
+  "actions": [
+    {
+      "id": "checkin",
+      "description": "Record today's check-in for one Telegram user.",
+      "risk": "local-write",
+      "permission": "member",
+      "cooldown": {
+        "scope": "user",
+        "seconds": 0
+      },
+      "modelWrap": true
+    },
+    {
+      "id": "status",
+      "description": "Read one user's check-in status.",
+      "risk": "read",
+      "permission": "member",
+      "modelWrap": true
+    },
+    {
+      "id": "leaderboard",
+      "description": "Show group check-in leaderboard.",
+      "risk": "read",
+      "permission": "member",
+      "modelWrap": true
+    }
+  ]
+}

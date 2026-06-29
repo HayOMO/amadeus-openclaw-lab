@@ -1,0 +1,14 @@
+{
+  "name": "imagebot-memory-search",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
+  },
+  "dependencies": {
+    "@xenova/transformers": "2.0.1"
+  }
+}

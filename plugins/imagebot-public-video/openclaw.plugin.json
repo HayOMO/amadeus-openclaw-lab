@@ -1,0 +1,29 @@
+{
+  "id": "imagebot-public-video",
+  "name": "Imagebot Public Video",
+  "description": "Bounded public-video metadata, subtitles, and download helpers with account-site placeholders.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "public_video"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "mediaDir": { "type": "string" },
+      "storeDir": { "type": "string" },
+      "maxBytes": { "type": "number" },
+      "maxDurationSeconds": { "type": "number" },
+      "backgroundJobs": { "type": "object" }
+    }
+  }
+}

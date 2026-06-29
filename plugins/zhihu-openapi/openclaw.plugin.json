@@ -1,0 +1,25 @@
+{
+  "id": "zhihu-openapi",
+  "name": "Zhihu OpenAPI",
+  "description": "Searches Zhihu Open Platform public search and hot-list APIs with local secret-file based authentication.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "zhihu_search",
+      "zhihu_global_search",
+      "zhihu_hot_list"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Amaduse mark">
+  <rect width="128" height="128" rx="18" fill="#111313"/>
+  <path d="M22 82c18-34 28-50 42-50s24 16 42 50" fill="none" stroke="#45c5bd" stroke-width="8" stroke-linecap="round"/>
+  <path d="M30 88c12-20 22-30 34-30s22 10 34 30" fill="none" stroke="#45d483" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="64" cy="58" r="10" fill="#f2b84b"/>
+  <path d="M30 104h68" stroke="#303936" stroke-width="8" stroke-linecap="round"/>
+  <path d="M48 104h32" stroke="#ff6268" stroke-width="5" stroke-linecap="round"/>
+</svg>

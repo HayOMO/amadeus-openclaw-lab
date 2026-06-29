@@ -1,0 +1,51 @@
+{
+  "id": "imagebot-sticker-pack",
+  "name": "Imagebot Sticker Pack",
+  "description": "Prepare selected local media as Telegram sticker files and manage bot-created sticker sets through the Telegram Bot API.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool",
+      "hook"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "sticker_pack"
+    ],
+    "hooks": [
+      "before_tool_call",
+      "after_tool_call"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "mediaDir": { "type": "string" },
+      "draftDir": { "type": "string" },
+      "tokenFile": { "type": "string" },
+      "botUsername": { "type": "string" },
+      "mediaRoot": { "type": "string" },
+      "openclawMediaRoot": { "type": "string" },
+      "trustedDirectMutations": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "replaceDefaults": { "type": "boolean" },
+          "actions": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "allowedMediaRoots": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    }
+  }
+}

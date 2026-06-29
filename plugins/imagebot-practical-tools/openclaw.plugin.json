@@ -1,0 +1,57 @@
+{
+  "id": "imagebot-practical-tools",
+  "name": "Imagebot Practical Tools",
+  "description": "Bounded webpage snapshots, media transforms, and artifact lookup for the Telegram imagebot.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "web_snapshot",
+      "web_card",
+      "media_transform",
+      "artifact_recent",
+      "artifact_search",
+      "artifact_get",
+      "qr_tool",
+      "pdf_render",
+      "av_media",
+      "text_toolkit",
+      "web_watch_add",
+      "web_watch_list",
+      "web_watch_check",
+      "web_watch_delete"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "storeDir": {
+        "type": "string"
+      },
+      "mediaDir": {
+        "type": "string"
+      },
+      "allowedMediaRoots": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "backgroundJobs": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "browserPool": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

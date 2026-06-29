@@ -1,0 +1,189 @@
+{
+  "schema": 1,
+  "purpose": "Machine-checkable ownership and retirement contract for OpenClaw runtime patches. A patch may stay only when the public plugin/config surface cannot express the behavior without using a more fragile internal path.",
+  "hostVersion": "2026.6.10",
+  "latestChecked": {
+    "date": "2026-06-28",
+    "installed": "2026.6.10",
+    "npmStable": "2026.6.10",
+    "sourceUrls": [
+      "https://docs.openclaw.ai/plugins/hooks",
+      "https://docs.openclaw.ai/tools/plugin",
+      "https://docs.openclaw.ai/plugins/manifest",
+      "https://docs.openclaw.ai/reference/transcript-hygiene",
+      "https://github.com/openclaw/openclaw/releases",
+      "https://www.npmjs.com/package/openclaw/v/2026.6.10"
+    ],
+    "notes": "OpenClaw plugin hooks are the preferred extension surface for message flow, prompt context, tools, sessions, and lifecycle. Newer release notes mention a durable session-transcript SDK; upgrade should be evaluated separately before removing transcript patches."
+  },
+  "requiredFields": [
+    "ownerClass",
+    "publicSurfaceChecked",
+    "whyRuntimePatch",
+    "retireWhen",
+    "maintenanceRisk"
+  ],
+  "ownerClasses": {
+    "telegram-channel-bridge": "Telegram channel behavior below or inside OpenClaw's built-in channel adapter.",
+    "host-delivery-bridge": "Outbound delivery, dispatch, durable send, or generated-media behavior owned by OpenClaw runtime.",
+    "host-agent-bridge": "Embedded agent execution, model routing, prompt image routing, or tool schema behavior not exposed as stable plugin config.",
+    "host-provider-bridge": "Provider/auth/transport behavior inside OpenClaw provider runtime.",
+    "host-transcript-bridge": "Session transcript append, publication, or write-lock behavior that must be atomic with host delivery state."
+  },
+  "patches": {
+    "telegram-action-spoiler": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["message tool schema", "reply_payload_sending"],
+      "whyRuntimePatch": "The built-in message action runtime still does not map spoiler/sensitiveMedia fields into outbound payload metadata through a public extension contract in 2026.6.10.",
+      "retireWhen": "OpenClaw message tool natively accepts and preserves Telegram spoiler metadata through delivery."
+    },
+    "telegram-imagebot-core": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "high",
+      "publicSurfaceChecked": ["message_received", "inbound_claim", "before_prompt_build", "Telegram command config"],
+      "whyRuntimePatch": "This patch spans Telegram pre-gate routing, window/session identity, callbacks, Mars forward pre-drop evidence, media safety admission, and command behavior. Several pieces run before ordinary plugin hooks can see the event or inside Telegram callback/session internals.",
+      "retireWhen": "Split by concern when OpenClaw exposes stable Telegram inbound prefilter, callback ownership, per-window routing, forwarded-message metadata, and media-context admission contracts. High priority to shrink on each host upgrade."
+    },
+    "telegram-menu-policy": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["Telegram command config", "plugin command manifests"],
+      "whyRuntimePatch": "OpenClaw startup would overwrite the curated Telegram command menu for this bot.",
+      "retireWhen": "OpenClaw supports opt-out or plugin-owned Telegram command menu sync without editing bundled runtime."
+    },
+    "custom-command-detection": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["command config", "message_received"],
+      "whyRuntimePatch": "Custom /am aliases must be recognized as control commands before generic group-message routing decisions.",
+      "retireWhen": "OpenClaw command detection can read configured per-account aliases before group gating."
+    },
+    "telegram-media-delivery": {
+      "ownerClass": "host-delivery-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["reply_payload_sending", "message_sending", "message_sent"],
+      "whyRuntimePatch": "Telegram album/media retry/video-sticker/spoiler handling lives inside delivery adapter code after payload hooks.",
+      "retireWhen": "OpenClaw Telegram delivery natively handles albums, retries, animation/video stickers, generated media fallback, and has_spoiler."
+    },
+    "dispatch-generated-media": {
+      "ownerClass": "host-delivery-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["reply_dispatch", "reply_payload_sending"],
+      "whyRuntimePatch": "Tool-produced media finalization is decided by host dispatch before channel delivery.",
+      "retireWhen": "OpenClaw dispatch treats trusted tool media as visible final replies without runtime patching."
+    },
+    "embedded-agent-fast-path": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "high",
+      "publicSurfaceChecked": ["before_model_resolve", "before_prompt_build", "agent harness plugin"],
+      "whyRuntimePatch": "Embedded run startup cost, provider selection, and terminal reply retry are internal agent-run mechanics that still are not exposed as stable plugin contracts in 2026.6.10.",
+      "retireWhen": "OpenClaw exposes stable imagebot agent harness/config switches for fast-path runtime prep, provider selection, media merge, and terminal reasoning retry."
+    },
+    "trusted-tool-media": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["tool_result_persist", "reply_payload_sending"],
+      "whyRuntimePatch": "Structured trusted media from generated_gallery_resend must survive the embedded tool-result-to-final-payload path.",
+      "retireWhen": "OpenClaw preserves structured tool media and sensitiveMedia flags from trusted tools through final delivery."
+    },
+    "media-understanding-model-route": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["before_model_resolve", "before_prompt_build"],
+      "whyRuntimePatch": "Native vision vs fallback image-understanding routing is decided inside host media-understanding logic before plugin prompt additions are enough.",
+      "retireWhen": "OpenClaw media understanding checks the active session model override before deciding native image routing."
+    },
+    "message-tool-schema-spoiler": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["tool schema config", "reply_payload_sending"],
+      "whyRuntimePatch": "Built-in message/image_generate schema, timeout/model override behavior, and media:// reference loading are host-owned tool definitions rather than plugin-owned tool wrappers in 2026.6.10.",
+      "retireWhen": "OpenClaw exposes spoiler fields, enforces configured imageGenerationModel timeout/model, and resolves media:// inbound references to local media paths before loading tool references."
+    },
+    "telegram-outbound-adapter-spoiler": {
+      "ownerClass": "host-delivery-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["reply_payload_sending"],
+      "whyRuntimePatch": "Durable outbound adapter serialized reply payloads before the final Telegram send path and dropped sensitiveMedia/spoiler metadata outside plugin control.",
+      "retireWhen": "OpenClaw durable outbound payloads preserve sensitiveMedia/spoiler flags."
+    },
+    "reply-payload-spoiler-media": {
+      "ownerClass": "host-delivery-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["reply_payload_sending"],
+      "whyRuntimePatch": "Reply directive parser needed an explicit SPOILER_MEDIA path without prose inference.",
+      "retireWhen": "OpenClaw reply directives natively distinguish spoiler media from ordinary media."
+    },
+    "reply-directive-spoiler-propagation": {
+      "ownerClass": "host-delivery-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["reply_payload_sending"],
+      "whyRuntimePatch": "Parsed sensitiveMedia metadata was dropped during host reply directive normalization after payload hooks, so downstream Telegram delivery could not see it.",
+      "retireWhen": "OpenClaw normalizes reply directives without losing sensitiveMedia."
+    },
+    "gateway-send-schema-spoiler": {
+      "ownerClass": "host-delivery-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["gateway send schema"],
+      "whyRuntimePatch": "Gateway send schema validation rejected sensitiveMedia before plugins or Telegram delivery could preserve the field.",
+      "retireWhen": "OpenClaw gateway send schema accepts sensitiveMedia/spoiler."
+    },
+    "selection-tool-media-spoiler": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["tool_result_persist", "before_agent_run"],
+      "whyRuntimePatch": "Pending tool media and terminal reasoning retry are selected inside embedded agent host logic.",
+      "retireWhen": "OpenClaw selection keeps explicit sensitiveMedia and retries terminal reasoning-only turns natively."
+    },
+    "telegram-send-spoiler": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["message_sending", "reply_payload_sending"],
+      "whyRuntimePatch": "The final Telegram API call must set has_spoiler on photo/video/animation payloads.",
+      "retireWhen": "OpenClaw Telegram sender maps spoiler metadata to has_spoiler."
+    },
+    "sent-message-cache-media": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["message_sent"],
+      "whyRuntimePatch": "Reply-to-bot routing needs Telegram sent-message cache entries for media placeholders before future inbound replies are routed.",
+      "retireWhen": "OpenClaw Telegram reply cache stores media placeholders and resolves prior media for reply routing."
+    },
+    "embedded-agent-payload-sensitive-media": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["tool_result_persist", "reply_payload_sending"],
+      "whyRuntimePatch": "The embedded payload builder moved into a separate host bundle in 2026.6.10, and tool-media sensitiveMedia metadata still must be preserved there before final Telegram delivery.",
+      "retireWhen": "OpenClaw embedded payload construction preserves structured tool media and sensitiveMedia flags from trusted tools through final channel delivery without runtime patching."
+    },
+    "openai-chatgpt-oauth-trusted-env-proxy": {
+      "ownerClass": "host-provider-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["provider config", "launcher proxy env"],
+      "whyRuntimePatch": "OAuth token exchange in 2026.6.10 does not opt into the trusted env-proxy guarded fetch path, causing fake-ip/proxy failures under the local proxy setup.",
+      "retireWhen": "OpenClaw OAuth token exchange uses trusted env-proxy fetch mode or documented proxy config."
+    },
+    "transcript-detached-owned-write-context": {
+      "ownerClass": "host-transcript-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["message_sent", "session transcript SDK"],
+      "whyRuntimePatch": "A successful outbound send can happen while the embedded prompt's owned transcript context is stale; ordinary hooks cannot repair the host-owned mirror append atomically in 2026.6.10.",
+      "retireWhen": "OpenClaw delivery mirror append is internally queued/retried or the durable session-transcript SDK exposes a stable append-by-session contract usable from message_sent."
+    },
+    "transcript-runtime-detached-export": {
+      "ownerClass": "host-transcript-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["message_sent", "session transcript SDK"],
+      "whyRuntimePatch": "The lazy transcript runtime import must expose the detached owned-write-context helper for delivery mirror retry.",
+      "retireWhen": "Remove together with outbound-mirror-transcript-retry after host mirror append is fixed or migrated to official transcript SDK."
+    },
+    "outbound-mirror-transcript-retry": {
+      "ownerClass": "host-transcript-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["message_sent", "session transcript SDK"],
+      "whyRuntimePatch": "The host delivery path must serialize, retry, and idempotently append the exact assistant mirror after the channel send succeeds; plugin hooks only observe delivery and cannot safely replace this write on 2026.6.10.",
+      "retireWhen": "OpenClaw core delivery mirror performs per-session queued retry, or an official append-by-session SDK can be used without deriving legacy transcript paths."
+    }
+  }
+}

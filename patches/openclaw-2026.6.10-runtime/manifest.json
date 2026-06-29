@@ -1,0 +1,298 @@
+{
+  "schema": 1,
+  "openclawVersion": "2026.6.10",
+  "runtimeRootEnv": "OPENCLAW_RUNTIME_ROOT",
+  "defaultRuntimeRoot": "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\\node-v24.15.0-win-x64\\node_modules\\openclaw",
+  "verify": "powershell -ExecutionPolicy Bypass -File .\\scripts\\VERIFY_RUNTIME_PATCHES.ps1",
+  "patches": [
+    {
+      "id": "telegram-action-spoiler",
+      "file": "01-action-runtime-Cej4IzYR.js.patch",
+      "target": "dist/action-runtime-Cej4IzYR.js",
+      "protects": [
+        "message tool spoiler/sensitiveMedia flag maps to outbound payload metadata"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-imagebot-core",
+      "file": "02-bot-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "imagebot group trigger filtering before reply-chain cache",
+        "/amnew opens a new active window and closes the sender's previous active window for later memory consolidation",
+        "recent active /amnew windows can continue plain sender messages without waking on every old window forever",
+        "per-window Telegram session routing",
+        "reply-to-bot continuation by bot message id rather than current sender",
+        "replied Telegram sticker metadata is preserved as ReplySticker context",
+        "imagebot Mars-forward detector records lightweight forwarded-message fingerprints before the unaddressed group drop gate without foreground media download",
+        "imagebot Mars-forward detector keeps its persistent source index without age-based retention",
+        "imagebot Mars-forward detector links exact source, filtered canonical URL, and Telegram file_unique_id keys to the first same-group post",
+        "imagebot Mars-forward detector filters repeated channel footer/profile/follow URLs out of canonical URL fingerprints",
+        "imagebot Mars-forward detector caches bounded local media evidence through a background index queue without making cached bodies the durable source of truth",
+        "imagebot Mars-forward detector uses local visual hashes for exact and conservative similar-image review candidates",
+        "Mars duplicate review exposes the first same-group Telegram message for user-facing lookup",
+        "duplicate forwarded channel messages can bypass mention gating with first-seen evidence for model review",
+        "local loli guard can withhold loli-matched images from Telegram vision context while preserving a safety-review note",
+        "local image safety preflight fails closed by withholding Telegram image attachments from visual context",
+        "custom /am commands passing the local group gate",
+        "single editable tool/status message and media failure fallback",
+        "Telegram persona selection uses paged inline buttons without listing every profile in message text",
+        "Telegram persona button switches open a fresh persona window instead of mutating an already-prompted session",
+        "Telegram model selection collapses its inline keyboard after a successful one-shot switch",
+        "model switch notices reply to the latest ordinary bot message in the active window when available",
+        "window/persona control events do not enter model-visible window recent context",
+        "imagebot group lanes are sequential per active window instead of globally serializing all conversations"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_LOLI_NSFW_VISION_GUARD.mjs",
+        "node scripts/TEST_TELEGRAM_MARS_FORWARD_DETECTOR.mjs",
+        "node scripts/TEST_IMAGEBOT_WINDOW_ROUTING.mjs"
+      ]
+    },
+    {
+      "id": "telegram-menu-policy",
+      "file": "03-bot-deps-Ced6dKOq.js.patch",
+      "target": "dist/bot-deps-Ced6dKOq.js",
+      "protects": [
+        "imagebot command menu sync stays script-controlled",
+        "OpenClaw startup does not overwrite curated Telegram command scopes"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "custom-command-detection",
+      "file": "04-command-detection-Disuyxxo.js.patch",
+      "target": "dist/command-detection-Disuyxxo.js",
+      "protects": [
+        "configured imagebot custom commands count as control commands",
+        "custom slash aliases can be evaluated per Telegram account"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-media-delivery",
+      "file": "05-delivery-D90LPJnY.js.patch",
+      "target": "dist/delivery-D90LPJnY.js",
+      "protects": [
+        "Telegram albums for multi-image results",
+        "media send retries at 5s, 10s, and 15s",
+        "animation/video attachment handling",
+        "generated media fallback delivery",
+        "Telegram native spoiler via has_spoiler for visual media",
+        "Telegram video stickers keep webm filename, video mime type, and format metadata"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "dispatch-generated-media",
+      "file": "06-dispatch-B2e1grFo.js.patch",
+      "target": "dist/dispatch-B2e1grFo.js",
+      "protects": [
+        "tool-produced media can be returned through Telegram final delivery",
+        "generated gallery resend results are treated as visible media replies"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "embedded-agent-fast-path",
+      "file": "07-embedded-agent-BgF2MOkH.js.patch",
+      "target": "dist/embedded-agent-BgF2MOkH.js",
+      "protects": [
+        "faster imagebot embedded runs by skipping irrelevant Codex runtime preparation",
+        "stable OpenAI runtime provider selection for the imagebot account"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "trusted-tool-media",
+      "file": "08-embedded-agent-message-tool-source-reply-BNDmht0w.js.patch",
+      "target": "dist/embedded-agent-message-tool-source-reply-BNDmht0w.js",
+      "protects": [
+        "generated_gallery_resend can return trusted media attachments",
+        "structured tool media can explicitly request Telegram spoiler delivery"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "media-understanding-model-route",
+      "file": "09-get-reply-_h6-ZfbL.js.patch",
+      "target": "dist/get-reply-_h6-ZfbL.js",
+      "protects": [
+        "media understanding uses the current session model override before deciding whether to skip the image tool",
+        "GPT vision-capable sessions receive images natively while DeepSeek text-only sessions fall back to OpenAI image understanding"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "message-tool-schema-spoiler",
+      "file": "10-openclaw-tools-B0V1p3La.js.patch",
+      "target": "dist/openclaw-tools-B0V1p3La.js",
+      "protects": [
+        "message tool schema exposes spoiler/hasSpoiler/sensitiveMedia",
+        "imagebot image_generate ignores model-supplied per-call timeoutMs and uses configured imageGenerationModel timeout",
+        "imagebot image_generate ignores model-supplied model overrides so the model cannot silently downgrade image generation",
+        "image, image_generate, music_generate, and video_generate resolve media://inbound references to local media files before loading references"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_OPENCLAW_TOOLS_MEDIA_REFERENCE_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-outbound-adapter-spoiler",
+      "file": "11-outbound-adapter-DcLaKE_u.js.patch",
+      "target": "dist/outbound-adapter-DcLaKE_u.js",
+      "protects": [
+        "durable Telegram outbound payloads propagate sensitiveMedia/spoiler flags to sendMessageTelegram"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "reply-payload-spoiler-media",
+      "file": "12-payloads-C-1aoWCs.js.patch",
+      "target": "dist/payloads-C-1aoWCs.js",
+      "protects": [
+        "SPOILER_MEDIA/MEDIA_SPOILER directives become sensitive media payloads",
+        "ordinary MEDIA directives never infer spoiler state from reply prose"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "reply-directive-spoiler-propagation",
+      "file": "13-reply-usage-state-q7j5CVEd.js.patch",
+      "target": "dist/reply-usage-state-q7j5CVEd.js",
+      "protects": [
+        "parsed sensitiveMedia survives reply directive normalization"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "gateway-send-schema-spoiler",
+      "file": "14-schema-BrDi0lZs.js.patch",
+      "target": "dist/schema-BrDi0lZs.js",
+      "protects": [
+        "gateway send schema accepts sensitiveMedia"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "selection-tool-media-spoiler",
+      "file": "15-selection-BfRwHcjH.js.patch",
+      "target": "dist/selection-BfRwHcjH.js",
+      "protects": [
+        "pending tool media retains explicit sensitiveMedia/spoiler flags until final Telegram delivery",
+        "final assistant block replies enable the narrow sensitive-media text fallback",
+        "embedded agent retries terminal reasoning-only turns even when earlier tool-use progress text exists"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_EMBEDDED_AGENT_TERMINAL_REASONING_RETRY.mjs"
+      ]
+    },
+    {
+      "id": "telegram-send-spoiler",
+      "file": "16-send-B-QsV5Qz.js.patch",
+      "target": "dist/send-B-QsV5Qz.js",
+      "protects": [
+        "sendMessageTelegram applies Telegram has_spoiler for photo, video, and animation media when sensitiveMedia/spoiler is set"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "sent-message-cache-media",
+      "file": "17-sent-message-cache-BooN40ue.js.patch",
+      "target": "dist/sent-message-cache-BooN40ue.js",
+      "protects": [
+        "Telegram reply cache records animation/media placeholders",
+        "reply-to-bot routing can resolve the primary media for prior bot messages"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "embedded-agent-payload-sensitive-media",
+      "file": "18-embedded-agent-payloads-DMxgzxEO.js.patch",
+      "target": "dist/payloads-DMxgzxEO.js",
+      "protects": [
+        "tool-media sensitiveMedia flags survive embedded final payload construction",
+        "final assistant replies enable the narrow sensitive-media text fallback in embedded payloads"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "openai-chatgpt-oauth-trusted-env-proxy",
+      "file": "19-openai-chatgpt-oauth-flow.runtime-CQr6awKU.js.patch",
+      "target": "dist/openai-chatgpt-oauth-flow.runtime-CQr6awKU.js",
+      "protects": [
+        "ChatGPT OAuth token exchange and refresh can use the trusted environment HTTP proxy path without fake-ip DNS pinning"
+      ],
+      "checks": [
+        "node scripts/TEST_OPENAI_CHATGPT_OAUTH_PROXY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "transcript-detached-owned-write-context",
+      "file": "21-transcript-detached-write-context-B0xLNm13.js.patch",
+      "target": "dist/transcript-write-context-B0xLNm13.js",
+      "protects": [
+        "outbound delivery mirrors can retry transcript appends outside a stale embedded prompt write context"
+      ],
+      "checks": [
+        "node scripts/TEST_OUTBOUND_MIRROR_TRANSCRIPT_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "transcript-runtime-detached-export",
+      "file": "22-transcript-runtime-detached-export-D1O4D3P9.js.patch",
+      "target": "dist/transcript.runtime-D1O4D3P9.js",
+      "protects": [
+        "lazy transcript.runtime imports expose the detached owned-write-context helper to outbound delivery"
+      ],
+      "checks": [
+        "node scripts/TEST_OUTBOUND_MIRROR_TRANSCRIPT_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "outbound-mirror-transcript-retry",
+      "file": "23-deliver-outbound-mirror-retry-BPqL55uX.js.patch",
+      "target": "dist/deliver-BPqL55uX.js",
+      "protects": [
+        "Telegram outbound delivery mirrors serialize per session, retry transient transcript races, and recover from embedded prompt lock takeover without duplicate transcript writes"
+      ],
+      "checks": [
+        "node scripts/TEST_OUTBOUND_MIRROR_TRANSCRIPT_PATCH.mjs"
+      ]
+    }
+  ]
+}

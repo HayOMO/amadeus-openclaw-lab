@@ -1,0 +1,16 @@
+{
+  "name": "amnew opens fresh sender window",
+  "input": {
+    "text": "/amnew",
+    "userId": "333",
+    "displayName": "Carol",
+    "chatId": "-1001",
+    "isGroup": true,
+    "botUsernames": ["YOUR_BOT_USERNAME"]
+  },
+  "expect": {
+    "shouldRespond": true,
+    "reason": "new_window",
+    "windowMode": "new_window"
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "schema": 1,
+  "design": {
+    "unit": "persona_agent",
+    "modelRole": "runtime_backend",
+    "delegation": "sessions_spawn",
+    "memoryPolicy": "shared_across_personas",
+    "notes": [
+      "A full persona may use a separate OpenClaw agent for runtime isolation.",
+      "Persona profile selection never creates isolated memory.",
+      "Models are swappable backends, not identities.",
+      "Shared libraries teach skills and tool contracts; user/group/window memory is shared by persona; private layers hold only runtime authority and workspace state."
+    ]
+  },
+  "shared": {
+    "memoryScope": "shared:imagebot",
+    "skillRoots": [
+      "tool_manuals",
+      "prompt_library",
+      "features"
+    ],
+    "knowledgeSources": [
+      "tool_manuals",
+      "prompt_library",
+      "persona/shared",
+      "features"
+    ],
+    "plugins": [
+      "imagebot-tool-manual-search",
+      "imagebot-knowledge-library",
+      "imagebot-memory-search",
+      "imagebot-persona-search",
+      "imagebot-background-jobs"
+    ],
+    "tools": {
+      "safeShared": [
+        "tool_manual_search",
+        "knowledge_search",
+        "knowledge_recent",
+        "memory_search",
+        "persona_search",
+        "background_job",
+        "explicit_web_text_search",
+        "zhihu_search",
+        "zhihu_global_search",
+        "web_snapshot",
+        "web_card",
+        "image",
+        "image_generate",
+        "download_image_url",
+        "download_image_urls",
+        "generated_gallery_search",
+        "generated_gallery_resend",
+        "media_artifact_recent",
+        "media_artifact_lineage",
+        "prompt_library",
+        "image_skill_lookup",
+        "image_skill_save_reference",
+        "image_feedback"
+      ],
+      "opsPrivate": [
+        "script_action",
+        "model_config",
+        "command_catalog",
+        "interaction_pipeline",
+        "turn_observer_recent"
+      ],
+      "telegramSenderOnly": [
+        "message",
+        "telegram_media_spoiler"
+      ],
+      "delegateTools": [
+        "agents_list",
+        "sessions_spawn",
+        "sessions_yield",
+        "subagents",
+        "sessions_history"
+      ]
+    }
+  },
+  "modelProfiles": {
+    "default": "balanced",
+    "available": [
+      "fast",
+      "balanced",
+      "deep",
+      "research",
+      "ds-fast",
+      "ds-pro"
+    ]
+  },
+  "personas": [
+    {
+      "id": "imagebot",
+      "name": "Amaduse",
+      "role": "main_group_speaker",
+      "personaPath": "persona/active_system.md",
+      "workspace": "~/.openclaw/workspace-imagebot",
+      "agentDir": "~/.openclaw/agents/imagebot/agent",
+      "memoryScope": "shared:imagebot",
+      "memoryPolicy": "shared_social_memory",
+      "defaultModelProfile": "balanced",
+      "canReplyToTelegram": true,
+      "canUseOpsTools": true,
+      "canDelegateTo": [
+        "persona_alt_seed"
+      ],
+      "sharedSkillRoots": true,
+      "notes": "Current production Telegram bot. Main prompt is neutral; persona profile selection appends only the selected card."
+    },
+    {
+      "id": "persona_alt_seed",
+      "name": "Amaduse Alt Seed",
+      "role": "second_persona_seed",
+      "personaPath": "persona/profiles/alt_seed/active_system.md",
+      "workspace": "~/.openclaw/workspace-persona-alt-seed",
+      "agentDir": "~/.openclaw/agents/persona_alt_seed/agent",
+      "memoryScope": "shared:imagebot",
+      "memoryPolicy": "shared_social_memory",
+      "defaultModelProfile": "balanced",
+      "canReplyToTelegram": false,
+      "canUseOpsTools": false,
+      "canDelegateTo": [
+        "imagebot"
+      ],
+      "sharedSkillRoots": true,
+      "inheritsFrom": "imagebot",
+      "copyPolicy": "copy neutral/tool defaults only; never copy session history; long-term memory is shared:imagebot",
+      "notes": "Placeholder full-agent seed. personaPath is legacy/reference material and must not imply a separate memory store."
+    }
+  ]
+}

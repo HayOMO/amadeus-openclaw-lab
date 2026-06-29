@@ -1,0 +1,35 @@
+diff --git a/dist/payloads-DMxgzxEO.js b/dist/payloads-DMxgzxEO.js
+index 1e1de6d..df18277 100644
+--- a/dist/payloads-DMxgzxEO.js
++++ b/dist/payloads-DMxgzxEO.js
+@@ -236,7 +236,7 @@ function buildEmbeddedRunPayloads(params) {
+ 	});
+ 	const normalizedAssistantTexts = normalizeTextForComparison(nonEmptyAssistantTexts.join("\n\n"));
+ 	const normalizedRawAnswerText = normalizeTextForComparison(rawAnswerDirectiveState?.text ?? "");
+-	const shouldPreferRawAnswerText = rawAnswerHasMedia && (!nonEmptyAssistantTexts.length || !assistantTextsHaveMedia && normalizedAssistantTexts.length > 0 && normalizedAssistantTexts === normalizedRawAnswerText);
++	const shouldPreferRawAnswerText = rawAnswerHasMedia && !assistantTextsHaveMedia;
+ 	const fallbackAnswerSourceText = shouldPreferRawAnswerText && fallbackRawAnswerText ? fallbackRawAnswerText : fallbackAnswerText;
+ 	const normalizedFallbackAnswerSourceText = fallbackAnswerSourceText ? normalizeReplyTextForComparison(fallbackAnswerSourceText) : "";
+ 	const shouldUseCanonicalFinalAnswer = !lastAssistantNeedsErrorSurface && fallbackAnswerSourceText.length > 0 && normalizedFallbackAnswerSourceText.length > 0;
+@@ -246,11 +246,12 @@ function buildEmbeddedRunPayloads(params) {
+ 	const hasUserFacingErrorReply = replyItems.some((item) => item.isError === true);
+ 	let hasUserFacingFailureAcknowledgement = false;
+ 	for (const text of answerTexts) {
+-		const { text: cleanedText, mediaUrls, audioAsVoice, replyToId, replyToTag, replyToCurrent } = parseReplyDirectives(text);
++		const { text: cleanedText, mediaUrls, audioAsVoice, replyToId, replyToTag, replyToCurrent, sensitiveMedia } = parseReplyDirectives(text);
+ 		if (!cleanedText && (!mediaUrls || mediaUrls.length === 0) && !audioAsVoice) continue;
+ 		replyItems.push({
+ 			text: cleanedText,
+ 			media: mediaUrls,
++			sensitiveMedia,
+ 			audioAsVoice,
+ 			replyToId,
+ 			replyToTag,
+@@ -292,6 +293,7 @@ function buildEmbeddedRunPayloads(params) {
+ 		const mediaUrl = item.mediaUrl ?? item.media?.[0];
+ 		if (mediaUrl) payload.mediaUrl = mediaUrl;
+ 		if (item.media?.length) payload.mediaUrls = item.media;
++		if (item.sensitiveMedia) payload.sensitiveMedia = true;
+ 		if (item.isError !== void 0) payload.isError = item.isError;
+ 		if (item.nonTerminalToolErrorWarning) setReplyPayloadMetadata(payload, { nonTerminalToolErrorWarning: true });
+ 		if (!item.isError && !item.isReasoning && params.assistantMessageIndex !== void 0) setReplyPayloadMetadata(payload, { assistantMessageIndex: params.assistantMessageIndex });

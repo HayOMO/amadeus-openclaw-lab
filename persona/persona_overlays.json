@@ -1,0 +1,310 @@
+{
+  "schema": 1,
+  "design": {
+    "unit": "persona_overlay",
+    "notes": [
+      "Selectable persona profile cards.",
+      "The default entry is the base Amaduse profile.",
+      "The none entry is the explicit no-profile option.",
+      "Profile packs may include a core card, language rules, lorebook, examples, and source notes.",
+      "Maintenance notes stay outside runtime persona injection."
+    ]
+  },
+  "personas": [
+    {
+      "id": "default",
+      "label": "Amaduse",
+      "aliases": [
+        "default",
+        "base",
+        "amaduse",
+        "amadeus",
+        "kurisu",
+        "christina",
+        "牧濑红莉栖",
+        "牧瀬紅莉栖",
+        "红莉栖",
+        "紅莉栖",
+        "默认"
+      ],
+      "description": "Use the base Amaduse profile.",
+      "cardPath": "persona/active_system.md"
+    },
+    {
+      "id": "none",
+      "label": "无人设",
+      "aliases": [
+        "none",
+        "neutral",
+        "no persona",
+        "无人设",
+        "无设定",
+        "空白"
+      ],
+      "description": "Use the neutral base prompt without a persona profile."
+    },
+    {
+      "id": "chihaya_anon",
+      "label": "千早爱音",
+      "aliases": [
+        "千早爱音",
+        "千早愛音",
+        "爱音",
+        "愛音",
+        "anon",
+        "chihaya anon",
+        "anon chihaya",
+        "ano-chan",
+        "あのん",
+        "あのちゃん"
+      ],
+      "description": "MyGO!!!!! 千早爱音 speaking profile.",
+      "cardPath": "persona/profiles/chihaya_anon/active_system.md",
+      "languageRulesPath": "persona/profiles/chihaya_anon/language_rules.md",
+      "lorebookPath": "persona/profiles/chihaya_anon/lorebook.json",
+      "examplePath": "persona/profiles/chihaya_anon/examples.md",
+      "sourceUrls": [
+        "https://anime.bang-dream.com/mygo/character/anon/",
+        "https://anime.bang-dream.com/avemujica/character/anon/",
+        "https://bandori.miraheze.org/wiki/Chihaya_Anon",
+        "https://bandori.party/member/42/Anon-Chihaya/",
+        "https://zh.moegirl.org.cn/千早爱音"
+      ]
+    },
+    {
+      "id": "takamatsu_tomori",
+      "label": "高松灯",
+      "aliases": [
+        "高松灯",
+        "高松燈",
+        "灯",
+        "燈",
+        "tomori",
+        "takamatsu tomori"
+      ],
+      "description": "MyGO!!!!! 高松灯 speaking profile.",
+      "cardPath": "persona/profiles/takamatsu_tomori/active_system.md",
+      "sourceUrls": [
+        "https://anime.bang-dream.com/mygo/character/tomori/",
+        "https://bandori.party/member/41/Tomori-Takamatsu/",
+        "https://bandori.miraheze.org/wiki/Takamatsu_Tomori"
+      ]
+    },
+    {
+      "id": "shiina_taki",
+      "label": "椎名立希",
+      "aliases": [
+        "椎名立希",
+        "立希",
+        "taki",
+        "shiina taki",
+        "rikki",
+        "りっきー"
+      ],
+      "description": "MyGO!!!!! 椎名立希 speaking profile.",
+      "cardPath": "persona/profiles/shiina_taki/active_system.md",
+      "sourceUrls": [
+        "https://anime.bang-dream.com/mygo/character/taki/",
+        "https://bandori.party/member/45/Taki-Shiina/",
+        "https://bandori.miraheze.org/wiki/Shiina_Taki"
+      ]
+    },
+    {
+      "id": "kaname_rana",
+      "label": "要乐奈",
+      "aliases": [
+        "要乐奈",
+        "要楽奈",
+        "乐奈",
+        "楽奈",
+        "rana",
+        "raana",
+        "kaname rana"
+      ],
+      "description": "MyGO!!!!! 要乐奈 speaking profile.",
+      "cardPath": "persona/profiles/kaname_rana/active_system.md",
+      "sourceUrls": [
+        "https://anime.bang-dream.com/mygo/character/rana/",
+        "https://bandori.party/member/43/Raana-Kaname/",
+        "https://bandori.miraheze.org/wiki/Kaname_Raana"
+      ]
+    },
+    {
+      "id": "nagasaki_soyo",
+      "label": "长崎爽世",
+      "aliases": [
+        "长崎爽世",
+        "長崎爽世",
+        "長崎そよ",
+        "爽世",
+        "そよ",
+        "soyo",
+        "nagasaki soyo"
+      ],
+      "description": "MyGO!!!!! 长崎爽世 speaking profile.",
+      "cardPath": "persona/profiles/nagasaki_soyo/active_system.md",
+      "sourceUrls": [
+        "https://anime.bang-dream.com/mygo/character/soyo/",
+        "https://bandori.party/member/44/Soyo-Nagasaki/",
+        "https://bandori.miraheze.org/wiki/Nagasaki_Soyo"
+      ]
+    },
+    {
+      "id": "togawa_sakiko",
+      "label": "丰川祥子",
+      "aliases": [
+        "丰川祥子",
+        "豊川祥子",
+        "祥子",
+        "sakiko",
+        "togawa sakiko",
+        "oblivionis",
+        "オブリビオニス"
+      ],
+      "description": "Ave Mujica 丰川祥子 / Oblivionis speaking profile.",
+      "cardPath": "persona/profiles/togawa_sakiko/active_system.md",
+      "sourceUrls": [
+        "https://anime.bang-dream.com/avemujica/character/sakiko/",
+        "https://bandori.party/member/50/Oblivionis/",
+        "https://bandori.miraheze.org/wiki/Togawa_Sakiko"
+      ]
+    },
+    {
+      "id": "megumin",
+      "label": "惠惠",
+      "aliases": [
+        "megumin",
+        "惠惠",
+        "めぐみん",
+        "爆裂魔法",
+        "konosuba",
+        "kono suba"
+      ],
+      "description": "KonoSuba 惠惠 speaking profile.",
+      "cardPath": "persona/profiles/megumin/active_system.md",
+      "languageRulesPath": "persona/profiles/megumin/language_rules.md",
+      "lorebookPath": "persona/profiles/megumin/lorebook.json",
+      "examplePath": "persona/profiles/megumin/examples.md",
+      "sourceUrls": [
+        "https://konosuba.fandom.com/wiki/Megumin",
+        "https://en.wikipedia.org/wiki/List_of_KonoSuba_characters"
+      ]
+    },
+    {
+      "id": "frieren",
+      "label": "芙莉莲",
+      "aliases": [
+        "frieren",
+        "芙莉莲",
+        "葬送的芙莉莲",
+        "フリーレン",
+        "sousou no frieren"
+      ],
+      "description": "葬送的芙莉莲 speaking profile.",
+      "cardPath": "persona/profiles/frieren/active_system.md",
+      "languageRulesPath": "persona/profiles/frieren/language_rules.md",
+      "lorebookPath": "persona/profiles/frieren/lorebook.json",
+      "examplePath": "persona/profiles/frieren/examples.md",
+      "sourceUrls": [
+        "https://frieren.fandom.com/wiki/Frieren",
+        "https://en.wikipedia.org/wiki/Frieren_(character)"
+      ]
+    },
+    {
+      "id": "classic_nekomimi",
+      "label": "经典猫娘",
+      "aliases": [
+        "classic nekomimi",
+        "nekomimi",
+        "catgirl",
+        "cat girl",
+        "猫娘",
+        "猫耳娘",
+        "猫耳",
+        "喵娘",
+        "neko",
+        "mimi"
+      ],
+      "description": "Original classic nekomimi / catgirl speaking profile.",
+      "cardPath": "persona/profiles/classic_nekomimi/active_system.md",
+      "languageRulesPath": "persona/profiles/classic_nekomimi/language_rules.md",
+      "lorebookPath": "persona/profiles/classic_nekomimi/lorebook.json",
+      "examplePath": "persona/profiles/classic_nekomimi/examples.md"
+    },
+    {
+      "id": "hatsune_miku",
+      "label": "初音未来",
+      "aliases": [
+        "miku",
+        "hatsune miku",
+        "初音未来",
+        "初音ミク",
+        "初音",
+        "cv01",
+        "virtual singer",
+        "vocaloid"
+      ],
+      "description": "Hatsune Miku virtual singer speaking profile.",
+      "cardPath": "persona/profiles/hatsune_miku/active_system.md",
+      "languageRulesPath": "persona/profiles/hatsune_miku/language_rules.md",
+      "lorebookPath": "persona/profiles/hatsune_miku/lorebook.json",
+      "examplePath": "persona/profiles/hatsune_miku/examples.md",
+      "sourceUrls": [
+        "https://ec.crypton.co.jp/pages/prod/virtualsinger/cv01_us",
+        "https://piapro.net/intl/en_character.html",
+        "https://character-tavern.com/character/xxluna_x/Hatsune%20Miku",
+        "https://chub.ai/characters/kevink/hatsune-miku-40f2a546"
+      ]
+    },
+    {
+      "id": "raiden_shogun_ei",
+      "label": "雷电将军/影",
+      "aliases": [
+        "raiden",
+        "raiden shogun",
+        "raiden ei",
+        "ei",
+        "雷电将军",
+        "影",
+        "雷電影",
+        "shogun",
+        "genshin"
+      ],
+      "description": "Genshin Impact 雷电将军 / 影 speaking profile.",
+      "cardPath": "persona/profiles/raiden_shogun_ei/active_system.md",
+      "languageRulesPath": "persona/profiles/raiden_shogun_ei/language_rules.md",
+      "lorebookPath": "persona/profiles/raiden_shogun_ei/lorebook.json",
+      "examplePath": "persona/profiles/raiden_shogun_ei/examples.md",
+      "sourceUrls": [
+        "https://genshin-impact.fandom.com/wiki/Raiden_Shogun/Profile",
+        "https://genshin.hoyoverse.com/en/news/detail/15289",
+        "https://character-tavern.com/character/dmanhodge/raiden_shogun_and_ei",
+        "https://backyard.ai/hub/character/cllknqcj60104mc0vm4aif1jj"
+      ]
+    },
+    {
+      "id": "aqua_konosuba",
+      "label": "阿库娅",
+      "aliases": [
+        "aqua",
+        "阿库娅",
+        "アクア",
+        "水之女神",
+        "水女神",
+        "konosuba",
+        "kono suba",
+        "axis order"
+      ],
+      "description": "KonoSuba 阿库娅 speaking profile.",
+      "cardPath": "persona/profiles/aqua_konosuba/active_system.md",
+      "languageRulesPath": "persona/profiles/aqua_konosuba/language_rules.md",
+      "lorebookPath": "persona/profiles/aqua_konosuba/lorebook.json",
+      "examplePath": "persona/profiles/aqua_konosuba/examples.md",
+      "sourceUrls": [
+        "https://konosuba.fandom.com/wiki/Aqua",
+        "https://en.wikipedia.org/wiki/List_of_KonoSuba_characters",
+        "https://www.crunchyroll.com/news/guides/2024/6/26/konosuba-characters"
+      ]
+    }
+  ]
+}

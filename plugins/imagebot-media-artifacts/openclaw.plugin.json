@@ -1,0 +1,68 @@
+{
+  "id": "imagebot-media-artifacts",
+  "name": "Imagebot Media Artifacts",
+  "description": "Tracks Telegram media handles and image generation lineage for the imagebot.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "media_artifact_recent",
+      "media_artifact_lineage"
+    ],
+    "hooks": [
+      "before_prompt_build",
+      "before_tool_call",
+      "after_tool_call",
+      "before_message_write"
+    ],
+    "agentToolResultMiddleware": [
+      "openclaw",
+      "codex"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "storeDir": {
+        "type": "string"
+      },
+      "mediaRoot": {
+        "type": "string"
+      },
+      "openclawMediaRoot": {
+        "type": "string"
+      },
+      "strictGeneratedRefs": {
+        "type": "boolean"
+      },
+      "appendPromptContext": {
+        "type": "boolean"
+      },
+      "dependencyDirs": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "toolResultImageContext": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "visionContextGate": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "loliVisionGuard": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "bot mention strips mention and responds",
+  "input": {
+    "text": "@YOUR_BOT_USERNAME 画个猫",
+    "userId": "111",
+    "displayName": "Alice",
+    "chatId": "-1001",
+    "isGroup": true,
+    "botUsernames": ["YOUR_BOT_USERNAME"]
+  },
+  "expect": {
+    "shouldRespond": true,
+    "reason": "bot_mention",
+    "windowMode": "sender_window",
+    "normalizedText": "画个猫"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "imagebot-turn-observer",
+  "name": "Imagebot Turn Observer",
+  "description": "Sanitized per-turn and per-tool observability records for debugging Telegram imagebot behavior.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool",
+      "hook"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "turn_observer_recent"
+    ],
+    "hooks": [
+      "before_prompt_build",
+      "before_tool_call",
+      "after_tool_call",
+      "before_message_write"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "storeDir": { "type": "string" },
+      "maxRecords": { "type": "number" }
+    }
+  }
+}

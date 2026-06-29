@@ -1,0 +1,34 @@
+{
+  "id": "imagebot-browser-guard",
+  "name": "Imagebot Browser Guard",
+  "description": "Restricts browser tool calls to the isolated managed profile and Telegram media paths.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "hook"
+    ]
+  },
+  "hooks": [
+    "before_tool_call"
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "allowedProfiles": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "allowedPathPrefixes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

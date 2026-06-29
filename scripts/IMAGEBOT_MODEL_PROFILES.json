@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "openai/gpt-5.5",
+      "label": "GPT-5.5",
+      "provider": "openai",
+      "enabled": true,
+      "reasoningEfforts": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "notes": "Current ChatGPT/OpenAI subscription route."
+    },
+    {
+      "id": "deepseek/deepseek-v4-flash",
+      "label": "DeepSeek V4 Flash",
+      "provider": "deepseek",
+      "enabled": true,
+      "reasoningEfforts": [
+        "off",
+        "high",
+        "max"
+      ],
+      "notes": "Fast DeepSeek API route. DeepSeek API accepts thinking on/off and high/max effort; low/medium are compatibility aliases to high."
+    },
+    {
+      "id": "deepseek/deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro",
+      "provider": "deepseek",
+      "enabled": true,
+      "reasoningEfforts": [
+        "off",
+        "high",
+        "max"
+      ],
+      "notes": "Stronger DeepSeek API route. DeepSeek API accepts thinking on/off and high/max effort; low/medium are compatibility aliases to high."
+    }
+  ],
+  "reasoningEfforts": [
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ],
+  "textVerbosity": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "profiles": [
+    {
+      "id": "fast",
+      "label": "Fast",
+      "model": "openai/gpt-5.5",
+      "reasoningEffort": "low",
+      "textVerbosity": "low",
+      "description": "Quick chat and light utility work."
+    },
+    {
+      "id": "balanced",
+      "label": "Balanced",
+      "model": "openai/gpt-5.5",
+      "reasoningEffort": "medium",
+      "textVerbosity": "low",
+      "description": "Default group-chat setting."
+    },
+    {
+      "id": "deep",
+      "label": "GPT High",
+      "model": "openai/gpt-5.5",
+      "reasoningEffort": "high",
+      "textVerbosity": "low",
+      "description": "Slower, better for debugging and analysis."
+    },
+    {
+      "id": "research",
+      "label": "GPT XHigh",
+      "model": "openai/gpt-5.5",
+      "reasoningEffort": "xhigh",
+      "textVerbosity": "medium",
+      "description": "Heavier reasoning for rare difficult turns."
+    },
+    {
+      "id": "ds-fast",
+      "label": "DS Flash High",
+      "model": "deepseek/deepseek-v4-flash",
+      "reasoningEffort": "high",
+      "textVerbosity": "low",
+      "description": "Fast DeepSeek helper mode with official default thinking effort."
+    },
+    {
+      "id": "ds-pro",
+      "label": "DS Pro High",
+      "model": "deepseek/deepseek-v4-pro",
+      "reasoningEffort": "high",
+      "textVerbosity": "low",
+      "description": "DeepSeek Pro helper mode with official default thinking effort."
+    },
+    {
+      "id": "ds-flash-off",
+      "label": "DS Flash Off",
+      "model": "deepseek/deepseek-v4-flash",
+      "reasoningEffort": "off",
+      "textVerbosity": "low",
+      "description": "DeepSeek Flash with thinking disabled for quick text-only turns."
+    },
+    {
+      "id": "ds-flash-max",
+      "label": "DS Flash Max",
+      "model": "deepseek/deepseek-v4-flash",
+      "reasoningEffort": "max",
+      "textVerbosity": "low",
+      "description": "DeepSeek Flash with maximum thinking effort."
+    },
+    {
+      "id": "ds-pro-off",
+      "label": "DS Pro Off",
+      "model": "deepseek/deepseek-v4-pro",
+      "reasoningEffort": "off",
+      "textVerbosity": "low",
+      "description": "DeepSeek Pro with thinking disabled."
+    },
+    {
+      "id": "ds-pro-max",
+      "label": "DS Pro Max",
+      "model": "deepseek/deepseek-v4-pro",
+      "reasoningEffort": "max",
+      "textVerbosity": "medium",
+      "description": "DeepSeek Pro with maximum thinking effort."
+    }
+  ]
+}

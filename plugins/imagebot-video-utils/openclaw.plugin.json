@@ -1,0 +1,29 @@
+{
+  "id": "imagebot-video-utils",
+  "name": "Imagebot Video Utilities",
+  "description": "Extracts bounded keyframe contact sheets from Telegram-delivered small videos.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "video_keyframes",
+      "media_brief"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "backgroundJobs": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

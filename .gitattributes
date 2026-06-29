@@ -1,0 +1,10 @@
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.patch text eol=lf whitespace=-space-before-tab
+*.svg text eol=lf
+*.cs text eol=crlf
+*.ico binary
+*.png binary

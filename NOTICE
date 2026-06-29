@@ -1,0 +1,20 @@
+Amaduse OpenClaw Lab
+
+This repository contains local integration code, documentation, tests, and
+patch records for an unofficial OpenClaw-based Telegram imagebot.
+
+OpenClaw compatibility patches target the OpenClaw npm package version recorded
+in `patches/openclaw-2026.6.10-runtime/manifest.json` and
+`policy/runtime_patch_contract.json`. The upstream OpenClaw package metadata for
+version 2026.6.10 declares the MIT license and repository
+`https://github.com/openclaw/openclaw.git`. Upstream OpenClaw copyrights and
+license terms remain with the upstream project.
+
+The mature projects and documentation referenced by this repository are design
+references, not vendored source, unless a source file explicitly states
+otherwise. See `docs/ATTRIBUTION_AND_REFERENCES.md` for the current reference
+and attribution matrix.
+
+This repository intentionally excludes bot tokens, provider secrets, browser
+sessions, Telegram memories, generated media, raw logs, local OpenClaw runtime
+state, and built binaries.

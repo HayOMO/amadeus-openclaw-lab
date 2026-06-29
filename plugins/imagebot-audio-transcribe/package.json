@@ -1,0 +1,12 @@
+{
+  "name": "imagebot-audio-transcribe",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "@xenova/transformers": "2.0.1"
+  }
+}

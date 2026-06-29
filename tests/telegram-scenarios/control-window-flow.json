@@ -1,0 +1,56 @@
+{
+  "name": "control-window-flow",
+  "steps": [
+    {
+      "name": "amnew opens fresh window",
+      "input": {
+        "text": "/amnew 新话题",
+        "chatId": "-1000000000000",
+        "userId": "100",
+        "displayName": "Alice",
+        "isGroup": true
+      },
+      "expect": {
+        "shouldRespond": true,
+        "reason": "new_window",
+        "command": "/amnew",
+        "windowMode": "new_window",
+        "normalizedText": "新话题"
+      }
+    },
+    {
+      "name": "ammodel is handled as control command",
+      "input": {
+        "text": "/ammodel",
+        "chatId": "-1000000000000",
+        "userId": "100",
+        "displayName": "Alice",
+        "isGroup": true
+      },
+      "expect": {
+        "shouldRespond": true,
+        "reason": "control_command",
+        "command": "/ammodel",
+        "windowMode": "sender_window",
+        "normalizedText": ""
+      }
+    },
+    {
+      "name": "foreign bot command is ignored",
+      "input": {
+        "text": "/ammodel@OtherBot",
+        "chatId": "-1000000000000",
+        "userId": "100",
+        "displayName": "Alice",
+        "isGroup": true
+      },
+      "expect": {
+        "shouldRespond": false,
+        "reason": "ignored",
+        "command": "/ammodel",
+        "windowMode": "sender_window",
+        "normalizedText": "/ammodel@OtherBot"
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "unaddressed media is ignored in group",
+  "input": {
+    "text": "",
+    "userId": "444",
+    "displayName": "Dave",
+    "chatId": "-1001",
+    "isGroup": true,
+    "hasMedia": true,
+    "isReplyToBot": false
+  },
+  "expect": {
+    "shouldRespond": false,
+    "reason": "ignored",
+    "windowMode": "sender_window"
+  }
+}

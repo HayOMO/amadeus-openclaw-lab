@@ -1,0 +1,105 @@
+{
+  "id": "imagebot-interaction-core",
+  "name": "Imagebot Interaction Core",
+  "description": "Small interaction pipeline primitives for Telegram trigger, identity, and window-routing decisions.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool",
+      "hook"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "interaction_pipeline",
+      "mars_forward_lookup"
+    ],
+    "hooks": [
+      "before_prompt_build"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "triggerPrefixes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "botUsernames": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "allowFrom": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "senderAllowlist": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "rateLimit": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "enforce": {
+            "type": "boolean"
+          },
+          "record": {
+            "type": "boolean"
+          },
+          "windowMs": {
+            "type": "number"
+          },
+          "maxPerUser": {
+            "type": "number"
+          },
+          "maxPerChat": {
+            "type": "number"
+          }
+        }
+      },
+      "appendInteractionContext": {
+        "type": "boolean"
+      },
+      "marsForwardDetector": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "llmReview": { "type": "boolean" },
+          "reaction": { "type": "string" },
+          "scriptReactKinds": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "statePath": { "type": "string" },
+          "tokenFile": { "type": "string" },
+          "mediaDir": { "type": "string" },
+          "maxMediaBytes": { "type": "number" },
+          "maxMediaTotalBytes": { "type": "number" },
+          "visualHashEnabled": { "type": "boolean" },
+          "visualHashMaxDistance": { "type": "number" },
+          "dependencyDirs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "maxEntries": { "type": "number" }
+        }
+      }
+    }
+  }
+}

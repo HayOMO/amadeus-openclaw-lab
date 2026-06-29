@@ -1,0 +1,154 @@
+{
+  "version": 4,
+  "updatedAt": "2026-06-23",
+  "capabilities": [
+    {
+      "id": "chat",
+      "title": "聊天 / 识图",
+      "summary": "日常聊天、看图吐槽、读回复里的图片和上下文。",
+      "examples": [
+        "回复图片说想问什么",
+        "@Amadeus 这图哪里怪"
+      ]
+    },
+    {
+      "id": "image",
+      "title": "生图 / 改图",
+      "summary": "生成图片、参考图改图、指定角色时查参考并尽量贴近原设。",
+      "examples": [
+        "画一个角色",
+        "回复图片说按这个姿势重画"
+      ]
+    },
+    {
+      "id": "media",
+      "title": "文件 / 媒体",
+      "summary": "读常见文本、代码、PDF、网页、小视频、GIF、音频转写、音频摘要和关键帧。",
+      "examples": [
+        "发 PDF 让她总结",
+        "回复视频问发生了什么"
+      ]
+    },
+    {
+      "id": "web",
+      "title": "搜索 / 网页",
+      "summary": "搜索资料、搜图、网页截图、公开视频/YouTube 元数据、字幕和受限下载、下载外链图片并保存到本地图库，也能查 Pixiv 榜单和作品资源。",
+      "examples": [
+        "搜一下这个梗",
+        "截一下这个网页",
+        "Pixiv daily ranking"
+      ]
+    },
+    {
+      "id": "memory",
+      "title": "记忆 / 资料库",
+      "summary": "维护群友印象、长期资料、角色/风格参考和轻量偏好。",
+      "examples": [
+        "记住这个角色参考",
+        "查一下之前那张图"
+      ]
+    },
+    {
+      "id": "play",
+      "title": "群玩具",
+      "summary": "抽老婆、签到、每日实验、群友自动冒险、图库统计、Telegram贴纸包管理和一些脚本式小玩法。",
+      "examples": [
+        "抽一次老婆",
+        "今日实验"
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "command": "amnew",
+      "description": "Start a clean chat window",
+      "usage": "/amnew [message]",
+      "category": "session",
+      "kind": "runtime",
+      "menu": true,
+      "notes": "Deterministic runtime command handled before normal model context construction."
+    },
+    {
+      "command": "amhelp",
+      "description": "Show available capabilities and control commands",
+      "usage": "/amhelp [abilities|all|category|command]",
+      "category": "ops",
+      "kind": "catalog",
+      "tool": "command_catalog",
+      "toolAction": "list",
+      "menu": true,
+      "notes": "Shows a capability overview plus script/control commands. Ordinary model abilities are intent-driven, not slash-command-driven."
+    },
+    {
+      "command": "amstatus",
+      "description": "Show gateway status",
+      "usage": "/amstatus",
+      "category": "ops",
+      "kind": "script",
+      "tool": "script_action",
+      "scriptId": "gateway_status",
+      "menu": true,
+      "notes": "Safe read-only status script."
+    },
+    {
+      "command": "amdeepstatus",
+      "description": "Show detailed gateway/security status",
+      "usage": "/amdeepstatus",
+      "category": "ops",
+      "kind": "script",
+      "tool": "script_action",
+      "scriptId": "gateway_deep_status",
+      "menu": false,
+      "notes": "Read-only but verbose. Summarize without exposing secrets."
+    },
+    {
+      "command": "ammodel",
+      "description": "Show or switch chat model",
+      "usage": "/ammodel [models|model <provider/model>|model <provider/model> think <level>|think <level>]",
+      "category": "ops",
+      "kind": "runtime",
+      "menu": true,
+      "notes": "Runtime-handled before normal model context construction. The Telegram UI first selects a model, then shows that model's raw thinking levels, with a Back button."
+    },
+    {
+      "command": "ampersona",
+      "description": "Show or switch speaking persona",
+      "usage": "/ampersona [list|status|set <persona>|default]",
+      "category": "session",
+      "kind": "runtime",
+      "menu": true,
+      "notes": "Runtime-handled before normal model context construction. Opens a fresh imagebot window with the selected persona and remembers the sender's default persona for later new windows."
+    },
+    {
+      "command": "amtools",
+      "description": "List or run registered scripts",
+      "usage": "/amtools [list|route <query>|run <id>]",
+      "category": "ops",
+      "kind": "script",
+      "tool": "script_action",
+      "menu": true,
+      "notes": "Registered scripts only. Risky scripts require plan and explicit approval code."
+    },
+    {
+      "command": "ambackup",
+      "description": "Export memory or project backup",
+      "usage": "/ambackup memory | /ambackup github",
+      "category": "ops",
+      "kind": "script",
+      "tool": "script_action",
+      "menu": false,
+      "notes": "memory => export_memory_backup. github => backup_to_github and requires approval."
+    },
+    {
+      "command": "amarchive",
+      "description": "Archive media cache",
+      "usage": "/amarchive",
+      "category": "ops",
+      "kind": "script",
+      "tool": "script_action",
+      "scriptId": "archive_media_cache",
+      "menu": false,
+      "notes": "Local write script for generated/downloaded media cache."
+    }
+  ]
+}

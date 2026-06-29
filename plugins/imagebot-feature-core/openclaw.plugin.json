@@ -1,0 +1,98 @@
+{
+  "id": "imagebot-feature-core",
+  "name": "Imagebot Feature Core",
+  "description": "Manifest-driven feature registry and deterministic feature executor for mixed LLM/script Telegram bot features.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "feature_catalog",
+      "feature_action",
+      "gacha_archive"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "storeDir": {
+        "type": "string"
+      },
+      "featuresDir": {
+        "type": "string"
+      },
+      "ownerIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "trustedIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "timezoneOffsetMinutes": {
+        "type": "number"
+      },
+      "backgroundJobs": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "gachaArchive": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "localDir": {
+            "type": "string"
+          },
+          "sendDir": {
+            "type": "string"
+          },
+          "channelChatId": {
+            "type": "string"
+          },
+          "tokenFile": {
+            "type": "string"
+          },
+          "sendMode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "photo",
+              "document"
+            ]
+          },
+          "sendToChannelDefault": {
+            "type": "boolean"
+          },
+          "telegramTimeoutMs": {
+            "type": "number"
+          },
+          "telegramRetryDelaysMs": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "allowedMediaRoots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

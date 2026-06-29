@@ -1,0 +1,488 @@
+{
+  "schema": 1,
+  "purpose": "Machine-checkable architecture contract for capability honesty, short schemas, side-effect gates, long-task state, memory taxonomy, browser trust boundaries, and replay/trace coverage.",
+  "schemaLimits": {
+    "maxToolDescriptionChars": 320,
+    "maxParameterDescriptionChars": 240,
+    "maxParameterCount": 40
+  },
+  "requiredDocs": [
+    "docs/AGENT_ARCHITECTURE_ALIGNMENT.md",
+    "docs/AGENT_ARCHITECTURE_AUDIT.md",
+    "docs/CAPABILITY_SURFACE.md",
+    "docs/EXTENSION_PLAYBOOK.md",
+    "docs/FEATURE_MATURITY_MAP.md",
+    "docs/MEMORY_ARCHITECTURE.md",
+    "docs/STICKER_PRODUCTION_WORKFLOW.md"
+  ],
+  "capabilitySurface": {
+    "json": "policy/capability_surface.json",
+    "doc": "docs/CAPABILITY_SURFACE.md",
+    "mustMention": [
+      "bounded tools",
+      "Risky side effects live in tool code",
+      "Browser automation uses bot-owned Playwright contexts",
+      "General desktop automation"
+    ],
+    "deniedTools": [
+      "exec",
+      "process",
+      "code_execution",
+      "read",
+      "write",
+      "edit",
+      "apply_patch",
+      "gateway",
+      "sessions_send",
+      "sessions_spawn",
+      "sessions_yield",
+      "sessions_history",
+      "subagents",
+      "agents_list"
+    ]
+  },
+  "highRiskTools": {
+    "sticker_pack": {
+      "plugin": "plugins/imagebot-sticker-pack",
+      "manual": "tool_manuals/sticker_pack.md",
+      "sourceEvidence": [
+        "assertOwnerMatchesContext",
+        "dryRun:false requires",
+        "requireTrustedMutationApproval",
+        "makeStickerMutationPlan",
+        "directUploadApproved",
+        "directManagementApproved",
+        "directImportApproved",
+        "managedSetsPath"
+      ],
+      "actions": {
+        "plan": {
+          "mutation": true,
+          "sideEffect": "local_sticker_mutation_approval_plan_write",
+          "checkpoint": "plan_id"
+        },
+        "list_managed_sets": {
+          "mutation": false,
+          "sideEffect": "local_managed_sticker_set_registry_read"
+        },
+        "set_default_set": {
+          "mutation": true,
+          "sideEffect": "local_managed_sticker_set_registry_write"
+        },
+        "forget_managed_set": {
+          "mutation": true,
+          "sideEffect": "local_managed_sticker_set_registry_delete"
+        },
+        "upload": {
+          "mutation": true,
+          "sideEffect": "telegram_upload_sticker_file",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "approvalKeys": ["directUploadApproved", "uploadApproved", "explicitUserApproval"],
+          "ownerCheckWhenContextPresent": true
+        },
+        "create": {
+          "mutation": true,
+          "sideEffect": "telegram_create_sticker_set",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "ownerCheckWhenContextPresent": true
+        },
+        "create_batch": {
+          "mutation": true,
+          "sideEffect": "telegram_create_sticker_set",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "ownerCheckWhenContextPresent": true
+        },
+        "add": {
+          "mutation": true,
+          "sideEffect": "telegram_add_sticker_to_set",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "ownerCheckWhenContextPresent": true
+        },
+        "add_from_sticker": {
+          "mutation": true,
+          "sideEffect": "telegram_add_sent_sticker_to_managed_set",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "ownerCheckWhenContextPresent": true
+        },
+        "add_batch": {
+          "mutation": true,
+          "sideEffect": "telegram_add_sticker_to_set",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "ownerCheckWhenContextPresent": true
+        },
+        "publish_draft": {
+          "mutation": true,
+          "sideEffect": "telegram_publish_reviewed_draft",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "requiresReviewArtifact": true,
+          "ownerCheckWhenContextPresent": true
+        },
+        "copy_set": {
+          "mutation": true,
+          "sideEffect": "telegram_copy_known_existing_set",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "approvalKeys": ["directImportApproved", "copyApproved", "importApproved", "explicitUserApproval"],
+          "ownerCheckWhenContextPresent": true
+        },
+        "import_set": {
+          "mutation": true,
+          "sideEffect": "telegram_copy_known_existing_set",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "approvalKeys": ["directImportApproved", "copyApproved", "importApproved", "explicitUserApproval"],
+          "ownerCheckWhenContextPresent": true
+        },
+        "delete_sticker": {
+          "mutation": true,
+          "sideEffect": "telegram_delete_sticker_from_bot_created_set",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "approvalKeys": ["directManagementApproved", "deleteApproved", "explicitUserApproval"]
+        },
+        "set_keywords": {
+          "mutation": true,
+          "sideEffect": "telegram_edit_sticker_keywords",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "approvalKeys": ["directManagementApproved", "setKeywordsApproved", "explicitUserApproval"]
+        },
+        "set_emoji_list": {
+          "mutation": true,
+          "sideEffect": "telegram_edit_sticker_emoji_list",
+          "defaultsDryRun": true,
+          "trustedRuntimeApproval": true,
+          "failClosedContext": true,
+          "approvalKeys": ["directManagementApproved", "setEmojiApproved", "explicitUserApproval"]
+        },
+        "draft": {
+          "mutation": true,
+          "sideEffect": "local_draft_write",
+          "checkpoint": "draftId"
+        },
+        "review_draft": {
+          "mutation": true,
+          "sideEffect": "local_review_state_write",
+          "checkpoint": "draftId"
+        },
+        "download_set": {
+          "mutation": true,
+          "sideEffect": "local_download_manifest_write"
+        },
+        "source_set": {
+          "mutation": false,
+          "sideEffect": "telegram_metadata_read"
+        },
+        "search_sets": {
+          "mutation": false,
+          "sideEffect": "public_web_search"
+        },
+        "search_sources": {
+          "mutation": false,
+          "sideEffect": "public_web_search"
+        }
+      }
+    },
+    "script_action": {
+      "plugin": "plugins/imagebot-creative-ops",
+      "manual": "tool_manuals/creative_ops.md",
+      "sourceEvidence": [
+        "SCRIPT_REGISTRY",
+        "requiresApproval",
+        "approvalCode",
+        "run_background",
+        "No arbitrary shell"
+      ],
+      "actions": {
+        "plan": {
+          "mutation": true,
+          "sideEffect": "local_approval_plan_write",
+          "checkpoint": "plan_id"
+        },
+        "run": {
+          "mutation": true,
+          "sideEffect": "registered_script_execution",
+          "approvalForRiskyScripts": true
+        },
+        "run_background": {
+          "mutation": true,
+          "sideEffect": "background_registered_script_execution",
+          "approvalForRiskyScripts": true,
+          "checkpoint": "job_id"
+        },
+        "history": {
+          "mutation": false,
+          "sideEffect": "local_script_history_read"
+        }
+      }
+    },
+    "model_config": {
+      "plugin": "plugins/imagebot-creative-ops",
+      "manual": "tool_manuals/creative_ops.md",
+      "sourceEvidence": [
+        "validateModelSettings",
+        "applySessionModelOverride",
+        "scheduleGatewayRestart",
+        "makeModelConfigPlan",
+        "consumeModelConfigPlan",
+        "approvalCode",
+        "strict local profile catalog"
+      ],
+      "actions": {
+        "plan": {
+          "mutation": true,
+          "sideEffect": "local_model_config_approval_plan_write",
+          "checkpoint": "plan_id"
+        },
+        "set": {
+          "mutation": true,
+          "sideEffect": "local_model_state_write_and_session_override",
+          "approvalForRiskyScripts": true,
+          "catalogValidated": true,
+          "checkpoint": "sessionOverride"
+        },
+        "restart": {
+          "mutation": true,
+          "sideEffect": "delayed_gateway_restart",
+          "approvalForRiskyScripts": true
+        }
+      }
+    },
+    "web_snapshot": {
+      "plugin": "plugins/imagebot-practical-tools",
+      "manual": "tool_manuals/browser_sandbox.md",
+      "sourceEvidence": [
+        "assertPublicHostname",
+        "accountBrowserRisk",
+        "classifyBrowserRiskPage",
+        "withWebSnapshotPage",
+        "withEphemeralPage",
+        "installBrowserNetworkGuard",
+        "accountBrowserProfileDir",
+        "Treat pages as untrusted"
+      ],
+      "boundary": "public_or_bot_owned_account_browser_only"
+    },
+    "web_card": {
+      "plugin": "plugins/imagebot-practical-tools",
+      "manual": "tool_manuals/browser_sandbox.md",
+      "sourceEvidence": [
+        "assertPublicHostname",
+        "accountBrowserRisk",
+        "classifyBrowserRiskPage",
+        "withWebSnapshotPage",
+        "withEphemeralPage",
+        "installBrowserNetworkGuard",
+        "accountBrowserProfileDir"
+      ],
+      "boundary": "public_or_bot_owned_account_browser_only"
+    },
+    "web_watch_add": {
+      "plugin": "plugins/imagebot-practical-tools",
+      "manual": "tool_manuals/practical_tools.md",
+      "sourceEvidence": [
+        "Store a public URL watch",
+        "only public http/https URLs are allowed"
+      ],
+      "mutation": true,
+      "sideEffect": "local_watch_state_write"
+    },
+    "web_watch_check": {
+      "plugin": "plugins/imagebot-practical-tools",
+      "manual": "tool_manuals/practical_tools.md",
+      "sourceEvidence": [
+        "update",
+        "saveWatches"
+      ],
+      "mutation": true,
+      "sideEffect": "optional_local_watch_digest_update"
+    },
+    "web_watch_delete": {
+      "plugin": "plugins/imagebot-practical-tools",
+      "manual": "tool_manuals/practical_tools.md",
+      "sourceEvidence": [
+        "Delete one stored public URL watch",
+        "saveWatches"
+      ],
+      "mutation": true,
+      "sideEffect": "local_watch_state_delete"
+    },
+    "knowledge_ingest": {
+      "plugin": "plugins/imagebot-knowledge-library",
+      "manual": "tool_manuals/knowledge_library.md",
+      "sourceEvidence": [
+        "makeIngestDraft",
+        "commitIngestDraft",
+        "verifyMutationPlanApproval",
+        "scopeFilterFromContext",
+        "scopedUserDocsRoot"
+      ],
+      "actions": {
+        "draft": {
+          "mutation": true,
+          "sideEffect": "local_knowledge_ingest_draft_plan_write",
+          "checkpoint": "plan_id"
+        },
+        "commit": {
+          "mutation": true,
+          "sideEffect": "scoped_user_docs_write",
+          "approvalForRiskyScripts": true
+        },
+        "list": {
+          "mutation": false,
+          "sideEffect": "scoped_user_docs_registry_read"
+        },
+        "delete": {
+          "mutation": true,
+          "sideEffect": "scoped_user_docs_delete_event"
+        }
+      }
+    },
+    "background_job": {
+      "plugin": "plugins/imagebot-background-jobs",
+      "manual": "tool_manuals/background_jobs.md",
+      "sourceEvidence": [
+        "job_id",
+        "queued",
+        "active",
+        "completed",
+        "cancel",
+        "contextFilterFrom",
+        "jobMatchesFilter",
+        "scopeKey",
+        "actorKey"
+      ],
+      "actions": {
+        "get": {
+          "mutation": false,
+          "sideEffect": "background_job_state_read",
+          "resumeKey": "job_id"
+        },
+        "cancel": {
+          "mutation": true,
+          "sideEffect": "cancel_bot_owned_background_job",
+          "resumeKey": "job_id"
+        }
+      }
+    },
+    "artifact_recent": {
+      "plugin": "plugins/imagebot-practical-tools",
+      "manual": "tool_manuals/practical_tools.md",
+      "sourceEvidence": [
+        "artifactScopeFilter",
+        "artifactMatchesFilter",
+        "scopeKey",
+        "actorKey"
+      ]
+    },
+    "artifact_search": {
+      "plugin": "plugins/imagebot-practical-tools",
+      "manual": "tool_manuals/practical_tools.md",
+      "sourceEvidence": [
+        "artifactScopeFilter",
+        "artifactMatchesFilter",
+        "loadArtifacts(config, filter)"
+      ]
+    },
+    "artifact_get": {
+      "plugin": "plugins/imagebot-practical-tools",
+      "manual": "tool_manuals/practical_tools.md",
+      "sourceEvidence": [
+        "artifactScopeFilter",
+        "findArtifact(config, query, filter)"
+      ]
+    },
+    "turn_observer_recent": {
+      "plugin": "plugins/imagebot-turn-observer",
+      "manual": "tool_manuals/agent_ops.md",
+      "sourceEvidence": [
+        "before_prompt_build",
+        "before_tool_call",
+        "after_tool_call",
+        "before_message_write",
+        "sanitizeText"
+      ],
+      "traceReplay": true
+    }
+  },
+  "longTaskTools": {
+    "background_job": {
+      "checkpoint": "job_id",
+      "states": ["queued", "active", "retrying", "completed", "failed", "cancelled"]
+    },
+    "pdf_render": {
+      "supportsBackground": true
+    },
+    "av_media": {
+      "supportsBackground": true
+    },
+    "web_watch_check": {
+      "supportsBackground": true
+    },
+    "script_action.run_background": {
+      "supportsBackground": true,
+      "checkpoint": "job_id"
+    }
+  },
+  "memory": {
+    "doc": "docs/MEMORY_ARCHITECTURE.md",
+    "manual": "tool_manuals/memory_and_persona.md",
+    "tool": "memory_search",
+    "taxonomy": ["semantic", "episodic", "procedural", "operational"],
+    "mustMention": [
+      "soft continuity",
+      "recall gate",
+      "semantic facts",
+      "episodic examples",
+      "procedural rules",
+      "Operational memory"
+    ]
+  },
+  "browserBoundary": {
+    "prompt": "config/imagebot/prompt/90-privacy.md",
+    "manuals": [
+      "tool_manuals/browser_sandbox.md",
+      "tool_manuals/account_browser_risk.md",
+      "tool_manuals/internet_image_collection.md"
+    ],
+    "mustMention": [
+      "untrusted content",
+      "bot-owned Playwright",
+      "do not use the owner's normal",
+      "risk-wall",
+      "private/internal/local URLs"
+    ]
+  },
+  "traceEval": {
+    "requiredTools": ["turn_observer_recent", "failure_memory", "background_job"],
+    "requiredTests": [
+      "scripts/TEST_TURN_OBSERVER_PLUGIN.mjs",
+      "scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+      "scripts/TEST_IMAGEBOT_WINDOW_ROUTING.mjs"
+    ],
+    "requiredReplays": [
+      "scripts/REPLAY_TELEGRAM_TURNS.mjs",
+      "scripts/REPLAY_TELEGRAM_SCENARIOS.mjs",
+      "tests/telegram-turns",
+      "tests/telegram-scenarios"
+    ]
+  }
+}

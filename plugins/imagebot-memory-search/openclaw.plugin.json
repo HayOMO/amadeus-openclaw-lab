@@ -1,0 +1,32 @@
+{
+  "id": "imagebot-memory-search",
+  "name": "Imagebot Memory Search",
+  "description": "Searches sanitized bot-visible user, group, and window memories for detailed recall.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool",
+      "hook"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "memory_search"
+    ],
+    "hooks": [
+      "before_prompt_build"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "appendPromptContext": {
+        "type": "boolean",
+        "description": "Append a recall gate that asks the model to call memory_search on strong recall/group-lore triggers."
+      }
+    }
+  }
+}

@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Amaduse Imagebot</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
+      <symbol id="icon-stop" viewBox="0 0 24 24"><path d="M7 7h10v10H7z"/></symbol>
+      <symbol id="icon-restart" viewBox="0 0 24 24"><path d="M18.8 6.2A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.8-4.2L13 11h8V3z"/></symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M17.7 6.3A8 8 0 0 0 4.4 10H2l3.5 3.5L9 10H6.5a6 6 0 0 1 9.8-2.3zm-11.4 11.4A8 8 0 0 0 19.6 14H22l-3.5-3.5L15 14h2.5a6 6 0 0 1-9.8 2.3z"/></symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h4l2 2H19a2 2 0 0 1 2 2v1H3z"/><path d="M3 9h18l-1.4 8.6A2.8 2.8 0 0 1 16.8 20H7.2a2.8 2.8 0 0 1-2.8-2.4z"/></symbol>
+      <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 4h6v6h-2V7.4l-8.3 8.3-1.4-1.4L16.6 6H14z"/><path d="M5 6h7v2H7v9h9v-5h2v7H5z"/></symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M19.4 13.5a7 7 0 0 0 0-3l2-1.5-2-3.5-2.4 1a7.6 7.6 0 0 0-2.6-1.5L14 2h-4l-.4 3a7.6 7.6 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5a7 7 0 0 0 0 3l-2 1.5 2 3.5 2.4-1a7.6 7.6 0 0 0 2.6 1.5l.4 3h4l.4-3a7.6 7.6 0 0 0 2.6-1.5l2.4 1 2-3.5zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></symbol>
+      <symbol id="icon-power" viewBox="0 0 24 24"><path d="M11 3h2v10h-2z"/><path d="M7.8 6.3A8 8 0 1 0 16.2 6.3l-1 1.7A6 6 0 1 1 8.8 8z"/></symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24"><path d="M8 8h11v13H8z"/><path d="M5 3h11v3H7v10H5z"/></symbol>
+      <symbol id="icon-activity" viewBox="0 0 24 24"><path d="M3 13h4l2-6 4 12 3-9 2 3h3v2h-4l-1.4-2.1L13 21 9 9l-1 6H3z"/></symbol>
+      <symbol id="icon-bot" viewBox="0 0 24 24"><path d="M11 2h2v3h4a3 3 0 0 1 3 3v8a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8a3 3 0 0 1 3-3h4zM8 9.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM8 16h8v-2H8z"/></symbol>
+      <symbol id="icon-warning" viewBox="0 0 24 24"><path d="M12 3 1.8 21h20.4zm1 15h-2v-2h2zm0-4h-2V9h2z"/></symbol>
+      <symbol id="icon-terminal" viewBox="0 0 24 24"><path d="m4 7 5 5-5 5-1.5-1.5L6 12 2.5 8.5z"/><path d="M10 17h10v2H10z"/></symbol>
+    </svg>
+
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <img class="brand-mark" src="/assets/amadeus-mark.svg" alt="">
+          <div>
+            <span class="eyebrow">Local operator console</span>
+            <h1>Amaduse Imagebot</h1>
+            <p id="statusLine">Checking gateway state</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button id="refreshBtn" class="icon-button" type="button" title="Refresh status" aria-label="Refresh status">
+            <svg><use href="#icon-refresh"></use></svg>
+          </button>
+          <div id="statePill" class="state-pill idle">
+            <span></span>
+            <strong>Checking</strong>
+          </div>
+        </div>
+      </header>
+
+      <section class="hero-panel">
+        <div class="hero-content">
+          <span class="section-label">Gateway Control</span>
+          <h2>One click start, stop, and diagnose.</h2>
+          <p>Keep the bot local, watch the Telegram bridge, and open the pieces you actually touch without digging through PowerShell.</p>
+
+          <div class="button-row primary-actions">
+            <button id="startBtn" class="action-button start" type="button" title="Start OpenClaw gateway">
+              <svg><use href="#icon-play"></use></svg>
+              <span>Start</span>
+            </button>
+            <button id="stopBtn" class="action-button stop" type="button" title="Stop OpenClaw gateway">
+              <svg><use href="#icon-stop"></use></svg>
+              <span>Stop</span>
+            </button>
+            <button id="restartBtn" class="action-button restart" type="button" title="Restart OpenClaw gateway">
+              <svg><use href="#icon-restart"></use></svg>
+              <span>Restart</span>
+            </button>
+            <button id="statusBtn" class="action-button neutral" type="button" title="Run status script">
+              <svg><use href="#icon-activity"></use></svg>
+              <span>Status</span>
+            </button>
+          </div>
+
+          <div class="quick-actions">
+            <button id="dashboardBtn" type="button" title="Open OpenClaw dashboard">
+              <svg><use href="#icon-external"></use></svg>
+              <span>Dashboard</span>
+            </button>
+            <button id="openLogsBtn" type="button" title="Open local log folder">
+              <svg><use href="#icon-folder"></use></svg>
+              <span>Logs</span>
+            </button>
+            <button id="openConfigBtn" type="button" title="Open .openclaw config folder">
+              <svg><use href="#icon-settings"></use></svg>
+              <span>Config</span>
+            </button>
+            <button id="openRootBtn" type="button" title="Open this workspace">
+              <svg><use href="#icon-folder"></use></svg>
+              <span>Workspace</span>
+            </button>
+            <button id="exitBtn" type="button" title="Close this panel server">
+              <svg><use href="#icon-power"></use></svg>
+              <span>Exit</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="operator-visual" aria-hidden="true">
+          <img src="/assets/operator-console.png" alt="">
+          <div class="operator-overlay">
+            <span id="operatorMode">STANDBY</span>
+            <small>loopback / private bot</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="status-grid" aria-label="Gateway status">
+        <article class="metric">
+          <span>Endpoint</span>
+          <strong id="portValue">127.0.0.1:18789</strong>
+          <small>Gateway loopback</small>
+        </article>
+        <article class="metric">
+          <span>Process</span>
+          <strong id="pidValue">none</strong>
+          <small>Listener PID</small>
+        </article>
+        <article class="metric">
+          <span>Telegram</span>
+          <strong id="providerValue">unknown</strong>
+          <small>Provider handshake</small>
+        </article>
+        <article class="metric">
+          <span>Model</span>
+          <strong id="modelValue">unknown</strong>
+          <small>Last gateway model</small>
+        </article>
+        <article class="metric">
+          <span>Plugins</span>
+          <strong id="pluginsValue">unknown</strong>
+          <small id="pluginsHint">No plugin line yet</small>
+        </article>
+        <article class="metric">
+          <span>Health</span>
+          <strong id="healthValue">checking</strong>
+          <small id="warningValue">0 warn / 0 err</small>
+        </article>
+      </section>
+
+      <section class="model-panel" aria-label="Runtime model configuration">
+        <div class="panel-header">
+          <div>
+            <span class="section-label">Runtime Profile</span>
+            <h2>Model and reasoning</h2>
+          </div>
+          <span id="modelConfigState">Loading</span>
+        </div>
+        <div class="model-form">
+          <label>
+            <span>Profile</span>
+            <select id="profileSelect"></select>
+          </label>
+          <label>
+            <span>Model</span>
+            <input id="modelInput" type="text" spellcheck="false" placeholder="openai/gpt-5.5">
+          </label>
+          <label>
+            <span>Reasoning</span>
+            <select id="reasoningSelect"></select>
+          </label>
+          <label>
+            <span>Verbosity</span>
+            <select id="verbositySelect"></select>
+          </label>
+          <label>
+            <span>Max tokens</span>
+            <input id="maxTokensInput" type="number" min="256" max="8192" step="128">
+          </label>
+          <div class="model-actions">
+            <button id="applyModelBtn" class="action-button neutral" type="button" title="Apply model settings; restart manually to use them">
+              <svg><use href="#icon-settings"></use></svg>
+              <span>Apply</span>
+            </button>
+            <button id="applyRestartModelBtn" class="action-button restart" type="button" title="Apply model settings and restart the gateway">
+              <svg><use href="#icon-restart"></use></svg>
+              <span>Apply & Restart</span>
+            </button>
+          </div>
+        </div>
+        <p id="modelConfigHint">Changing model settings writes OpenClaw config. Restart the gateway to apply to new turns.</p>
+      </section>
+
+      <section class="feature-panel" aria-label="Feature health">
+        <div class="panel-header">
+          <div>
+            <span class="section-label">Feature Health</span>
+            <h2>Plugin contracts</h2>
+          </div>
+          <button id="featureHealthRefreshBtn" class="icon-button" type="button" title="Refresh feature health" aria-label="Refresh feature health">
+            <svg><use href="#icon-refresh"></use></svg>
+          </button>
+        </div>
+        <div class="feature-health-grid">
+          <article>
+            <span>Status</span>
+            <strong id="featureHealthState">Loading</strong>
+          </article>
+          <article>
+            <span>Plugins</span>
+            <strong id="featureHealthPlugins">--</strong>
+          </article>
+          <article>
+            <span>Tools</span>
+            <strong id="featureHealthTools">--</strong>
+          </article>
+          <article>
+            <span>Manuals</span>
+            <strong id="featureHealthManuals">--</strong>
+          </article>
+          <article>
+            <span>Warnings</span>
+            <strong id="featureHealthWarnings">--</strong>
+          </article>
+          <article>
+            <span>Checked</span>
+            <strong id="featureHealthChecked">--:--:--</strong>
+          </article>
+        </div>
+        <pre id="featureHealthBox">Waiting for feature health...</pre>
+      </section>
+
+      <section class="work-grid">
+        <section class="signal-panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-label">Live Signal</span>
+              <h2>Gateway pulse</h2>
+            </div>
+            <strong id="updatedValue">--:--:--</strong>
+          </div>
+          <canvas id="signalCanvas" width="720" height="220"></canvas>
+          <div class="lock-grid">
+            <span class="lock-chip good">Loopback</span>
+            <span class="lock-chip good">Group privacy</span>
+            <span class="lock-chip good">Token file</span>
+            <span class="lock-chip warn" id="actionChip">Idle</span>
+          </div>
+        </section>
+
+        <section class="command-notes">
+          <div class="panel-header">
+            <div>
+              <span class="section-label">Shortcuts</span>
+              <h2>Group commands</h2>
+            </div>
+            <span id="copyState">Ready</span>
+          </div>
+          <div class="copy-grid">
+            <button class="copy-button" data-copy="/ask@YOUR_BOT_USERNAME ">
+              <svg><use href="#icon-copy"></use></svg>
+              <span>/ask</span>
+            </button>
+            <button class="copy-button" data-copy="/draw@YOUR_BOT_USERNAME ">
+              <svg><use href="#icon-copy"></use></svg>
+              <span>/draw</span>
+            </button>
+            <button class="copy-button" data-copy="/search@YOUR_BOT_USERNAME ">
+              <svg><use href="#icon-copy"></use></svg>
+              <span>/search</span>
+            </button>
+          </div>
+          <div class="last-action">
+            <div>
+              <span class="section-label">Last Action</span>
+              <strong id="lastActionTitle">No action yet</strong>
+            </div>
+            <pre id="lastActionBox">Start, stop, restart, or status output will appear here.</pre>
+          </div>
+        </section>
+      </section>
+
+      <section class="log-panel">
+        <div class="log-header">
+          <div>
+            <span class="section-label">Gateway Log</span>
+            <h2>Runtime trace</h2>
+            <p id="logPath">No log yet</p>
+          </div>
+          <div class="log-filter" role="group" aria-label="Log filter">
+            <button class="filter-button active" data-filter="all" type="button">All</button>
+            <button class="filter-button" data-filter="warn" type="button">Warn</button>
+            <button class="filter-button" data-filter="error" type="button">Error</button>
+          </div>
+        </div>
+        <pre id="logBox">Waiting for status...</pre>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

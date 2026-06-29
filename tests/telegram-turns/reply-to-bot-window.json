@@ -1,0 +1,19 @@
+{
+  "name": "reply to bot enters replied window",
+  "input": {
+    "text": "锐评这个",
+    "userId": "222",
+    "displayName": "Bob",
+    "chatId": "-1001",
+    "isGroup": true,
+    "isReplyToBot": true,
+    "replySessionKey": "tg:-1001:user:111"
+  },
+  "expect": {
+    "shouldRespond": true,
+    "reason": "reply_to_bot",
+    "windowMode": "reply_window",
+    "windowKey": "tg:-1001:user:111",
+    "normalizedText": "锐评这个"
+  }
+}

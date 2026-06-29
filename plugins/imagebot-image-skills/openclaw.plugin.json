@@ -1,0 +1,32 @@
+{
+  "id": "imagebot-image-skills",
+  "name": "Imagebot Image Skills",
+  "description": "Stores lightweight local character/style reference skills for image generation.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "image_skill_lookup",
+      "image_skill_save_reference",
+      "image_skill_note_preference",
+      "image_skill_recent"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "storeDir": { "type": "string" },
+      "allowedMediaRoots": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    }
+  }
+}

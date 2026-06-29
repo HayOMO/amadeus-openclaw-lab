@@ -1,0 +1,23 @@
+{
+  "id": "imagebot-persona-search",
+  "name": "Imagebot Persona Search",
+  "description": "Retrieves legacy Amadeus/Kurisu persona notes for explicit old-card references.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "persona_search"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "imagebot-group-adventure",
+  "name": "Imagebot Group Adventure",
+  "description": "Local d20 fantasy group adventure game state and deterministic daily runs.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "group_adventure"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "storeDir": { "type": "string" },
+      "timezoneOffsetMinutes": { "type": "number" },
+      "world": { "type": "object" }
+    }
+  }
+}

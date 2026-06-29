@@ -1,0 +1,30 @@
+{
+  "id": "imagebot-meme-tools",
+  "name": "Imagebot Meme Tools",
+  "description": "Creates Telegram-friendly meme captions, reaction images, and sticker-style WebP files from bot-local media.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "meme_transform"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "mediaDir": { "type": "string" },
+      "allowedMediaRoots": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "backgroundJobs": { "type": "object" }
+    }
+  }
+}
