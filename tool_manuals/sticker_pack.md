@@ -40,9 +40,8 @@ in sets created by this bot.
   type. This does not grant Telegram edit rights.
 - `forget_managed_set`: remove one set from the local managed-set registry.
 - `publish_draft`: publish kept draft items. Defaults to `dryRun:true`.
-  In trusted small deployments this may run directly with `dryRun:false` when
-  the current Telegram sender context is present and matches `userId` /
-  `ownerUserId`.
+  `dryRun:false` requires `plan_id`, trusted runtime mutation approval, or an
+  explicit local opt-in via `trustedDirectMutations.enabled`.
 - `search_sets` / `search_sources`: search public web pages for Telegram
   `t.me/addstickers/...` set links and optionally verify them with
   `getStickerSet`.
@@ -52,10 +51,11 @@ in sets created by this bot.
   into the local sticker-pack downloads directory and write a `manifest.json`.
 - `copy_set` / `import_set`: mirror selected stickers from a known Telegram set
   into a bot-created/user-owned set. Defaults to `dryRun:true`; `dryRun:false`
-  may run directly when the runtime sender is trusted and matches the owner.
+  requires `plan_id`, trusted runtime mutation approval, or explicit local
+  direct-mutation opt-in.
 - `upload`: upload one compliant sticker file to Telegram for later use.
-  Defaults to `dryRun:true`; `dryRun:false` may run directly when the runtime
-  sender is trusted and matches the owner.
+  Defaults to `dryRun:true`; `dryRun:false` requires `plan_id`, trusted runtime
+  mutation approval, or explicit local direct-mutation opt-in.
 - `create`: create a user-owned Telegram sticker set that this bot can edit,
   with one sticker. Defaults to `dryRun:true`.
 - `create_batch`: create a user-owned Telegram sticker set that this bot can
@@ -71,8 +71,8 @@ in sets created by this bot.
   `dryRun:true`; `dryRun:false` requires an explicit delete confirmation plan
   or trusted runtime mutation approval.
 - `set_keywords`, `set_emoji_list`: manage sticker metadata in bot-created
-  sets. These default to `dryRun:true`; `dryRun:false` may run directly with a
-  trusted current Telegram sender.
+  sets. These default to `dryRun:true`; `dryRun:false` requires `plan_id`,
+  trusted runtime mutation approval, or explicit local direct-mutation opt-in.
 - `link`: normalize a set name and return its `t.me/addstickers/...` URL.
 
 ## Action Boundaries
@@ -90,9 +90,11 @@ Use the narrowest action that matches the task:
 - When the runtime passes the current Telegram sender id, `dryRun:false`
   owner-scoped actions require `userId` / `ownerUserId` to match that sender.
   Missing requester context fails closed.
-- Do not ask users for approval codes. In this private bot, non-delete sticker
-  mutations are authorized by trusted runtime sender context plus owner-check.
-  Deletion is the only sticker action that should require a separate
+- Do not ask users for approval codes. Non-delete sticker mutations should use
+  `plan_id` or trusted runtime mutation approval by default. A private operator
+  may opt into direct trusted-sender mutations with
+  `trustedDirectMutations.enabled:true`, but this is intentionally off by
+  default. Deletion is the only sticker action that should require a separate
   confirmation step.
 - Telegram Bot API does not provide a way for this bot to attach itself to an
   arbitrary existing user sticker pack and gain edit rights. Use `get`,
@@ -145,13 +147,14 @@ For image preparation before this publishing step:
 - `dryRun:true`: validate and show the normalized Telegram operation without
   mutating Telegram. Telegram mutation actions default to dry run.
 - `targetAction`: with `action=plan`, the Telegram mutation action to confirm.
-  Prefer using it for `delete_sticker`; ordinary publish/create/add/copy/upload
-  actions should normally run directly after owner-check.
+  Prefer using it for `delete_sticker` and use it for ordinary
+  publish/create/add/copy/upload actions unless direct trusted mutations were
+  explicitly enabled by local config.
 - `plan_id`: one-shot sticker mutation plan id returned by `action=plan`.
 - `directImportApproved`, `directUploadApproved`, and
   `directManagementApproved`: legacy model-supplied flags. They are kept for
-  compatibility visibility but should not be used as the authorization source;
-  the runtime sender context is authoritative.
+  compatibility visibility but do not authorize `dryRun:false`; use `plan_id`,
+  trusted runtime mutation approval, or explicit local direct-mutation opt-in.
 
 ## Telegram Limits
 

@@ -22,7 +22,8 @@ const TOKEN_HEADER = "x-imagebot-control-token";
 const TOKEN_FILE = path.join(RUNTIME_DIR, "imagebot-control-server.token");
 const CONTROL_TOKEN = resolveControlToken();
 const CONTROL_TOKEN_HASH = sha256Buffer(CONTROL_TOKEN);
-const EXPECTED_ORIGIN = `http://${HOST}:${PORT}`;
+
+assertControlHostAllowed();
 
 fs.mkdirSync(RUNTIME_DIR, { recursive: true });
 fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -75,10 +76,45 @@ function safeTokenEqual(value) {
 
 function allowedHostValues() {
   return new Set([
-    `${HOST}:${PORT}`.toLowerCase(),
+    `${hostHeaderName(HOST)}:${PORT}`.toLowerCase(),
     `127.0.0.1:${PORT}`,
-    `localhost:${PORT}`
+    `localhost:${PORT}`,
+    `[::1]:${PORT}`
   ]);
+}
+
+function allowedOriginValues() {
+  return new Set([
+    `http://${originHost(HOST)}:${PORT}`,
+    `http://127.0.0.1:${PORT}`,
+    `http://localhost:${PORT}`,
+    `http://[::1]:${PORT}`
+  ]);
+}
+
+function normalizeHostName(value) {
+  return String(value || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+function hostHeaderName(value) {
+  const normalized = normalizeHostName(value);
+  return normalized.includes(":") ? `[${normalized}]` : normalized;
+}
+
+function originHost(value) {
+  return hostHeaderName(value || "127.0.0.1");
+}
+
+function isLoopbackHost(value) {
+  const host = normalizeHostName(value);
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
+function assertControlHostAllowed() {
+  if (process.env.IMAGEBOT_CONTROL_ALLOW_REMOTE === "1") return;
+  if (!isLoopbackHost(HOST)) {
+    throw new Error("IMAGEBOT_CONTROL_HOST must be loopback unless IMAGEBOT_CONTROL_ALLOW_REMOTE=1 is set");
+  }
 }
 
 function validateHost(req) {
@@ -100,7 +136,7 @@ function validateApiAuth(req) {
 
 function validatePostBoundary(req) {
   const origin = String(req.headers.origin || "").trim();
-  if (origin !== EXPECTED_ORIGIN) return { ok: false, status: 403, error: "Invalid request origin" };
+  if (!allowedOriginValues().has(origin)) return { ok: false, status: 403, error: "Invalid request origin" };
   const contentType = String(req.headers["content-type"] || "").toLowerCase();
   if (!contentType.split(";")[0].trim().endsWith("/json") && !contentType.startsWith("application/json")) {
     return { ok: false, status: 415, error: "POST requests must use application/json" };
@@ -113,6 +149,9 @@ function securityHeaders(extra = {}) {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "Cross-Origin-Resource-Policy": "same-origin",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+    "X-Frame-Options": "DENY",
     ...extra
   };
 }
@@ -606,7 +645,7 @@ async function applyModelConfig(body) {
 }
 
 function serveStatic(req, res) {
-  const requestUrl = new URL(req.url, `http://${HOST}:${PORT}`);
+  const requestUrl = new URL(req.url, `http://${originHost(HOST)}:${PORT}`);
   let pathname = decodeURIComponent(requestUrl.pathname);
   if (pathname === "/") pathname = "/index.html";
   const filePath = path.resolve(APP_DIR, `.${pathname}`);
@@ -635,7 +674,7 @@ function serveStatic(req, res) {
 
 const server = http.createServer(async (req, res) => {
   try {
-    const url = new URL(req.url, `http://${HOST}:${PORT}`);
+    const url = new URL(req.url, `http://${originHost(HOST)}:${PORT}`);
     if (!validateHost(req)) {
       writeError(res, 403, "Invalid Host header");
       return;

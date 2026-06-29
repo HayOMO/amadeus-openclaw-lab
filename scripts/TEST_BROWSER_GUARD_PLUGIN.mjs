@@ -10,7 +10,12 @@ const hooks = new Map();
 plugin.register({
   config: {
     allowedProfiles: ["openclaw"],
-    allowedPathPrefixes: [mediaRoot]
+    allowedPathPrefixes: [mediaRoot],
+    publicNetworkGuard: {
+      dnsLookup: async (host) => host === "rebinding.example"
+        ? [{ address: "127.0.0.1", family: 4 }]
+        : [{ address: "93.184.216.34", family: 4 }]
+    }
   },
   registerHook(name, handler, meta) {
     hooks.set(meta?.name || name, handler);
@@ -33,6 +38,10 @@ assert.equal(localMedia.params.profile, "openclaw");
 const privateHost = await hook({ toolName: "browser", params: { url: "http://127.0.0.1:18789/" } });
 assert.equal(privateHost.block, true);
 assert.match(privateHost.blockReason, /restricted/);
+
+const rebindingHost = await hook({ toolName: "browser", params: { url: "https://rebinding.example/image.png" } });
+assert.equal(rebindingHost.block, true);
+assert.match(rebindingHost.blockReason, /restricted/);
 
 const localPath = await hook({ toolName: "browser", params: { url: "C:\\Users\\Bot\\.ssh\\id_rsa" } });
 assert.equal(localPath.block, true);

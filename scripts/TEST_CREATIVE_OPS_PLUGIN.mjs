@@ -81,6 +81,8 @@ assert.ok(tools.get("command_catalog").parameters.properties.action.enum.include
 const list = await tools.get("script_action").execute("script-list", { action: "list" });
 assert.equal(list.details.status, "ok");
 assert.ok(list.details.scripts.some((script) => script.id === "gateway_status"));
+assert.equal(list.details.scripts.find((script) => script.id === "archive_media_cache")?.requiresApproval, true);
+assert.equal(list.details.scripts.find((script) => script.id === "export_memory_backup")?.requiresApproval, true);
 
 const commandList = await tools.get("command_catalog").execute("command-list", { action: "list", category: "ops" });
 assert.equal(commandList.details.status, "ok");
@@ -117,6 +119,13 @@ const riskyRun = await tools.get("script_action").execute("script-risky", {
 });
 assert.equal(riskyRun.details.status, "failed");
 assert.match(riskyRun.content[0].text, /plan_id/i);
+
+const localWriteRun = await tools.get("script_action").execute("script-local-write", {
+  action: "run",
+  id: "export_memory_backup"
+});
+assert.equal(localWriteRun.details.status, "failed");
+assert.match(localWriteRun.content[0].text, /plan_id/i);
 
 const plan = await tools.get("script_action").execute("script-plan", {
   action: "plan",

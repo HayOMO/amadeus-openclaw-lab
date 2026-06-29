@@ -54,6 +54,23 @@ function request({ port, method = "GET", target = "/", token, host, origin, cont
   });
 }
 
+function waitForExit(child, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error("child did not exit"));
+    }, timeoutMs);
+    child.once("exit", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    });
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
 async function waitForReady(port, token) {
   const deadline = Date.now() + 15000;
   let lastError = null;
@@ -112,6 +129,9 @@ try {
   const okPing = await request({ port, target: "/api/ping", token });
   assert.equal(okPing.status, 200, "valid token should allow API ping");
   assert.equal(okPing.headers["x-content-type-options"], "nosniff");
+  assert.match(okPing.headers["content-security-policy"] || "", /default-src 'self'/);
+  assert.equal(okPing.headers["x-frame-options"], "DENY");
+  assert.match(okPing.headers["permissions-policy"] || "", /camera=\(\)/);
 
   const statusResponse = await request({ port, target: "/api/status", token });
   assert.equal(statusResponse.status, 200);
@@ -166,12 +186,24 @@ try {
   });
   assert.equal(invalidAction.status, 400, "valid boundary with invalid action should reach action validation");
 
+  const localhostOriginAction = await request({
+    port,
+    method: "POST",
+    target: "/api/action",
+    token,
+    origin: `http://localhost:${port}`,
+    contentType: "application/json; charset=utf-8",
+    body: JSON.stringify({ action: "not-a-real-action" })
+  });
+  assert.equal(localhostOriginAction.status, 400, "localhost Origin should be accepted for loopback UI usage");
+
   const traversal = await request({ port, target: "/%2e%2e%5cpackage.json" });
   assert.equal(traversal.status, 403, "encoded static path traversal should be rejected");
 
   const index = await request({ port, target: "/" });
   assert.equal(index.status, 200, "static app should remain readable");
   assert.equal(index.headers["x-content-type-options"], "nosniff");
+  assert.match(index.headers["content-security-policy"] || "", /frame-ancestors 'none'/);
 
   await request({
     port,
@@ -189,5 +221,38 @@ try {
 }
 
 assert.equal(/test-control-token/.test(stdout + stderr), false, "server output must not print the control token");
+
+const remotePort = await freePort();
+const remoteRuntimeDir = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-control-remote-runtime-"));
+const remoteLogDir = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-control-remote-logs-"));
+const remoteChild = spawn(process.execPath, ["imagebot-control-server.js"], {
+  cwd: repoRoot,
+  env: {
+    ...process.env,
+    IMAGEBOT_CONTROL_HOST: "0.0.0.0",
+    IMAGEBOT_CONTROL_PORT: String(remotePort),
+    IMAGEBOT_CONTROL_RUNTIME_DIR: remoteRuntimeDir,
+    IMAGEBOT_CONTROL_LOG_DIR: remoteLogDir,
+    IMAGEBOT_CONTROL_TOKEN: token
+  },
+  stdio: ["ignore", "pipe", "pipe"]
+});
+let remoteStdout = "";
+let remoteStderr = "";
+remoteChild.stdout.on("data", (chunk) => {
+  remoteStdout += chunk.toString("utf8");
+});
+remoteChild.stderr.on("data", (chunk) => {
+  remoteStderr += chunk.toString("utf8");
+});
+try {
+  const exited = await waitForExit(remoteChild);
+  assert.notEqual(exited.code, 0, "non-loopback control host should be rejected by default");
+  assert.match(remoteStdout + remoteStderr, /loopback|IMAGEBOT_CONTROL_ALLOW_REMOTE/);
+} finally {
+  remoteChild.kill();
+  await fs.rm(remoteRuntimeDir, { recursive: true, force: true });
+  await fs.rm(remoteLogDir, { recursive: true, force: true });
+}
 
 console.log("control server auth tests passed");

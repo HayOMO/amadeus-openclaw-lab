@@ -56,7 +56,9 @@ assert.equal(__testing.accountBrowserActionProfile([{ type: "click_text" }]).tie
 assert.equal(__testing.classifyBrowserRiskPage(weiboPlatform, "https://passport.weibo.com/sso/signin", ""), "login_redirect");
 assert.equal(__testing.classifyBrowserRiskPage(weiboPlatform, "https://s.weibo.com/weibo", "请完成验证码"), "verification_or_risk_wall");
 assert.ok(__testing.accountBrowserProfileDir({ storeDir }, weiboPlatform).endsWith(path.join("browser-profiles", "account", "weibo")));
-await assert.doesNotReject(() => __testing.assertBrowserRequestUrlAllowed("https://example.com/"));
+await assert.doesNotReject(() => __testing.assertBrowserRequestUrlAllowed("https://example.com/", new Map(), {
+  dnsLookup: async () => [{ address: "93.184.216.34", family: 4 }]
+}));
 await assert.rejects(() => __testing.assertBrowserRequestUrlAllowed("http://127.0.0.1/private"), /private|internal/i);
 await assert.rejects(() => __testing.assertBrowserRequestUrlAllowed("file:///%USERPROFILE%/.ssh/id_rsa"), /scheme is blocked/i);
 

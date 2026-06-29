@@ -65,6 +65,9 @@ plugin.register({
     storeDir,
     maxBytes: 10 * 1024 * 1024,
     maxDurationSeconds: 120,
+    publicNetworkGuard: {
+      dnsLookup: async () => [{ address: "93.184.216.34", family: 4 }]
+    },
     backgroundJobs: { storeDir: backgroundStoreDir, maxConcurrent: 2 }
   },
   registerTool(tool, meta) {
@@ -132,11 +135,11 @@ assert.match(account.content[0].text, /account_placeholder/);
 
 await assert.rejects(
   () => __testing.assertPublicUrl("http://127.0.0.1/video"),
-  /private|localhost|internal/i
+  /private|localhost|internal|public http\/https/i
 );
 await assert.rejects(
   () => __testing.assertPublicUrl("http://198.18.0.1/video"),
-  /private|localhost|internal/i
+  /private|localhost|internal|public http\/https/i
 );
 
 assert.equal(

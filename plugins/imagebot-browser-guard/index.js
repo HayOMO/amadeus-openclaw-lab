@@ -1,6 +1,10 @@
 import os from "node:os";
 import path from "node:path";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
+import {
+  assertPublicHostname,
+  isBlockedHostname
+} from "../imagebot-shared/public-network-guard.mjs";
 
 const DEFAULT_ALLOWED_PROFILES = ["openclaw"];
 const WINDOWS_PATH_RE = /^[A-Za-z]:[\\/]/;
@@ -91,28 +95,6 @@ function collectStringValues(value, found = []) {
   return found;
 }
 
-function isPrivateIpv4(hostname) {
-  const parts = hostname.split(".").map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
-    return false;
-  }
-  const [a, b] = parts;
-  return a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    a === 169 && b === 254 ||
-    a === 172 && b >= 16 && b <= 31 ||
-    a === 192 && b === 168;
-}
-
-function isBlockedHostname(hostname) {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (!host) return true;
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
-  if (host === "::1" || host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd")) return true;
-  return isPrivateIpv4(host);
-}
-
 function isLocalPathLike(raw) {
   const value = normalizeString(raw);
   return WINDOWS_PATH_RE.test(value) || UNC_PATH_RE.test(value) || value.toLowerCase().startsWith("file://");
@@ -127,7 +109,7 @@ function isAllowedLocalPath(raw, allowedRoots) {
   return allowedRoots.some((root) => normalized === root || normalized.startsWith(`${root}\\`));
 }
 
-function findUnsafeStrings(params, allowedRoots) {
+async function findUnsafeStrings(params, allowedRoots, networkGuardOptions = {}) {
   const strings = collectStringValues(params);
   const violations = [];
   for (const raw of strings) {
@@ -151,6 +133,11 @@ function findUnsafeStrings(params, allowedRoots) {
     try {
       const parsed = new URL(value);
       if (isBlockedHostname(parsed.hostname)) violations.push(`url:${value}`);
+      else {
+        await assertPublicHostname(parsed.hostname, networkGuardOptions).catch(() => {
+          violations.push(`url:${value}`);
+        });
+      }
     } catch {
       violations.push(`url:${value}`);
     }
@@ -184,6 +171,7 @@ export default {
       const pluginConfig = event?.context?.pluginConfig ?? api.config;
       const allowedProfiles = normalizeAllowedProfiles(pluginConfig);
       const allowedRoots = normalizeAllowedPathPrefixes(pluginConfig);
+      const networkGuardOptions = isRecord(pluginConfig?.publicNetworkGuard) ? pluginConfig.publicNetworkGuard : {};
       const requestedProfiles = collectProfileValues(event.params).map((entry) => normalizeProfileName(entry));
       const disallowedProfile = requestedProfiles.find((entry) => entry && !allowedProfiles.includes(entry));
       if (disallowedProfile) {
@@ -201,7 +189,7 @@ export default {
       }
 
       const adjustedParams = withDefaultProfile(event.params, allowedProfiles[0]);
-      const violations = findUnsafeStrings(adjustedParams, allowedRoots);
+      const violations = await findUnsafeStrings(adjustedParams, allowedRoots, networkGuardOptions);
       if (violations.length > 0) {
         return {
           block: true,

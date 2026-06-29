@@ -480,15 +480,15 @@ const copiedDryRun = await tools.get("sticker_pack").execute("copy-set-dry-run",
 assert.equal(copiedDryRun.details.status, "copy_dry_run");
 assert.equal(copiedDryRun.details.dryRun, true);
 
-const copiedDirect = await tools.get("sticker_pack").execute("copy-set-direct", {
+const copiedWithoutDirectOptIn = await tools.get("sticker_pack").execute("copy-set-no-direct-opt-in", {
   action: "copy_set",
   sourceSet: "mixed_source",
   userId: "12345",
   name: "mixed copy",
   dryRun: false
 }, undefined, undefined, ownerCtx);
-assert.equal(copiedDirect.details.status, "copied");
-assert.equal(copiedDirect.details.dryRun, false);
+assert.equal(copiedWithoutDirectOptIn.details.status, "failed");
+assert.match(copiedWithoutDirectOptIn.details.error, /plan_id|trusted runtime|trustedDirectMutations/);
 
 const uploaded = await tools.get("sticker_pack").execute("upload", {
   action: "upload",
@@ -561,8 +561,8 @@ const uploadedLegacyFlag = await tools.get("sticker_pack").execute("upload-legac
   dryRun: false,
   directUploadApproved: true
 }, undefined, undefined, ownerCtx);
-assert.equal(uploadedLegacyFlag.details.status, "ok");
-assert.equal(uploadedLegacyFlag.details.dryRun, false);
+assert.equal(uploadedLegacyFlag.details.status, "failed");
+assert.match(uploadedLegacyFlag.details.error, /model-supplied approval flags|trustedDirectMutations/);
 
 const uploadedMissingContext = await tools.get("sticker_pack").execute("upload-missing-context", {
   action: "upload",
@@ -647,7 +647,7 @@ assert.equal(createOwnerMismatch.details.status, "failed");
 assert.match(createOwnerMismatch.details.error, /owner-check/);
 
 const uploadCallCount = calls.filter((call) => call.url.endsWith("/uploadStickerFile")).length;
-assert.equal(uploadCallCount, 2);
+assert.equal(uploadCallCount, 1);
 
 const stickerTool = tools.get("sticker_pack");
 const originalStickerToolConfig = stickerTool.config;

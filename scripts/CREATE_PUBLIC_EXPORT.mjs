@@ -81,9 +81,13 @@ async function ensureCleanOutDir() {
   }
   if (fsSync.existsSync(outDir)) {
     if (!force) throw new Error(`output directory exists; pass --force to replace it: ${outDir}`);
-    await fs.rm(outDir, { recursive: true, force: true });
+    for (const entry of await fs.readdir(outDir)) {
+      if (entry === ".git") continue;
+      await fs.rm(path.join(outDir, entry), { recursive: true, force: true });
+    }
+  } else {
+    await fs.mkdir(outDir, { recursive: true });
   }
-  await fs.mkdir(outDir, { recursive: true });
 }
 
 async function copyFile(relativePath) {

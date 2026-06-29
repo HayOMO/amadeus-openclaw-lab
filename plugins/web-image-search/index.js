@@ -5,6 +5,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
 import { withEphemeralPage } from "../imagebot-shared/browser-context-pool.js";
+import {
+  assertPublicUrl,
+  installBrowserNetworkGuard,
+  normalizePublicHttpUrl
+} from "../imagebot-shared/public-network-guard.mjs";
 
 const IMAGE_TOOL_NAME = "web_image_search";
 const TEXT_TOOL_NAME = "web_text_search";
@@ -194,47 +199,8 @@ function extractVqd(html) {
   return "";
 }
 
-function isBlockedHostname(hostname) {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
-    return true;
-  }
-  if (host === "::" || host === "::1" || host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd")) {
-    return true;
-  }
-  const parts = host.split(".").map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
-    return false;
-  }
-  const [a, b, c] = parts;
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    a === 100 && b >= 64 && b <= 127 ||
-    a === 169 && b === 254 ||
-    a === 172 && b >= 16 && b <= 31 ||
-    a === 192 && b === 0 && c === 0 ||
-    a === 192 && b === 0 && c === 2 ||
-    a === 192 && b === 168 ||
-    a === 198 && (b === 18 || b === 19) ||
-    a === 198 && b === 51 && c === 100 ||
-    a === 203 && b === 0 && c === 113 ||
-    a >= 224
-  );
-}
-
 function normalizeHttpUrl(raw) {
-  if (typeof raw !== "string" || !raw.trim()) return "";
-  try {
-    const trimmed = raw.trim();
-    const url = new URL(trimmed.startsWith("//") ? `https:${trimmed}` : trimmed);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return "";
-    if (isBlockedHostname(url.hostname)) return "";
-    return url.toString();
-  } catch {
-    return "";
-  }
+  return normalizePublicHttpUrl(raw);
 }
 
 function normalizeDuckDuckGoRedirect(raw) {
@@ -454,6 +420,7 @@ async function fetchImageWithRedirects(rawUrl, { signal, maxBytes, refererUrl })
   let currentUrl = normalizeDownloadUrl(rawUrl);
   if (!currentUrl) throw new Error("URL is not an allowed public http/https image URL");
   for (let redirectCount = 0; redirectCount <= DOWNLOAD_MAX_REDIRECTS; redirectCount++) {
+    currentUrl = (await assertPublicUrl(currentUrl)).toString();
     const request = timeoutSignal(signal, DOWNLOAD_REQUEST_TIMEOUT_MS);
     let response;
     try {
@@ -472,10 +439,10 @@ async function fetchImageWithRedirects(rawUrl, { signal, maxBytes, refererUrl })
     }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       if (redirectCount >= DOWNLOAD_MAX_REDIRECTS) throw new Error("too many redirects");
-      const location = response.headers.get("location");
-      const nextUrl = normalizeDownloadUrl(location || "", currentUrl);
-      if (!nextUrl) throw new Error("redirect target is not an allowed public image URL");
-      currentUrl = nextUrl;
+    const location = response.headers.get("location");
+    const nextUrl = normalizeDownloadUrl(location || "", currentUrl);
+    if (!nextUrl) throw new Error("redirect target is not an allowed public image URL");
+    currentUrl = nextUrl;
       continue;
     }
     if (!response.ok) throw new Error(`HTTP ${response.status} from ${new URL(currentUrl).hostname}`);
@@ -541,6 +508,7 @@ async function createBrowserDownloadSession(signal) {
     if (!warmUrl) return;
     const normalized = normalizeDownloadUrl(warmUrl);
     if (!normalized) return;
+    await assertPublicUrl(normalized);
     await page.goto(normalized, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {});
     if (!isDanbooruUrl(currentUrl)) await page.waitForTimeout(250).catch(() => {});
   }
@@ -548,6 +516,7 @@ async function createBrowserDownloadSession(signal) {
   async function fetchWithBrowser(rawUrl, { maxBytes, refererUrl }) {
     const currentUrl = normalizeDownloadUrl(rawUrl);
     if (!currentUrl) throw new Error("URL is not an allowed public http/https image URL");
+    await assertPublicUrl(currentUrl);
     throwIfAborted(signal);
     const referer = refererUrl || readDownloadReferer({ refererUrl }, currentUrl);
     return await withEphemeralPage({
@@ -570,6 +539,7 @@ async function createBrowserDownloadSession(signal) {
         acceptDownloads: false
       }
     }, async (page, context) => {
+      await installBrowserNetworkGuard(context);
       await warmReferer(page, currentUrl, referer);
       throwIfAborted(signal);
       const headers = {
@@ -581,7 +551,7 @@ async function createBrowserDownloadSession(signal) {
       try {
         const response = await context.request.get(currentUrl, {
           timeout: DOWNLOAD_BROWSER_TIMEOUT_MS,
-          maxRedirects: DOWNLOAD_MAX_REDIRECTS,
+          maxRedirects: 0,
           headers
         });
         const image = await readPlaywrightImageResponse(response, maxBytes, currentUrl);

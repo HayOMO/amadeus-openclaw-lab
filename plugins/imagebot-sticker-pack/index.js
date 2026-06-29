@@ -45,7 +45,7 @@ const SOURCE_SEARCH_REQUEST_TIMEOUT_MS = 15_000;
 const MANAGED_SET_REGISTRY_VERSION = 1;
 const TOOL_CONTEXT_TTL_MS = 10 * 60_000;
 const DIRECT_IMPORT_APPROVAL_ERROR =
-  "copy_set/import_set dryRun:false requires trusted current Telegram sender context; model-supplied approval flags are ignored.";
+  "copy_set/import_set dryRun:false requires plan_id, trusted runtime mutation approval, or explicitly enabled trustedDirectMutations; model-supplied approval flags are ignored.";
 const EXPOSED_STICKER_ACTIONS = [
   "plan",
   "prepare",
@@ -759,7 +759,8 @@ function allowsTrustedDirectMutation(config = {}, action = "", ctx = {}) {
   if (String(action || "").trim().toLowerCase() === "delete_sticker") return false;
   const raw = isRecord(config.trustedDirectMutations) ? config.trustedDirectMutations : {};
   const disabled = raw.enabled === false || config.allowTrustedDirectMutations === false;
-  if (disabled) return false;
+  const enabled = raw.enabled === true || config.allowTrustedDirectMutations === true;
+  if (disabled || !enabled) return false;
   if (!contextRequesterUserId(ctx)) return false;
   return trustedDirectMutationActions(config).has(String(action || "").trim().toLowerCase());
 }
@@ -1055,9 +1056,9 @@ async function requireDirectApproval(config = {}, params = {}, keys = [], label 
     throw new Error("delete_sticker dryRun:false requires an explicit delete confirmation plan_id or trusted runtime mutation approval");
   }
   if (hasLegacyFlag) {
-    throw new Error(`${label} dryRun:false ignores model-supplied approval flags (${keys.join(", ")}); trusted current Telegram sender context is required`);
+    throw new Error(`${label} dryRun:false ignores model-supplied approval flags (${keys.join(", ")}); use plan_id, trusted runtime mutation approval, or explicitly enabled trustedDirectMutations`);
   }
-  throw new Error(`${label} dryRun:false requires trusted current Telegram sender context`);
+  throw new Error(`${label} dryRun:false requires plan_id, trusted runtime mutation approval, or explicitly enabled trustedDirectMutations`);
 }
 
 let graphemeSegmenter = null;

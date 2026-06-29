@@ -2,10 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import dns from "node:dns/promises";
-import net from "node:net";
 import { createRequire } from "node:module";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
+import { assertPublicUrl as assertSharedPublicUrl } from "../imagebot-shared/public-network-guard.mjs";
 
 const TOOL_NAME = "public_video";
 const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
@@ -98,46 +97,9 @@ function normalizeUrl(raw) {
   return parsed;
 }
 
-function isPrivateIpv4(hostname) {
-  const parts = hostname.split(".").map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  const [a, b] = parts;
-  return a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    a === 169 && b === 254 ||
-    a === 172 && b >= 16 && b <= 31 ||
-    a === 192 && b === 168 ||
-    a === 100 && b >= 64 && b <= 127 ||
-    a === 198 && (b === 18 || b === 19) ||
-    a >= 224;
-}
-
-function isProxyFakeIpv4(hostname) {
-  const parts = hostname.split(".").map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  return parts[0] === 198 && (parts[1] === 18 || parts[1] === 19);
-}
-
-function isPrivateIpv6(hostname) {
-  const normalized = hostname.toLowerCase();
-  return normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80:");
-}
-
-async function assertPublicUrl(raw) {
+async function assertPublicUrl(raw, options = {}) {
   const parsed = normalizeUrl(raw);
-  const hostname = parsed.hostname;
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) throw new Error("localhost URLs are not allowed");
-  if (net.isIP(hostname)) {
-    if (net.isIPv4(hostname) && isPrivateIpv4(hostname)) throw new Error("private/internal IP URLs are not allowed");
-    if (net.isIPv6(hostname) && isPrivateIpv6(hostname)) throw new Error("private/internal IP URLs are not allowed");
-    return parsed;
-  }
-  const records = await dns.lookup(hostname, { all: true }).catch(() => []);
-  for (const record of records) {
-    if (net.isIPv4(record.address) && !isProxyFakeIpv4(record.address) && isPrivateIpv4(record.address)) throw new Error("URL resolved to a private/internal IP");
-    if (net.isIPv6(record.address) && isPrivateIpv6(record.address)) throw new Error("URL resolved to a private/internal IP");
-  }
+  await assertSharedPublicUrl(parsed.toString(), options);
   return parsed;
 }
 
@@ -176,7 +138,7 @@ async function writeJson(filePath, value) {
 }
 
 async function metadata(config = {}, params = {}) {
-  const parsed = await assertPublicUrl(readString(params, "url"));
+  const parsed = await assertPublicUrl(readString(params, "url"), config.publicNetworkGuard || {});
   const info = await runYtDlp(parsed.toString(), {
     dumpSingleJson: true,
     skipDownload: true,

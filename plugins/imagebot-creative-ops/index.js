@@ -345,7 +345,7 @@ function publicScript(script) {
     title: script.title,
     description: script.description,
     risk: script.risk,
-    requiresApproval: script.requiresApproval === true
+    requiresApproval: needsApproval(script)
   };
 }
 
@@ -372,7 +372,9 @@ function routeScripts(query, count = 5) {
 }
 
 function needsApproval(script) {
-  return script.requiresApproval === true || !["read", "local-write"].includes(script.risk);
+  if (script.requiresApproval === true) return true;
+  if (script.safeUnapproved === true) return false;
+  return script.risk !== "read";
 }
 
 function isMutatingScript(script) {

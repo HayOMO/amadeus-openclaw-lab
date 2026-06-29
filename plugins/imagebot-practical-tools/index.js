@@ -1,8 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import dns from "node:dns/promises";
-import net from "node:net";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
@@ -14,6 +12,12 @@ import {
   mutationScopeKey,
   trustedMutationContext
 } from "../imagebot-shared/mutation-authorization.mjs";
+import {
+  assertBrowserRequestUrlAllowed,
+  assertPublicHostname,
+  installBrowserNetworkGuard,
+  isPrivateIp
+} from "../imagebot-shared/public-network-guard.mjs";
 
 const WEB_SNAPSHOT_TOOL = "web_snapshot";
 const WEB_CARD_TOOL = "web_card";
@@ -588,55 +592,6 @@ function classifyBrowserRiskPage(platform, finalUrl = "", bodyText = "") {
   return "";
 }
 
-function isPrivateIpv4(hostname) {
-  const parts = hostname.split(".").map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  const [a, b] = parts;
-  return a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    a === 169 && b === 254 ||
-    a === 172 && b >= 16 && b <= 31 ||
-    a === 192 && b === 168 ||
-    a === 100 && b >= 64 && b <= 127 ||
-    a === 198 && (b === 18 || b === 19) ||
-    a >= 224;
-}
-
-function isProxyFakeIpv4(hostname) {
-  const parts = hostname.split(".").map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  const [a, b] = parts;
-  return a === 198 && (b === 18 || b === 19);
-}
-
-function isPrivateIp(address) {
-  const ipVersion = net.isIP(address);
-  if (ipVersion === 4) return isPrivateIpv4(address);
-  if (ipVersion === 6) {
-    const host = address.toLowerCase();
-    return host === "::1" || host === "::" || host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd");
-  }
-  return false;
-}
-
-async function assertPublicHostname(hostname) {
-  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
-  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
-    throw new Error("private/internal hostnames are blocked");
-  }
-  if (isPrivateIp(host)) throw new Error("private/internal IP addresses are blocked");
-  let addresses;
-  try {
-    addresses = await dns.lookup(host, { all: true, verbatim: false });
-  } catch (error) {
-    throw new Error(`DNS lookup failed for ${host}: ${error?.code || error?.message || error}`);
-  }
-  if (!addresses.length) throw new Error("DNS lookup returned no addresses");
-  const privateAddress = addresses.find((entry) => isPrivateIp(entry.address) && !isProxyFakeIpv4(entry.address));
-  if (privateAddress) throw new Error("URL resolves to a private/internal/special-use address");
-}
-
 async function resolveRedirects(startUrl, signal) {
   let current = normalizeUrlInput(startUrl);
   const chain = [];
@@ -708,8 +663,6 @@ function commandPath(moduleName) {
 let chromiumPromise = null;
 let sharpPromise = null;
 const prewarmedBrowserPools = new Set();
-const guardedBrowserContexts = new WeakSet();
-
 async function getChromium() {
   if (!chromiumPromise) {
     chromiumPromise = Promise.resolve().then(() => {
@@ -778,37 +731,6 @@ function browserContextOptions({ viewport } = {}) {
     userAgent: USER_AGENT,
     acceptDownloads: false
   };
-}
-
-async function assertBrowserRequestUrlAllowed(rawUrl, cache = new Map()) {
-  let url;
-  try {
-    url = new URL(String(rawUrl || ""));
-  } catch {
-    throw new Error("browser request URL is invalid");
-  }
-  if (["about:", "data:", "blob:"].includes(url.protocol)) return true;
-  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error(`browser request scheme is blocked: ${url.protocol}`);
-  const hostKey = url.hostname.toLowerCase();
-  if (!cache.has(hostKey)) {
-    cache.set(hostKey, assertPublicHostname(url.hostname).then(() => true));
-  }
-  await cache.get(hostKey);
-  return true;
-}
-
-async function installBrowserNetworkGuard(context) {
-  if (guardedBrowserContexts.has(context)) return;
-  guardedBrowserContexts.add(context);
-  const cache = new Map();
-  await context.route("**/*", async (route) => {
-    try {
-      await assertBrowserRequestUrlAllowed(route.request().url(), cache);
-      await route.continue();
-    } catch {
-      await route.abort("blockedbyclient").catch(() => {});
-    }
-  });
 }
 
 async function withWebSnapshotPage({ config, chromium, executablePath, accountPlatform, viewport, pool, signal }, fn) {
