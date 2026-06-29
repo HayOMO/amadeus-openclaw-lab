@@ -83,8 +83,8 @@ const SCRIPT_REGISTRY = [
   {
     id: "backup_to_github",
     title: "Backup bot project to GitHub",
-    description: "Run the existing GitHub backup script. This can create commits/pushes depending on the script.",
-    risk: "network-write",
+    description: "Run the project backup script. It creates a local commit by default; network push requires an explicit operator shell run with -Push.",
+    risk: "local-write",
     script: "scripts/BACKUP_IMAGEBOT_TO_GITHUB.ps1",
     requiresApproval: true,
     timeoutMs: 180_000,

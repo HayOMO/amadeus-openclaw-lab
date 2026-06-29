@@ -3,6 +3,7 @@ param(
   [string]$Branch = "",
   [string]$Message = "",
   [switch]$DryRun,
+  [switch]$Push,
   [switch]$NoPush,
   [switch]$SkipMemoryExport
 )
@@ -110,6 +111,10 @@ $allowPaths = @(
 Write-Log "Starting imagebot GitHub backup."
 Invoke-Git rev-parse --is-inside-work-tree *> $null
 
+if ($Push -and $NoPush) {
+  throw "Use either -Push or -NoPush, not both."
+}
+
 if (-not $Branch) {
   $Branch = Get-CurrentBranch
 }
@@ -118,8 +123,14 @@ $remoteUrl = (& git remote get-url $Remote 2>$null).Trim()
 if (-not $remoteUrl) {
   throw "Git remote '$Remote' is not configured."
 }
+$pushUrl = (& git remote get-url --push $Remote 2>$null).Trim()
 Write-Log "Remote: $Remote ($remoteUrl)"
+Write-Log "Push remote: $pushUrl"
 Write-Log "Branch: $Branch"
+
+if ($Push -and $pushUrl -match "^DISABLED_") {
+  throw "Push is explicitly disabled for remote '$Remote'. Re-enable the push URL intentionally before using -Push."
+}
 
 if (-not $SkipMemoryExport) {
   Write-Log "Memory contents are local-only and are not exported or staged for GitHub."
@@ -153,8 +164,10 @@ if (-not $Message) {
 }
 
 Invoke-Git commit -m $Message
-if (-not $NoPush) {
+if ($Push) {
   Invoke-Git push -u $Remote $Branch
+} else {
+  Write-Log "Push skipped by default. Pass -Push explicitly after reviewing the remote and staged diff."
 }
 
 Write-Log "Backup complete."

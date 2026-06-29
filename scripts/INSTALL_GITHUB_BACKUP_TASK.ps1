@@ -21,7 +21,7 @@ if (-not (Test-Path -LiteralPath $BackupScript)) {
 
 $action = New-ScheduledTaskAction `
   -Execute "powershell.exe" `
-  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$BackupScript`""
+  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$BackupScript`" -NoPush"
 
 $trigger = New-ScheduledTaskTrigger -Daily -At $At
 $settings = New-ScheduledTaskSettingsSet `
@@ -35,7 +35,7 @@ Register-ScheduledTask `
   -Action $action `
   -Trigger $trigger `
   -Settings $settings `
-  -Description "Commits and pushes the Amaduse imagebot repo to GitHub with a whitelist and token scan." `
+  -Description "Creates a local Amaduse imagebot backup commit with a whitelist and token scan. Push is manual." `
   -Force | Out-Null
 
 Write-Host "Installed scheduled task: $TaskName"

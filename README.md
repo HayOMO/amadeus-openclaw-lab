@@ -315,11 +315,15 @@ npm run test:all
 npm run test:patches
 ```
 
-Back up the reproducible repo state to the configured GitHub remote:
+Create a local backup commit for the reproducible repo state without pushing:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\BACKUP_IMAGEBOT_TO_GITHUB.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\BACKUP_IMAGEBOT_TO_GITHUB.ps1 -NoPush
 ```
+
+The backup script skips push by default. Use `-Push` only after checking the
+remote and staged diff; private source-tree push URLs should stay disabled
+unless you intentionally re-enable them for a manual publish.
 
 Memory contents are intentionally not synced to GitHub. The local memory export path is ignored by Git, so opening the repository later cannot accidentally publish group memory.
 

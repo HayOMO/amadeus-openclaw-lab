@@ -137,7 +137,7 @@
       "kind": "script",
       "tool": "script_action",
       "menu": false,
-      "notes": "memory => export_memory_backup. github => backup_to_github and requires approval."
+      "notes": "memory => export_memory_backup. github => backup_to_github creates a local commit by default; network push is manual and outside normal chat flow."
     },
     {
       "command": "amarchive",

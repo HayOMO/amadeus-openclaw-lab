@@ -131,6 +131,21 @@ assert.match(
   /upstream 'Runtime: stopped' line can refer to the optional OpenClaw service\/runtime state/,
   "status script must explain OpenClaw's optional Runtime line so launcher-managed gateway state is not misread",
 );
+const backupScript = await fs.readFile(path.join(repoRoot, "scripts", "BACKUP_IMAGEBOT_TO_GITHUB.ps1"), "utf8");
+assert.match(backupScript, /\[switch\]\$Push/, "GitHub backup script must require an explicit -Push switch for network push");
+assert.match(backupScript, /Push skipped by default/, "GitHub backup script must skip push by default");
+assert.match(backupScript, /git remote get-url --push \$Remote/, "GitHub backup script must inspect the push URL before pushing");
+assert.doesNotMatch(
+  backupScript,
+  /if\s*\(\s*-not\s+\$NoPush\s*\)\s*\{\s*Invoke-Git push/s,
+  "GitHub backup script must not push by default when -NoPush is omitted",
+);
+const backupTaskScript = await fs.readFile(path.join(repoRoot, "scripts", "INSTALL_GITHUB_BACKUP_TASK.ps1"), "utf8");
+assert.match(
+  backupTaskScript,
+  /-File `"\$BackupScript`"\s+-NoPush/,
+  "scheduled GitHub backup task must install with -NoPush",
+);
 
 for (const entrypoint of ["imagebot-launcher.js", "imagebot-control-server.js"]) {
   const result = execFileSync(
