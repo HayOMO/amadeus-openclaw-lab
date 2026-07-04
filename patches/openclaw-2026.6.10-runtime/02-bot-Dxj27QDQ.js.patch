@@ -2115,7 +2115,7 @@ index 007b738..324f48a 100644
 +	if (!windowEntry || windowEntry.windowId !== params.window.windowId) return;
 +	appendTelegramImagebotWindowRecent(windowEntry, {
 +		role: "bot",
-+		sender: "YOUR_BOT_USERNAME",
++		sender: "imagebot",
 +		text: params.content || "[media or empty reply]"
 +	});
 +	windowEntry.lastActivityAt = new Date().toISOString();

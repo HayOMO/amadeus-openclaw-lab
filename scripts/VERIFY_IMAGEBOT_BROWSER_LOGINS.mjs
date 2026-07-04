@@ -4,6 +4,7 @@ import path from "node:path";
 import sqlite3 from "node:sqlite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { resolveOpenClawMain } from "./OPENCLAW_RUNTIME_PATHS.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
@@ -82,7 +83,7 @@ function requireRuntimeModule(moduleName) {
   const candidates = [
     process.env.OPENCLAW_RUNTIME_MAIN,
     path.join(path.dirname(process.execPath), "node_modules", "openclaw", "openclaw.mjs"),
-    "C:\\Users\\Bot\\AppData\\Local\\Microsoft\\WinGet\\Packages\\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\\node-v24.15.0-win-x64\\node_modules\\openclaw\\openclaw.mjs"
+    resolveOpenClawMain()
   ].filter(Boolean);
   for (const candidate of candidates) {
     try {

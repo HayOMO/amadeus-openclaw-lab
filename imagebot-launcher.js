@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -12,6 +13,7 @@ const SERVER_LOG = path.join(LOG_DIR, "imagebot-control-server.log");
 const APP_ORIGIN = "http://127.0.0.1:18788";
 const APP_URL = `${APP_ORIGIN}/`;
 const TOKEN_FILE = path.join(RUNTIME_DIR, "imagebot-control-server.token");
+const BOOTSTRAP_FILE = path.join(RUNTIME_DIR, "imagebot-control-bootstrap.json");
 
 fs.mkdirSync(RUNTIME_DIR, { recursive: true });
 fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -84,15 +86,21 @@ function resolveEdge() {
   ]);
 }
 
-function appUrlWithToken() {
-  const token = readControlToken();
-  if (!token) throw new Error(`Control token not found: ${TOKEN_FILE}`);
-  return `${APP_URL}#token=${encodeURIComponent(token)}`;
+function createBootstrapToken() {
+  const nonce = randomBytes(32).toString("hex");
+  fs.mkdirSync(path.dirname(BOOTSTRAP_FILE), { recursive: true });
+  fs.writeFileSync(BOOTSTRAP_FILE, JSON.stringify({ nonce, createdAt: Date.now() }), { encoding: "utf8", mode: 0o600 });
+  return nonce;
+}
+
+function appUrlWithBootstrap() {
+  if (!readControlToken()) throw new Error(`Control token not found: ${TOKEN_FILE}`);
+  return `${APP_URL}#bootstrap=${encodeURIComponent(createBootstrapToken())}`;
 }
 
 function openAppWindow() {
   const edge = resolveEdge();
-  const url = appUrlWithToken();
+  const url = appUrlWithBootstrap();
   if (edge) {
     const child = spawn(edge, [`--app=${url}`, "--window-size=1180,760"], {
       detached: true,

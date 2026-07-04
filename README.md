@@ -179,8 +179,10 @@ model run just to switch.
 `config\imagebot\model-state.json` is the repository default seed. Mutable
 chat-side model state lives outside git at
 `~\.openclaw\imagebot\model-state.json` (override with
-`OPENCLAW_IMAGEBOT_MODEL_STATE_FILE` only for tests/repairs). `/ammodel` and
-`SET_IMAGEBOT_MODEL_MODE.ps1` write the local state file so ordinary model
+`OPENCLAW_IMAGEBOT_MODEL_STATE_FILE` only for tests/repairs). Generated runtime
+config reads that local state first, then falls back to the tracked seed;
+template/public builds can pass `--template` to use only the seed. `/ammodel`
+and `SET_IMAGEBOT_MODEL_MODE.ps1` write the local state file so ordinary model
 experiments do not dirty the checkout.
 
 Chat model fallbacks are configured by `config\imagebot\settings.json` under

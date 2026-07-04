@@ -40,6 +40,23 @@ function statePath(...parts) {
   return path.join(os.homedir(), ".openclaw", ...parts);
 }
 
+function runtimeModelStatePath() {
+  const configured = String(process.env.OPENCLAW_IMAGEBOT_MODEL_STATE_FILE || "").trim();
+  return configured ? path.resolve(configured) : statePath("imagebot", "model-state.json");
+}
+
+async function readModelState({ template = false } = {}) {
+  const repoSeed = repoPath("config", "imagebot", "model-state.json");
+  if (template || process.env.IMAGEBOT_CONFIG_TEMPLATE === "1") {
+    return readOptionalJson(repoSeed, {});
+  }
+  const runtimeState = await readOptionalJson(runtimeModelStatePath(), null);
+  if (runtimeState && typeof runtimeState === "object" && !Array.isArray(runtimeState)) {
+    return runtimeState;
+  }
+  return readOptionalJson(repoSeed, {});
+}
+
 function findCodexPluginPath() {
   const root = statePath("npm", "projects");
   if (!fsSync.existsSync(root)) return null;
@@ -809,10 +826,10 @@ async function writeJson(file, value) {
   await fs.writeFile(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-export async function buildImagebotConfig({ write = false } = {}) {
+export async function buildImagebotConfig({ write = false, template = false } = {}) {
   const settingsPath = repoPath("config", "imagebot", "settings.json");
   const settings = await readJson(settingsPath);
-  const modelState = await readOptionalJson(repoPath("config", "imagebot", "model-state.json"), {});
+  const modelState = await readModelState({ template });
   const modelCatalog = await readOptionalJson(repoPath("scripts", "IMAGEBOT_MODEL_PROFILES.json"), {});
   settings.modelState = modelState;
   settings.modelCatalog = modelCatalog;
@@ -848,9 +865,11 @@ export async function buildImagebotConfig({ write = false } = {}) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const write = process.argv.includes("--write");
-  const result = await buildImagebotConfig({ write });
+  const template = process.argv.includes("--template");
+  const result = await buildImagebotConfig({ write, template });
   const summary = {
     write,
+    template,
     configOps: result.configOps.length,
     promptOps: result.promptOps.length,
     promptChars: result.prompt.length,

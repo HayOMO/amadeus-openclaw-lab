@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildImagebotConfig } from "./BUILD_IMAGEBOT_CONFIG.mjs";
@@ -7,7 +8,7 @@ import { buildImagebotConfig } from "./BUILD_IMAGEBOT_CONFIG.mjs";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 
-const result = await buildImagebotConfig({ write: false });
+const result = await buildImagebotConfig({ write: false, template: true });
 const { settings, prompt, configOps, promptOps } = result;
 
 assert.ok(settings.groupIds.includes(settings.mainGroupId), "main group id must be in groupIds");
@@ -163,6 +164,49 @@ assert.deepEqual(agentModelOp.value, {
   primary: "openai/gpt-5.5",
   fallbacks: expectedChatFallbacks,
 });
+
+const modelStateTempDir = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-model-state-"));
+const previousModelStateFile = process.env.OPENCLAW_IMAGEBOT_MODEL_STATE_FILE;
+try {
+  const runtimeModelStatePath = path.join(modelStateTempDir, "model-state.json");
+  await fs.writeFile(
+    runtimeModelStatePath,
+    `${JSON.stringify({ model: "deepseek/deepseek-v4-flash", reasoningEffort: "low", textVerbosity: "high" }, null, 2)}\n`,
+    "utf8",
+  );
+  process.env.OPENCLAW_IMAGEBOT_MODEL_STATE_FILE = runtimeModelStatePath;
+  const runtimeStateResult = await buildImagebotConfig({ write: false });
+  assert.deepEqual(
+    runtimeStateResult.configOps.find((item) => item.path === "agents.defaults.model")?.value,
+    { primary: "deepseek/deepseek-v4-flash", fallbacks: ["deepseek/deepseek-v4-pro"] },
+    "config build should prefer mutable runtime model-state over the tracked seed",
+  );
+  assert.equal(
+    runtimeStateResult.configOps.find((item) => item.path === "agents.list[0].params.reasoningEffort")?.value,
+    "low",
+    "runtime model-state should control reasoning effort",
+  );
+  assert.equal(
+    runtimeStateResult.configOps.find((item) => item.path === "agents.list[0].params.textVerbosity")?.value,
+    "high",
+    "runtime model-state should control text verbosity",
+  );
+
+  const templateResult = await buildImagebotConfig({ write: false, template: true });
+  assert.deepEqual(
+    templateResult.configOps.find((item) => item.path === "agents.defaults.model")?.value,
+    { primary: "openai/gpt-5.5", fallbacks: expectedChatFallbacks },
+    "template/public builds should keep using the tracked seed model-state",
+  );
+} finally {
+  if (previousModelStateFile === undefined) {
+    delete process.env.OPENCLAW_IMAGEBOT_MODEL_STATE_FILE;
+  } else {
+    process.env.OPENCLAW_IMAGEBOT_MODEL_STATE_FILE = previousModelStateFile;
+  }
+  await fs.rm(modelStateTempDir, { recursive: true, force: true });
+}
+
 const setModelScript = await fs.readFile(path.join(repoRoot, "scripts", "SET_IMAGEBOT_MODEL_MODE.ps1"), "utf8");
 assert.match(setModelScript, /\$chatModelConfig = @\{\s+primary = \$effectiveModel\s+fallbacks = \$effectiveFallbacks\s+\}/s);
 assert.doesNotMatch(setModelScript, /agents\.defaults\.model\.primary/);

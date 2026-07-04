@@ -18,7 +18,7 @@ if (-not (Test-Path -LiteralPath $PluginRoot)) {
 function Test-HasDependencies {
   param([object]$PackageJson)
 
-  foreach ($field in @("dependencies", "optionalDependencies")) {
+  foreach ($field in @("dependencies", "optionalDependencies", "peerDependencies")) {
     $value = $PackageJson.$field
     if ($value -and $value.PSObject.Properties.Count -gt 0) {
       return $true

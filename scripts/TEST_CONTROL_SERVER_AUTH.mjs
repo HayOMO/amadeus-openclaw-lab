@@ -117,6 +117,28 @@ try {
 
   assert.equal((await fs.readFile(path.join(runtimeDir, "imagebot-control-server.token"), "utf8")).trim(), token);
 
+  const bootstrap = "test-bootstrap-nonce-0123456789abcdef0123456789abcdef";
+  await fs.writeFile(path.join(runtimeDir, "imagebot-control-bootstrap.json"), JSON.stringify({ nonce: bootstrap, createdAt: Date.now() }), "utf8");
+  const bootstrapResponse = await request({
+    port,
+    method: "POST",
+    target: "/api/bootstrap",
+    origin: `http://127.0.0.1:${port}`,
+    contentType: "application/json",
+    body: JSON.stringify({ bootstrap })
+  });
+  assert.equal(bootstrapResponse.status, 200, "bootstrap nonce should exchange for the control token once");
+  assert.equal(JSON.parse(bootstrapResponse.body).token, token);
+  const replayBootstrap = await request({
+    port,
+    method: "POST",
+    target: "/api/bootstrap",
+    origin: `http://127.0.0.1:${port}`,
+    contentType: "application/json",
+    body: JSON.stringify({ bootstrap })
+  });
+  assert.equal(replayBootstrap.status, 401, "bootstrap nonce should be one-use");
+
   const noToken = await request({ port, target: "/api/ping" });
   assert.equal(noToken.status, 401, "API ping should require a token");
 
@@ -135,9 +157,20 @@ try {
   assert.equal(okPing.headers["cross-origin-opener-policy"], "same-origin");
   assert.equal(okPing.headers["cross-origin-embedder-policy"], "require-corp");
 
+  const gatewayLog = path.join(logDir, "imagebot-gateway-large.log");
+  const fillerLine = `old line ${"x".repeat(220)}`;
+  await fs.writeFile(
+    gatewayLog,
+    `${Array.from({ length: 4096 }, (_, index) => `${fillerLine} ${index}`).join("\n")}\n[gateway] ready\n[gateway] agent model: openai/gpt-5.5\nlast status marker\n`,
+    "utf8",
+  );
+  await fs.writeFile(path.join(runtimeDir, "imagebot-gateway.logpath"), gatewayLog, "utf8");
+
   const statusResponse = await request({ port, target: "/api/status", token });
   assert.equal(statusResponse.status, 200);
   const status = JSON.parse(statusResponse.body);
+  assert.equal(status.lastLine, "last status marker", "status should read the newest log line from a large log file");
+  assert.equal(status.model, "openai/gpt-5.5", "status should parse model info from the bounded log tail");
   assert.equal(status.logsRedacted, true);
   assert.equal(Object.hasOwn(status, "root"), false, "status must not expose repo root");
   assert.equal(Object.hasOwn(status, "logPath"), false, "status must not expose absolute log path");
@@ -224,6 +257,11 @@ try {
 }
 
 assert.equal(/test-control-token/.test(stdout + stderr), false, "server output must not print the control token");
+const launcherSource = await fs.readFile(path.join(repoRoot, "imagebot-launcher.js"), "utf8");
+assert.match(launcherSource, /#bootstrap=/, "launcher should put only a one-use bootstrap nonce in the browser URL");
+assert.doesNotMatch(launcherSource, /#token=/, "launcher must not put the long-lived control token in the browser URL");
+const panelSource = await fs.readFile(path.join(repoRoot, "app", "app.js"), "utf8");
+assert.match(panelSource, /\/api\/bootstrap/, "panel should exchange the bootstrap nonce for the control token");
 
 const remotePort = await freePort();
 const remoteRuntimeDir = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-control-remote-runtime-"));

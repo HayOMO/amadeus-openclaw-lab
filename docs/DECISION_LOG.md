@@ -129,7 +129,9 @@ Reason:
 - New imagebot windows otherwise fall back to `agents.list[0].model`, which can
   drift after experiments.
 - Keeping mutable model state outside the repository prevents ordinary Telegram
-  model experiments from dirtying the checkout or being accidentally committed.
+  model changes from dirtying the checkout.
+- The config builder reads the local state before the tracked seed for runtime
+  builds, while template/public builds can explicitly use the seed-only path.
 - Keeping a tracked seed lets fresh checkouts and rebuilds start from a known
   default when no local state exists.
 

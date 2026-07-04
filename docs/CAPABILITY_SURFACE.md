@@ -20,8 +20,11 @@ The action-level architecture contract lives in
   to a native-vision model such as `openai/gpt-5.5`, images are delivered to
   that model directly and the separate `image` understanding tool is skipped.
   If the current model is text-only, such as DeepSeek V4 Flash/Pro, the runtime
-  first uses the configured `agents.defaults.imageModel` route
+  first uses the configured `agents.defaults.imageModel` vision route
   (`openai/gpt-5.5`) to convert images into textual context for the chat model.
+  Image creation/editing is configured separately through
+  `agents.defaults.imageGenerationModel`; do not treat `imageModel` as the
+  generation model.
 - OpenAI is the active chat/image provider. DeepSeek provider registration and
   `ds-fast` / `ds-pro` model profiles are supported, but registering the key
   does not switch the default model by itself.

@@ -8,20 +8,11 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import vm from "node:vm";
 import { buildImagebotConfig } from "./BUILD_IMAGEBOT_CONFIG.mjs";
+import { resolveOpenClawDistDir } from "./OPENCLAW_RUNTIME_PATHS.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
-const distDir = path.join(
-  process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"),
-  "Microsoft",
-  "WinGet",
-  "Packages",
-  "OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe",
-  "node-v24.15.0-win-x64",
-  "node_modules",
-  "openclaw",
-  "dist",
-);
+const distDir = resolveOpenClawDistDir();
 
 async function readDistFile(prefix, marker) {
   const names = await fsp.readdir(distDir);

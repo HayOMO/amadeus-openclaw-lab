@@ -68,19 +68,36 @@ let modelCatalog = null;
 let suppressModelEvents = false;
 const CONTROL_TOKEN_STORAGE_KEY = "imagebot.controlToken";
 
-function readTokenFromHash() {
+function readHashParam(name) {
   const hash = window.location.hash || "";
-  if (!hash.includes("token=")) return "";
+  if (!hash.includes(`${name}=`)) return "";
   const params = new URLSearchParams(hash.slice(1));
-  return params.get("token") || "";
+  return params.get(name) || "";
 }
 
-let controlToken = readTokenFromHash() || sessionStorage.getItem(CONTROL_TOKEN_STORAGE_KEY) || "";
+const bootstrapToken = readHashParam("bootstrap");
+let controlToken = sessionStorage.getItem(CONTROL_TOKEN_STORAGE_KEY) || "";
 if (controlToken) {
   sessionStorage.setItem(CONTROL_TOKEN_STORAGE_KEY, controlToken);
-  if (window.location.hash.includes("token=")) {
-    history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+}
+if (bootstrapToken || window.location.hash.includes("token=")) {
+  history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+}
+
+async function exchangeBootstrapToken() {
+  if (!bootstrapToken) return;
+  const response = await fetch("/api/bootstrap", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ bootstrap: bootstrapToken })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.token) {
+    throw new Error(result.error || "Control bootstrap failed.");
   }
+  controlToken = result.token;
+  sessionStorage.setItem(CONTROL_TOKEN_STORAGE_KEY, controlToken);
 }
 
 async function apiFetch(path, options = {}) {
@@ -541,9 +558,18 @@ document.querySelectorAll(".filter-button").forEach(button => {
   });
 });
 
-refreshStatus();
-loadModelConfig();
-loadFeatureHealth();
+async function bootPanel() {
+  try {
+    await exchangeBootstrapToken();
+  } catch (error) {
+    elements.statusLine.textContent = error.message;
+  }
+  refreshStatus();
+  loadModelConfig();
+  loadFeatureHealth();
+}
+
+bootPanel();
 setInterval(() => {
   if (!busy) refreshStatus();
 }, 3000);

@@ -98,6 +98,9 @@ for (const file of workflowFiles) {
 const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, "package.json"), "utf8"));
 assert.ok(fileExists("package-lock.json"), "root package-lock.json must be tracked so npm ci has a reproducible root");
 assert.ok(isTracked("package-lock.json"), "root package-lock.json must be tracked so npm ci has a reproducible root");
+assert.ok(fileExists(".nvmrc"), "repo must pin the Node major version for local and CI setup");
+assert.equal((await fs.readFile(path.join(repoRoot, ".nvmrc"), "utf8")).trim(), "24", ".nvmrc should match the CI/OpenClaw runtime Node major");
+assert.equal(packageJson.engines?.node, ">=24 <25", "package.json should declare the supported Node runtime range");
 assert.ok(fileExists("requirements-test.txt"), "Python test dependency lock/range file must exist");
 assert.match(packageJson.scripts?.["setup:test"] || "", /requirements-test\.txt/, "package scripts should expose setup:test for Python test deps");
 for (const [name, command] of Object.entries(packageJson.scripts || {})) {
@@ -128,6 +131,13 @@ for (const entry of await fs.readdir(pluginRoot, { withFileTypes: true })) {
     );
   }
 }
+
+const pluginInstallScript = await fs.readFile(path.join(repoRoot, "scripts", "INSTALL_IMAGEBOT_PLUGIN_DEPS.ps1"), "utf8");
+assert.match(
+  pluginInstallScript,
+  /"dependencies",\s*"optionalDependencies",\s*"peerDependencies"/,
+  "plugin dependency installer must include peerDependencies just like audit/setup checks",
+);
 
 const readText = (relativePath) => fs.readFile(path.join(repoRoot, relativePath), "utf8");
 
@@ -219,8 +229,19 @@ for (const file of existingTrackedPosix) {
   const stat = await fs.stat(path.join(repoRoot, file));
   if (stat.size > 2 * 1024 * 1024) continue;
   const text = await fs.readFile(path.join(repoRoot, file), "utf8");
-  assert.doesNotMatch(text, /gho_[A-Za-z0-9_]{20,}/, `${file} appears to contain a GitHub token`);
-  assert.doesNotMatch(text, /(?<![A-Za-z0-9_])sk-[A-Za-z0-9_-]{32,}/, `${file} appears to contain an OpenAI-style API key`);
+  const secretPatterns = [
+    ["GitHub token", /\bgh[opsru]_[A-Za-z0-9_]{20,}\b/],
+    ["GitHub fine-grained token", /\bgithub_pat_[A-Za-z0-9_]{20,}\b/],
+    ["OpenAI/provider-style API key", /(?<![A-Za-z0-9_])sk-[A-Za-z0-9_-]{32,}/],
+    ["Telegram bot token", /\b\d{8,12}:[A-Za-z0-9_-]{35}\b/],
+    ["AWS access key id", /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
+    ["Google API key", /\bAIza[0-9A-Za-z_-]{35}\b/],
+    ["Slack token", /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/],
+    ["private key", /-----BEGIN (?:(?:RSA|DSA|EC|OPENSSH) )?PRIVATE KEY-----/],
+  ];
+  for (const [label, pattern] of secretPatterns) {
+    assert.doesNotMatch(text, pattern, `${file} appears to contain a ${label}`);
+  }
 }
 
 console.log("repo hygiene tests passed", {

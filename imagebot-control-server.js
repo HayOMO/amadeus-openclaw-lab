@@ -20,6 +20,8 @@ const PORT = normalizePort(process.env.IMAGEBOT_CONTROL_PORT, 18788);
 const GATEWAY_PORT = 18789;
 const TOKEN_HEADER = "x-imagebot-control-token";
 const TOKEN_FILE = path.join(RUNTIME_DIR, "imagebot-control-server.token");
+const BOOTSTRAP_FILE = path.join(RUNTIME_DIR, "imagebot-control-bootstrap.json");
+const BOOTSTRAP_MAX_AGE_MS = 2 * 60 * 1000;
 const CONTROL_TOKEN = resolveControlToken();
 const CONTROL_TOKEN_HASH = sha256Buffer(CONTROL_TOKEN);
 
@@ -132,6 +134,29 @@ function requestToken(req) {
 
 function validateApiAuth(req) {
   return safeTokenEqual(requestToken(req));
+}
+
+function consumeBootstrapToken(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  const record = readJsonFile(BOOTSTRAP_FILE, null);
+  const nonce = String(record?.nonce || "").trim();
+  const createdAt = Number(record?.createdAt || 0);
+  const fresh = Number.isFinite(createdAt) && Date.now() - createdAt <= BOOTSTRAP_MAX_AGE_MS;
+  if (!nonce || !fresh) return false;
+  const ok = safeTokenEqualForSecret(text, nonce);
+  if (ok) {
+    try {
+      fs.rmSync(BOOTSTRAP_FILE, { force: true });
+    } catch {}
+  }
+  return ok;
+}
+
+function safeTokenEqualForSecret(value, expected) {
+  const actualHash = sha256Buffer(value);
+  const expectedHash = sha256Buffer(expected);
+  return timingSafeEqual(actualHash, expectedHash);
 }
 
 function validatePostBoundary(req) {
@@ -361,11 +386,48 @@ function getPortOwners() {
   });
 }
 
-function readTail(filePath, maxLines = 90) {
+function bufferLooksUtf16Le(buffer) {
+  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) return true;
+  const sample = buffer.toString("utf8");
+  const nullCount = (sample.match(/\u0000/g) || []).length;
+  return sample.length > 0 && nullCount / sample.length > 0.08;
+}
+
+function readTail(filePath, maxLines = 90, maxBytes = 512 * 1024) {
   if (!filePath || !fs.existsSync(filePath)) {
     return [];
   }
-  const content = readText(filePath);
+  let content = "";
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile() || stat.size <= 0) return [];
+    const byteLimit = Math.max(4096, Math.floor(Number(maxBytes) || 512 * 1024));
+    if (stat.size <= byteLimit) {
+      content = readText(filePath);
+    } else {
+      const fd = fs.openSync(filePath, "r");
+      try {
+        const sampleLength = Math.min(4096, stat.size);
+        const sample = Buffer.alloc(sampleLength);
+        fs.readSync(fd, sample, 0, sampleLength, 0);
+        const isUtf16Le = bufferLooksUtf16Le(sample);
+        let start = stat.size - byteLimit;
+        if (isUtf16Le && start % 2 !== 0) start -= 1;
+        start = Math.max(isUtf16Le ? 2 : 0, start);
+        const length = stat.size - start;
+        const buffer = Buffer.alloc(length);
+        fs.readSync(fd, buffer, 0, length, start);
+        content = buffer.toString(isUtf16Le ? "utf16le" : "utf8").replace(/^\uFEFF/, "");
+        if (start > 0) {
+          content = content.replace(/^[^\n]*(?:\n|$)/, "");
+        }
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+  } catch {
+    return [];
+  }
   if (!content) {
     return [];
   }
@@ -690,6 +752,26 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${originHost(HOST)}:${PORT}`);
     if (!validateHost(req)) {
       writeError(res, 403, "Invalid Host header");
+      return;
+    }
+
+    if (url.pathname === "/api/bootstrap") {
+      if (req.method !== "POST") {
+        writeError(res, 405, "Bootstrap requires POST");
+        return;
+      }
+      const postBoundary = validatePostBoundary(req);
+      if (!postBoundary.ok) {
+        writeError(res, postBoundary.status, postBoundary.error);
+        return;
+      }
+      const raw = await readRequestBody(req);
+      const body = raw ? JSON.parse(raw) : {};
+      if (!consumeBootstrapToken(body.bootstrap)) {
+        writeError(res, 401, "Missing or invalid bootstrap token");
+        return;
+      }
+      writeJson(res, 200, { ok: true, token: CONTROL_TOKEN });
       return;
     }
 
