@@ -33,9 +33,32 @@ function runtimeRequireCandidates() {
     import.meta.url,
     path.join(repoRoot, "plugins", "imagebot-practical-tools", "index.js"),
     path.join(repoRoot, "plugins", "web-image-search", "index.js"),
-    path.join(path.dirname(process.execPath), "node_modules", "openclaw", "openclaw.mjs")
+    ...openClawRuntimeEntrypoints()
   ];
   return candidates.map((candidate) => createRequire(candidate));
+}
+
+function defaultOpenClawRuntimeRoot() {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+  return path.join(
+    localAppData,
+    "Microsoft",
+    "WinGet",
+    "Packages",
+    "OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe",
+    "node-v24.15.0-win-x64",
+    "node_modules",
+    "openclaw"
+  );
+}
+
+function openClawRuntimeEntrypoints() {
+  const roots = [
+    process.env.OPENCLAW_RUNTIME_ROOT,
+    defaultOpenClawRuntimeRoot(),
+    path.join(path.dirname(process.execPath), "node_modules", "openclaw")
+  ].filter(Boolean);
+  return roots.map((root) => path.join(root, "openclaw.mjs"));
 }
 
 function requireRuntimeModule(moduleName) {

@@ -75,9 +75,7 @@ function requireRuntimeModule(moduleName) {
   try {
     return runtimeRequire(moduleName);
   } catch (firstError) {
-    const candidates = [
-      path.join(path.dirname(process.execPath), "node_modules", "openclaw", "openclaw.mjs")
-    ];
+    const candidates = openClawRuntimeEntrypoints();
     for (const candidate of candidates) {
       try {
         return createRequire(candidate)(moduleName);
@@ -85,6 +83,29 @@ function requireRuntimeModule(moduleName) {
     }
     throw firstError;
   }
+}
+
+function defaultOpenClawRuntimeRoot() {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+  return path.join(
+    localAppData,
+    "Microsoft",
+    "WinGet",
+    "Packages",
+    "OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe",
+    "node-v24.15.0-win-x64",
+    "node_modules",
+    "openclaw"
+  );
+}
+
+function openClawRuntimeEntrypoints() {
+  const roots = [
+    process.env.OPENCLAW_RUNTIME_ROOT,
+    defaultOpenClawRuntimeRoot(),
+    path.join(path.dirname(process.execPath), "node_modules", "openclaw")
+  ].filter(Boolean);
+  return roots.map((root) => path.join(root, "openclaw.mjs"));
 }
 
 async function getSharp() {

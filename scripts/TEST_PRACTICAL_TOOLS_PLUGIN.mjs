@@ -147,13 +147,13 @@ try {
 
 const snapshot = await tools.get("web_snapshot").execute("snapshot", {
   url: "https://example.com",
-  waitMs: 100,
+  waitMs: 500,
   actions: [{ type: "scroll", pixels: 120, waitMs: 50 }],
   scrollMode: "one_page",
   scrollWaitMs: 50,
   maxTextChars: 1000
 });
-assert.equal(snapshot.details.status, "ok");
+assert.equal(snapshot.details.status, "ok", snapshot.content?.[0]?.text || JSON.stringify(snapshot.details));
 assert.ok(await fs.stat(snapshot.details.path).then((stat) => stat.isFile()));
 assert.match(snapshot.content[0].text, /Example Domain/);
 assert.match(snapshot.content[0].text, /actions: scroll:ok/);
@@ -168,9 +168,9 @@ const snapshotId = snapshot.details.artifact.artifactId;
 
 const webCard = await tools.get("web_card").execute("web-card", {
   url: "https://example.com",
-  waitMs: 100
+  waitMs: 500
 });
-assert.equal(webCard.details.status, "ok");
+assert.equal(webCard.details.status, "ok", webCard.content?.[0]?.text || JSON.stringify(webCard.details));
 assert.ok(await fs.stat(webCard.details.path).then((stat) => stat.isFile()));
 assert.match(webCard.content[0].text, /WEB_CARD ok/);
 assert.match(webCard.content[0].text, /Example Domain/);
