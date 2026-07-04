@@ -1,0 +1,235 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index 4e771b5..737511e 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -551,55 +551,55 @@ function resolveTelegramImagebotSessionUsage(entry) {
+ 	return null;
+ }
+ function formatTelegramImagebotUsageLine(usage) {
+-	if (!usage) return "token usage: unavailable";
++	if (!usage) return "Token 使用量：暂无";
+ 	return [
+-		`token usage: total=${formatTelegramImagebotNumber(usage.total)}`,
+-		usage.input ? `input=${formatTelegramImagebotNumber(usage.input)}` : "",
+-		usage.output ? `output=${formatTelegramImagebotNumber(usage.output)}` : "",
+-		usage.cacheRead ? `cache_read=${formatTelegramImagebotNumber(usage.cacheRead)}` : "",
+-		usage.cacheWrite ? `cache_write=${formatTelegramImagebotNumber(usage.cacheWrite)}` : "",
+-		usage.source ? `source=${usage.source}` : ""
++		`Token 使用量：总计=${formatTelegramImagebotNumber(usage.total)}`,
++		usage.input ? `输入=${formatTelegramImagebotNumber(usage.input)}` : "",
++		usage.output ? `输出=${formatTelegramImagebotNumber(usage.output)}` : "",
++		usage.cacheRead ? `缓存读=${formatTelegramImagebotNumber(usage.cacheRead)}` : "",
++		usage.cacheWrite ? `缓存写=${formatTelegramImagebotNumber(usage.cacheWrite)}` : "",
++		usage.source ? `来源=${usage.source}` : ""
+ 	].filter(Boolean).join(" ");
+ }
+ function buildTelegramImagebotHelpText(args = "") {
+ 	const topic = normalizeLowercaseStringOrEmpty(String(args || "").trim());
+ 	if (topic === "tools" || topic === "scripts") return buildTelegramImagebotToolsText(args);
+-	if (topic === "status") return "Use /amstatus for local runtime status. It is handled before model context and does not reveal secrets.";
+-	if (topic === "model" || topic === "models") return "Use /ammodel for the model menu, /ammodel status for the current model, or /ammodel model <provider/model> think <level>.";
+-	if (topic === "persona" || topic === "personas") return "Use /ampersona for the persona menu, /ampersona status for the active persona, or /ampersona set <id>.";
++	if (topic === "status") return "用 /amstatus 查看本地运行状态；它在进入模型上下文前处理，不会暴露密钥。";
++	if (topic === "model" || topic === "models") return "用 /ammodel 打开模型菜单，/ammodel status 查看当前模型，或用 /ammodel model <provider/model> think <level> 临时切换。";
++	if (topic === "persona" || topic === "personas") return "用 /ampersona 打开人格菜单，/ampersona status 查看当前人格，或用 /ampersona set <id> 切换。";
+ 	return [
+-		"Amadeus controls:",
+-		"/amhelp - show this deterministic help",
+-		"/amstatus - show local bot/session status",
+-		"/amtools - list safe maintenance commands",
+-		"/amnew - open a clean chat window",
+-		"/ammodel - model menu/status",
+-		"/ampersona - persona menu/status",
+-		"/amroll, /amcoin, /amchoose - tiny script commands",
+-		"/amshuffle, /amsplit, /amstats, /amlinks - tiny script commands",
++		"Amadeus 控制命令：",
++		"/amhelp - 显示这份固定帮助",
++		"/amstatus - 查看本地 bot/会话状态",
++		"/amtools - 列出安全的维护命令",
++		"/amnew - 打开一个干净的新窗口",
++		"/ammodel - 模型菜单/状态",
++		"/ampersona - 人格菜单/状态",
++		"/amroll, /amcoin, /amchoose - 小脚本命令",
++		"/amshuffle, /amsplit, /amstats, /amlinks - 小脚本命令",
+ 		"",
+-		"These control commands are handled before model context; ordinary chat still goes to the model only when triggered."
++		"这些控制命令会在进入模型上下文前处理；普通聊天仍只在触发 bot 时进入模型。"
+ 	].join("\n");
+ }
+ function buildTelegramImagebotToolsText(args = "") {
+ 	const query = String(args || "").trim();
+-	if (/^run\b/i.test(query)) return "For safety, /amtools does not run scripts from Telegram. Use the operator tool or local shell approval flow for script_action runs.";
+-	if (/^route\b/i.test(query)) return "Routing is model/operator-side. In chat, use /amstatus, /ammodel, /ampersona, or ask naturally after mentioning the bot.";
++	if (/^run\b/i.test(query)) return "安全起见，/amtools 不从 Telegram 直接运行脚本。需要维护操作时走 operator 工具或本地 shell approval 流程。";
++	if (/^route\b/i.test(query)) return "路由在模型/operator 侧处理。聊天里可以用 /amstatus、/ammodel、/ampersona，或提到 bot 后自然说明需求。";
+ 	return [
+-		"Script-style controls:",
+-		"- /amstatus: local runtime/session status",
+-		"- /ammodel: model menu and one-shot model switch",
+-		"- /ampersona: persona menu and fresh persona window",
+-		"- /amnew: clean window",
+-		"- /amroll [NdS]: roll dice, for example /amroll 2d6",
+-		"- /amcoin [count]: flip coins",
+-		"- /amchoose a | b | c: pick one item",
+-		"- /amshuffle a | b | c: shuffle items",
+-		"- /amsplit 2 a b c d: split items into teams",
+-		"- /amstats <text>: count text, or reply to a text message",
+-		"- /amlinks <text>: extract links, or reply to a text message",
++		"脚本式控制：",
++		"- /amstatus：本地运行/会话状态",
++		"- /ammodel：模型菜单和一次性模型切换",
++		"- /ampersona：人格菜单和新人格窗口",
++		"- /amnew：干净的新窗口",
++		"- /amroll [NdS]：掷骰，例如 /amroll 2d6",
++		"- /amcoin [数量]：抛硬币",
++		"- /amchoose a | b | c：从列表中选一个",
++		"- /amshuffle a | b | c：随机排序",
++		"- /amsplit 2 a b c d：随机分组",
++		"- /amstats <文本>：统计文本，也可以回复一条文本消息",
++		"- /amlinks <文本>：提取链接，也可以回复一条文本消息",
+ 		"",
+-		"Maintenance scripts stay behind operator approval and are not executed directly from Telegram buttons."
++		"维护脚本仍需要 operator approval，不会从 Telegram 按钮直接执行。"
+ 	].join("\n");
+ }
+ function clampTelegramImagebotInteger(value, fallback, min, max) {
+@@ -634,35 +634,35 @@ function buildTelegramImagebotRollText(args = "") {
+ 	}
+ 	const rolls = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides));
+ 	const total = rolls.reduce((sum, value) => sum + value, 0);
+-	return `roll ${count}d${sides}: ${rolls.join(", ")}${count > 1 ? ` | total=${total}` : ""}`;
++	return `掷骰 ${count}d${sides}：${rolls.join(", ")}${count > 1 ? ` | 合计=${total}` : ""}`;
+ }
+ function buildTelegramImagebotCoinText(args = "") {
+ 	const count = clampTelegramImagebotInteger(String(args || "").trim() || 1, 1, 1, 20);
+-	const flips = Array.from({ length: count }, () => Math.random() < 0.5 ? "heads" : "tails");
+-	const heads = flips.filter((item) => item === "heads").length;
++	const flips = Array.from({ length: count }, () => Math.random() < 0.5 ? "正面" : "反面");
++	const heads = flips.filter((item) => item === "正面").length;
+ 	const tails = flips.length - heads;
+-	return `coin x${count}: ${flips.join(", ")}${count > 1 ? ` | heads=${heads} tails=${tails}` : ""}`;
++	return `抛硬币 x${count}：${flips.join(", ")}${count > 1 ? ` | 正面=${heads} 反面=${tails}` : ""}`;
+ }
+ function buildTelegramImagebotChooseText(args = "") {
+ 	const items = splitTelegramImagebotListArgs(args);
+-	if (items.length < 2) return "usage: /amchoose option A | option B | option C";
++	if (items.length < 2) return "用法：/amchoose 选项A | 选项B | 选项C";
+ 	const choice = items[Math.floor(Math.random() * items.length)];
+-	return `picked: ${choice}`;
++	return `选中：${choice}`;
+ }
+ function buildTelegramImagebotShuffleText(args = "") {
+ 	const items = splitTelegramImagebotListArgs(args);
+-	if (items.length < 2) return "usage: /amshuffle a | b | c";
+-	return `shuffle:\n${shuffleTelegramImagebotItems(items).map((item, index) => `${index + 1}. ${item}`).join("\n")}`;
++	if (items.length < 2) return "用法：/amshuffle a | b | c";
++	return `随机排序：\n${shuffleTelegramImagebotItems(items).map((item, index) => `${index + 1}. ${item}`).join("\n")}`;
+ }
+ function buildTelegramImagebotSplitText(args = "") {
+ 	const raw = String(args || "").trim();
+ 	const match = raw.match(/^(\d{1,2})\s+([\s\S]+)$/);
+ 	const teamCount = clampTelegramImagebotInteger(match?.[1] || 2, 2, 2, 10);
+ 	const items = splitTelegramImagebotListArgs(match?.[2] || raw);
+-	if (items.length < teamCount) return "usage: /amsplit 2 alice bob carol dave";
++	if (items.length < teamCount) return "用法：/amsplit 2 Alice Bob Carol Dave";
+ 	const teams = Array.from({ length: teamCount }, () => []);
+ 	for (const [index, item] of shuffleTelegramImagebotItems(items).entries()) teams[index % teamCount].push(item);
+-	return teams.map((team, index) => `team ${index + 1}: ${team.join(", ")}`).join("\n");
++	return teams.map((team, index) => `第 ${index + 1} 组：${team.join(", ")}`).join("\n");
+ }
+ function resolveTelegramImagebotTextPayload(msg, args = "") {
+ 	const direct = String(args || "").trim();
+@@ -673,27 +673,27 @@ function resolveTelegramImagebotTextPayload(msg, args = "") {
+ }
+ function buildTelegramImagebotStatsText(msg, args = "") {
+ 	const text = resolveTelegramImagebotTextPayload(msg, args);
+-	if (!text.trim()) return "usage: /amstats <text>, or reply /amstats to a text message";
++	if (!text.trim()) return "用法：/amstats <文本>，或者回复一条文本消息发送 /amstats";
+ 	const chars = Array.from(text).length;
+ 	const charsNoSpace = Array.from(text.replace(/\s/g, "")).length;
+ 	const lines = text.split(/\r?\n/).length;
+ 	const words = text.match(/[\p{L}\p{N}_]+/gu)?.length || 0;
+ 	const cjk = text.match(/[\u3400-\u9fff]/g)?.length || 0;
+ 	return [
+-		"text stats:",
+-		`chars=${formatTelegramImagebotNumber(chars)}`,
+-		`chars_no_space=${formatTelegramImagebotNumber(charsNoSpace)}`,
+-		`lines=${formatTelegramImagebotNumber(lines)}`,
+-		`word_tokens=${formatTelegramImagebotNumber(words)}`,
+-		`cjk_chars=${formatTelegramImagebotNumber(cjk)}`
++		"文本统计：",
++		`字符数=${formatTelegramImagebotNumber(chars)}`,
++		`去空白字符数=${formatTelegramImagebotNumber(charsNoSpace)}`,
++		`行数=${formatTelegramImagebotNumber(lines)}`,
++		`词元数=${formatTelegramImagebotNumber(words)}`,
++		`中日韩字符数=${formatTelegramImagebotNumber(cjk)}`
+ 	].join("\n");
+ }
+ function buildTelegramImagebotLinksText(msg, args = "") {
+ 	const text = resolveTelegramImagebotTextPayload(msg, args);
+-	if (!text.trim()) return "usage: /amlinks <text>, or reply /amlinks to a text message";
+-	const links = [...new Set(Array.from(text.matchAll(/https?:\/\/[^\s<>"')\]]+/gi), (match) => match[0].replace(/[.,!?;:，。！？；：）)]+$/g, "")))].slice(0, 20);
+-	if (!links.length) return "links: none";
+-	return ["links:", ...links.map((link, index) => `${index + 1}. ${link}`)].join("\n");
++	if (!text.trim()) return "用法：/amlinks <文本>，或者回复一条文本消息发送 /amlinks";
++	const links = [...new Set(Array.from(text.matchAll(/https?:\/\/[^\s<>"')\]]+/gi), (match) => match[0].replace(/[.,!?;:，。！？；：）)]+$/g, "")))].slice(0, 20);
++	if (!links.length) return "链接：无";
++	return ["链接：", ...links.map((link, index) => `${index + 1}. ${link}`)].join("\n");
+ }
+ function buildTelegramImagebotMicroCommandText(command, msg) {
+ 	if (command.name === "amroll") return buildTelegramImagebotRollText(command.args);
+@@ -708,12 +708,12 @@ function buildTelegramImagebotMicroCommandText(command, msg) {
+ function buildTelegramImagebotScriptControlKeyboard() {
+ 	return buildInlineKeyboard([
+ 		[
+-			{ text: "Status", callback_data: "/amstatus" },
+-			{ text: "Models", callback_data: "/ammodel" }
++			{ text: "状态", callback_data: "/amstatus" },
++			{ text: "模型", callback_data: "/ammodel" }
+ 		],
+ 		[
+-			{ text: "Personas", callback_data: "/ampersona" },
+-			{ text: "Tools", callback_data: "/amtools" }
++			{ text: "人格", callback_data: "/ampersona" },
++			{ text: "工具", callback_data: "/amtools" }
+ 		]
+ 	]);
+ }
+@@ -11299,7 +11299,7 @@ const createTelegramMessageProcessor = (deps) => {
+ 		});
+ 		if (!command) return false;
+ 		if (command.name === "model") {
+-			await sendImagebotControlText(msg, "Use /ammodel for model status and switching. I did not change the model.", buildTelegramImagebotScriptControlKeyboard());
++			await sendImagebotControlText(msg, "请用 /ammodel 查看或切换模型。我没有改动当前模型。", buildTelegramImagebotScriptControlKeyboard());
+ 			return true;
+ 		}
+ 		return false;
+@@ -11370,18 +11370,18 @@ const createTelegramMessageProcessor = (deps) => {
+ 		const openWindowCount = windowStore ? Object.values(windowStore.windows ?? {}).filter((entry) => entry && typeof entry === "object" && !entry.closedAt).length : 0;
+ 		const recentCount = Array.isArray(targetWindow?.recent) ? targetWindow.recent.length : 0;
+ 		const lines = [
+-			"Amadeus runtime status",
+-			`chat: ${msg.chat?.type || "unknown"}`,
+-			`window: ${target?.window?.windowId || (target?.sessionKey ? "default/sender" : "unknown")}`,
+-			`model: ${modelState?.modelRef || "unknown"}`,
+-			`thinking: ${modelState?.thinkingLevel || "unknown"}`,
+-			`persona: ${persona?.label || persona?.id || "default"}`,
++			"Amadeus 运行状态",
++			`聊天类型：${msg.chat?.type || "未知"}`,
++			`窗口：${target?.window?.windowId || (target?.sessionKey ? "默认/发送者" : "未知")}`,
++			`模型：${modelState?.modelRef || "未知"}`,
++			`推理档位：${modelState?.thinkingLevel || "未知"}`,
++			`人格：${persona?.label || persona?.id || "默认"}`,
+ 			formatTelegramImagebotUsageLine(usage),
+-			`tools allowed: ${visibleToolCount || "unknown"}`,
+-			`windows: active=${activeWindowCount} open=${openWindowCount}`,
+-			`recent window events: ${recentCount}`,
++			`可用工具数：${visibleToolCount || "未知"}`,
++			`窗口统计：活跃=${activeWindowCount} 打开=${openWindowCount}`,
++			`最近窗口事件：${recentCount}`,
+ 			"",
+-			"Handled as a script command before model context."
++			"已作为脚本命令在进入模型上下文前处理。"
+ 		];
+ 		await sendImagebotControlText(msg, lines.join("\n"), buildTelegramImagebotScriptControlKeyboard());
+ 		return true;

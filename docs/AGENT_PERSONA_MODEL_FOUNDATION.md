@@ -151,8 +151,14 @@ falling back to `config/imagebot/model-state.json` only as the tracked
 repository seed. This preserves deliberate chat-side model choices without
 letting ordinary Telegram model experiments dirty the checkout.
 
+Configured chat fallback lives in `config/imagebot/settings.json` as
+`modelFallbacks`. The default chain is `deepseek/deepseek-v4-flash`, then
+`deepseek/deepseek-v4-pro`. GPT subscription/quota/rate-limit fallback is
+window-local: the failing window can continue on the fallback model, while later
+new windows still start from the local `/ammodel` default.
+
 Model/key/provider setup can need a restart when a running process must load new
-credentials or a newly installed provider plugin.
+credentials.
 
 Current model profile source:
 
@@ -178,10 +184,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\SET_DEEPSEEK_API_KEY.ps1
 The script:
 
 1. Stores the key in `~/.openclaw/secrets/deepseek-api-key.token`.
-2. Installs `@openclaw/deepseek-provider`.
-3. Registers a file-backed secret provider in OpenClaw config.
+2. Registers a file-backed secret provider in OpenClaw config.
+3. Registers `models.providers.deepseek` with the DeepSeek OpenAI-compatible API.
 4. Registers DeepSeek models and compatibility profile aliases.
-5. Does not switch the default model.
+5. Removes any stale `plugins.entries.deepseek` entry; DeepSeek is a model
+   provider config here, not a local bot tool plugin.
+6. Does not switch the default model.
 
 After setup, the chat command can use:
 

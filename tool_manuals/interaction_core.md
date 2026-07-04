@@ -22,11 +22,49 @@ Each stage has `name` and `status`. Treat this as the source of truth for
 diagnostics. The rate-limit stage is diagnostic unless `enforceRateLimit=true`
 or a future runtime layer enables enforcement.
 
+`interaction_pipeline action=ui_plan` builds a local Telegram inline-keyboard
+plan. It returns `replyMarkup.inline_keyboard` plus callback registry records,
+but it does not send, edit, or delete Telegram messages.
+
+Use `ui_plan` for deterministic bot controls such as settings, galleries,
+choices, confirmations, and paging. Supply `items` and optional `controls`:
+
+```json
+{
+  "action": "ui_plan",
+  "uiKind": "gallery",
+  "items": [
+    { "id": "recent", "label": "Recent", "action": "open" },
+    { "id": "locked", "label": "Locked", "enabled": false }
+  ],
+  "page": 0,
+  "pageSize": 6,
+  "columns": 2,
+  "controls": { "includeRefresh": true, "includeBack": true }
+}
+```
+
+UI plan rules:
+
+- disabled and hidden items are omitted from the keyboard and listed in
+  `suppressed`;
+- selected items are marked in text so the current state is visible;
+- previous/next buttons appear only when the requested page can move;
+- callback data is kept within Telegram's 64-byte limit;
+- callbacks default to owner-scoped records using chat, window, message, and
+  creator user id;
+- dangerous or confirm-required flows should use `uiKind=confirm` or item
+  `danger=true`, then handle the confirm callback in runtime code;
+- prefer editing the existing message/keyboard after a callback, and answer the
+  callback query promptly in the runtime layer.
+
 ## Group Trigger Rules
 
 In groups, respond only when one of these is true:
 
 - the message is an `/am*` control command;
+- the message is a rejected legacy control command such as `/model`, which
+  should receive deterministic `/ammodel` guidance before model context;
 - the message replies to a bot message;
 - the message explicitly mentions the bot;
 - the message starts with a configured prefix such as `助手`, `Amadeus`,
@@ -86,8 +124,17 @@ Use `mars_forward_lookup` only for this Mars-forward state:
   with first/current message ids, preview text, mechanical keys, URLs, and media
   ids when available.
 - `action=forward_first` forwards or copies the stored first same-group message
-  back into the current group/topic. It refuses to send that first message into a
+  back into the current group/topic. Use it only when the user explicitly wants
+  the original message forwarded. It refuses to send that first message into a
   different chat.
+- `action=reply_first` sends a short Mars/duplicate quip as a Telegram reply to
+  the stored first same-group message. Use it when the model has confirmed a
+  similar Mars candidate. Do not attach a link. If Telegram reports that the
+  first message is gone, the tool falls back to replying to the current duplicate
+  with "火星，但是首发消息不见了。".
+- 机械火星命中时运行时脚本会先给当前重复消息点火，然后回复同群首发消息一条「火星」；
+  如果首发消息已经不存在，就回复当前重复消息「火星，但是首发消息不见了。」。
+  不要再给当前重复消息补链接，也不要把 bot 自己那条「火星」消息 id 当成重复转发 id。
 - If the user asks later, such as "where was this Mars", omit `messageId` unless
   you know the duplicate message id; the tool will pick the latest matching
   record in the current group/topic.

@@ -141,6 +141,27 @@ Regression guard:
   reads local model state first, falls back to the tracked seed, and seeds new
   windows from it.
 
+## 2026-07-03: Chat Model Fallback Is Window-Local
+
+Imagebot chat model fallback uses the existing OpenClaw fallback chain instead
+of switching global defaults. `config/imagebot/settings.json` defines
+`modelFallbacks` as:
+
+- `deepseek/deepseek-v4-flash`
+- `deepseek/deepseek-v4-pro`
+
+When GPT subscription/quota/rate-limit failure triggers fallback, the current
+session may persist the successful fallback as an automatic window-local model
+override. Later new windows still seed from `~/.openclaw/imagebot/model-state.json`
+and therefore keep the user's selected `/ammodel` default.
+
+Regression guard:
+
+- `scripts/TEST_IMAGEBOT_MODEL_FALLBACK.mjs` checks that default-sourced session
+  overrides keep fallback chains enabled while explicit user overrides do not.
+- `scripts/TEST_TELEGRAM_AMMODEL_RUNTIME.mjs` checks that `/ammodel` session
+  mirrors are marked as `default`, not `user`.
+
 ## 2026-06-23: Tool Manuals Are the Dynamic Tool Surface Index
 
 `tool_manual_search` must discover valid `focus` ids from `tool_manuals/*.md`

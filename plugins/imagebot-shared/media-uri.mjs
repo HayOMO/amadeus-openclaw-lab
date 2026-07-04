@@ -60,6 +60,15 @@ export function mediaUriToLocalPath(value, config = {}) {
   return isInside(root, file) ? file : "";
 }
 
+export function mediaReferenceToLocalPath(value, config = {}) {
+  const raw = stripMediaUriDecorations(value);
+  if (!raw) return "";
+  const local = mediaUriToLocalPath(raw, config);
+  if (local) return local;
+  if (/^file:\/\//i.test(raw)) return decodeURIComponent(raw.replace(/^file:\/\//i, ""));
+  return raw;
+}
+
 export async function resolveExistingMediaUriToLocalPath(value, config = {}) {
   const local = mediaUriToLocalPath(value, config);
   if (!local) return "";

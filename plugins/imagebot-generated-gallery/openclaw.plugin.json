@@ -12,10 +12,11 @@
   },
   "contracts": {
     "tools": [
+      "generated_gallery",
       "generated_gallery_recent",
       "generated_gallery_search",
-      "generated_gallery_resend",
-      "generated_gallery_stats"
+      "generated_gallery_stats",
+      "generated_gallery_resend"
     ]
   },
   "configSchema": {

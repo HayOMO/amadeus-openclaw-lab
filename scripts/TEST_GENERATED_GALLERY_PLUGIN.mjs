@@ -28,6 +28,10 @@ pluginModule.default.register({
   }
 });
 
+for (const name of ["generated_gallery", "generated_gallery_recent", "generated_gallery_search", "generated_gallery_resend", "generated_gallery_stats"]) {
+  assert.ok(tools.has(name), `tool registered: ${name}`);
+}
+
 function sha(ch) {
   return ch.repeat(64);
 }
@@ -42,7 +46,13 @@ function manifestRecord(fields) {
     sha256: fields.sha256,
     archivedRelativePath: fields.archivedRelativePath,
     copied: true,
-    sessionKeyHash: fields.sessionKeyHash ?? "test-session"
+    sessionKeyHash: fields.sessionKeyHash ?? "",
+    scopeKey: fields.scopeKey ?? "",
+    scopeHash: fields.scopeHash ?? "",
+    chatId: fields.chatId ?? "",
+    threadId: fields.threadId ?? "",
+    sessionKey: fields.sessionKey ?? "",
+    windowId: fields.windowId ?? ""
   });
 }
 
@@ -67,10 +77,10 @@ async function shapePng(kind) {
   return await sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-async function runTool(name, params) {
+async function runTool(name, params, ctx = undefined) {
   const tool = tools.get(name);
   assert.ok(tool, `tool registered: ${name}`);
-  const result = await tool.execute("test-call", params);
+  const result = await tool.execute("test-call", params, undefined, undefined, ctx);
   assert.equal(result.details.status, "ok", `${name} status ok`);
   return result;
 }
@@ -81,6 +91,13 @@ try {
   await writeArchiveFile("2026-06/older.png");
   await writeArchiveFile("2026-06/newer.png");
   await writeArchiveFile("2026-06/downloaded.png");
+  await writeArchiveFile("2026-06/scope-a.png");
+  await writeArchiveFile("2026-06/scope-b.png");
+
+  const ctxA = { agentId: "imagebot", accountId: "imagebot", chatId: "gallery-chat-a", sessionKey: "gallery-session-a", senderId: "101", messageId: "10" };
+  const ctxB = { agentId: "imagebot", accountId: "imagebot", chatId: "gallery-chat-b", sessionKey: "gallery-session-b", senderId: "202", messageId: "20" };
+  const scopeA = pluginModule.__testing.runtimeGalleryScope(ctxA);
+  const scopeB = pluginModule.__testing.runtimeGalleryScope(ctxB);
 
   const duplicateSha = sha("a");
   const initialLines = [
@@ -115,18 +132,57 @@ try {
       sha256: duplicateSha,
       sourceName: "newer.png",
       archivedRelativePath: "2026-06/newer.png"
+    }),
+    manifestRecord({
+      t: "2026-06-13T10:21:00.000Z",
+      sha256: sha("e"),
+      sourceName: "scope-a.png",
+      archivedRelativePath: "2026-06/scope-a.png",
+      scopeKey: scopeA.scopeKey
+    }),
+    manifestRecord({
+      t: "2026-06-13T10:22:00.000Z",
+      sha256: sha("f"),
+      sourceName: "scope-b.png",
+      archivedRelativePath: "2026-06/scope-b.png",
+      scopeKey: scopeB.scopeKey
     })
   ];
   await fs.writeFile(manifestPath, `${initialLines.join("\n")}\n`, "utf8");
 
+  const scopedRecentA = await runTool("generated_gallery_recent", { source: "all", count: 5, preview: false }, ctxA);
+  assert.equal(scopedRecentA.details.results.length, 1);
+  assert.equal(scopedRecentA.details.results[0].sourceName, "scope-a.png");
+  assert.equal(scopedRecentA.details.results[0].scoped, true);
+  assert.doesNotMatch(scopedRecentA.content[0].text, /newer\.png/);
+  assert.doesNotMatch(scopedRecentA.content[0].text, /downloaded\.png/);
+  assert.doesNotMatch(scopedRecentA.content[0].text, /scope-b\.png/);
+
+  const scopedSearchA = await runTool("generated_gallery_search", { source: "all", query: "scope", count: 5, preview: false }, ctxA);
+  assert.deepEqual(scopedSearchA.details.results.map((entry) => entry.sourceName), ["scope-a.png"]);
+
+  const scopedStatsA = await runTool("generated_gallery_stats", { source: "all" }, ctxA);
+  assert.equal(scopedStatsA.details.stats.total, 1);
+
+  const crossScopeResend = await tools.get("generated_gallery_resend").execute("cross-scope-resend", { id: sha("f").slice(0, 16), source: "all" }, undefined, undefined, ctxA);
+  assert.equal(crossScopeResend.details.status, "no_match");
+
+  const scopedResendB = await tools.get("generated_gallery_resend").execute("scope-b-resend", { id: sha("f").slice(0, 16), source: "all" }, undefined, undefined, ctxB);
+  assert.equal(scopedResendB.details.status, "ok");
+  assert.equal(scopedResendB.details.results[0].sourceName, "scope-b.png");
+
   const recent = await runTool("generated_gallery_recent", { count: 3 });
   const recentText = recent.content[0].text;
-  assert.match(recentText, /newer\.png/);
+  assert.match(recentText, /scope-b\.png/);
   assert.match(recentText, /visualPreview:/);
   assert.ok(recent.content.some((item) => item.type === "image"), "recent should include a contact-sheet preview");
   assert.doesNotMatch(recentText, /older\.png/);
   assert.doesNotMatch(recentText, /escape\.png/);
   assert.doesNotMatch(recentText, /notes\.txt/);
+
+  const aggregateRecent = await runTool("generated_gallery", { action: "recent", count: 1, preview: false });
+  assert.equal(aggregateRecent.details.results.length, 1);
+  assert.equal(aggregateRecent.details.results[0].sourceName, "scope-b.png");
 
   const search = await runTool("generated_gallery_search", { query: "newer", count: 1 });
   assert.equal(search.details.results[0].sourceName, "newer.png");
@@ -134,15 +190,21 @@ try {
   assert.ok(Object.hasOwn(tools.get("generated_gallery_search").parameters.properties, "image"), "search should support visual query image");
   assert.ok(Object.hasOwn(tools.get("generated_gallery_search").parameters.properties, "maxDistance"), "search should expose visual maxDistance");
 
+  const aggregateSearch = await runTool("generated_gallery", { action: "search", query: "newer", count: 1, preview: false });
+  assert.equal(aggregateSearch.details.results[0].sourceName, "newer.png");
+
   const downloaded = await runTool("generated_gallery_recent", { source: "downloaded", count: 2 });
   assert.equal(downloaded.details.results.length, 1);
   assert.equal(downloaded.details.results[0].sourceName, "downloaded.png");
 
   const stats = await runTool("generated_gallery_stats", { source: "all" });
-  assert.equal(stats.details.stats.total, 2);
-  assert.equal(stats.details.stats.byTool.some((entry) => entry.key === "image_generate" && entry.value === 1), true);
+  assert.equal(stats.details.stats.total, 4);
+  assert.equal(stats.details.stats.byTool.some((entry) => entry.key === "image_generate" && entry.value === 3), true);
   assert.equal(stats.details.stats.byTool.some((entry) => entry.key === "download_image_url" && entry.value === 1), true);
   assert.match(stats.content[0].text, /GENERATED_GALLERY_STATS ok/);
+
+  const aggregateStats = await runTool("generated_gallery", { action: "stats", source: "all" });
+  assert.equal(aggregateStats.details.stats.total, 4);
 
   const resend = await runTool("generated_gallery_resend", { id: duplicateSha.slice(0, 16) });
   assert.equal(resend.details.media.trustedLocalMedia, true);
@@ -153,7 +215,7 @@ try {
   assert.ok(path.resolve(resendPath).startsWith(path.join(homeRoot, ".openclaw", "media", "gallery-resend")));
   await fs.stat(resendPath);
 
-  const noMatch = await tools.get("generated_gallery_resend").execute("test-call", { id: sha("f").slice(0, 16) });
+  const noMatch = await tools.get("generated_gallery_resend").execute("test-call", { id: sha("0").slice(0, 16) });
   assert.equal(noMatch.details.status, "no_match");
 
   await writeArchiveFile("2026-06/shape-left.png", await shapePng("left"));
@@ -182,7 +244,7 @@ try {
   const visual = await runTool("generated_gallery_search", {
     image: path.join(archiveRoot, "2026-06", "shape-left.png"),
     source: "all",
-    count: 6,
+    count: 12,
     preview: false
   });
   assert.equal(visual.details.visual, true);

@@ -25,6 +25,27 @@ The action-level architecture contract lives in
 - OpenAI is the active chat/image provider. DeepSeek provider registration and
   `ds-fast` / `ds-pro` model profiles are supported, but registering the key
   does not switch the default model by itself.
+- `spark` is an experimental OpenAI auth-route model profile for short-term
+  testing only. It is marked `toolPolicy=chat-only`: the prompt gets a compact
+  policy note and `imagebot-creative-ops` blocks OpenClaw tool calls through
+  `before_tool_call`, leaving only provider-native chat, vision, or hosted
+  search if that route supplies them.
+- The Telegram text repeater is a runtime pre-drop/pre-model script, not an LLM
+  tool. It is configured through
+  `imagebot-interaction-core.config.textRepeater`, watches short non-command
+  group texts or Telegram stickers before unaddressed group messages are
+  discarded, and repeats after two consecutive identical messages from different
+  senders in the same chat/topic within a short gap. Text repeats use
+  `sendMessage`; sticker repeats use Telegram
+  `sendSticker` with the incoming sticker `file_id`, keyed by
+  `file_unique_id` when available. Non-repeatable user messages clear the
+  pending repeat state, so an old sticker/text cannot make another user's single
+  message repeat later. Bot-message, explicit-mention, length, and cooldown
+  guards still apply.
+- Telegram native slash and native skill handlers are disabled for imagebot.
+  The visible `/am*` entries are custom menu hints handled by pre-model runtime
+  scripts, with mutating model/persona controls scoped to the current window
+  owner.
 - Outbound Telegram delivery only through the Telegram account/group allowlist.
 - Browser automation uses bot-owned Playwright contexts, not the owner browser
   profile. Ordinary public page reads and browser-backed image downloads use a
@@ -57,11 +78,15 @@ the global and imagebot-agent levels:
   `id:<senderId>` and `channel:telegram:<senderId>` entries.
 
 The operator-only layer currently includes long-term shared writes, tool-memory
-mutation, diagnostics/log inspection, local desktop control, sticker publishing,
+mutation, diagnostics/log inspection, local desktop control,
 persona/model/script controls, prompt/image feedback learning, web-watch writes,
 and gacha channel archival. Ordinary feature execution, public search/media
-read tools, Mars forward lookup, memory search, and the `message` send tool stay
-available for normal chat.
+read tools, sticker workflows, Mars forward lookup, memory search, and the
+`message` send tool stay available for normal chat. Sticker deletion and real
+Telegram mutations still use the `sticker_pack` code-level dry-run, owner, scope,
+and confirmation gates; user-aligned sticker add paths are allowed to execute
+directly so common "steal/add to pack" replies do not require an extra preview
+turn.
 
 ## Deferred Or Not Yet Granted
 

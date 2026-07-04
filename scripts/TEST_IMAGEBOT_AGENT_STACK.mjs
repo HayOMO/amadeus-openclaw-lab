@@ -53,8 +53,7 @@ register(agentOps, {
 
 for (const name of [
   "tool_manual_search",
-  "media_artifact_recent",
-  "media_artifact_lineage",
+  "media_artifact",
   "agent_mode",
   "persona_config",
   "learned_skill",
@@ -113,11 +112,12 @@ for (const handler of hooks.get("before_prompt_build") || []) {
 }
 const combined = promptPieces.join("\n");
 const combinedSystem = systemPieces.join("\n");
-assert.match(combined, /Imagebot active mode/);
+assert.match(combined, /Imagebot 活跃模式/);
 assert.match(combinedSystem, /Chihaya Anon/);
-assert.doesNotMatch(combinedSystem, /Imagebot active persona overlay|persona_id|persona_label|scope:/i);
+assert.match(combinedSystem, /^# 角色卡 - 千早爱音/);
+assert.doesNotMatch(combinedSystem, /Active Persona State|runtime_agent|persona_id|memory_layer/);
 assert.match(combined, /Stack test workflow/);
-assert.match(combined, /Imagebot media handles/);
+assert.match(combined, /Imagebot 媒体句柄/);
 
 await hooks.get("before_tool_call").find(Boolean)({
   toolName: "image_generate",

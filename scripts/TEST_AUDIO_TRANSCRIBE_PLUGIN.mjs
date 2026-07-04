@@ -13,6 +13,7 @@ await fs.mkdir(mediaRoot, { recursive: true });
 
 const ffmpeg = require("../plugins/imagebot-audio-transcribe/node_modules/@ffmpeg-installer/ffmpeg").path;
 const audioPath = path.join(mediaRoot, "tone.wav");
+const mediaUriAudioPath = path.join(mediaRoot, "inbound", "tone.wav");
 const madeAudio = spawnSync(ffmpeg, [
   "-hide_banner",
   "-loglevel", "error",
@@ -24,11 +25,14 @@ const madeAudio = spawnSync(ffmpeg, [
   audioPath
 ], { stdio: "inherit" });
 assert.equal(madeAudio.status, 0);
+await fs.mkdir(path.dirname(mediaUriAudioPath), { recursive: true });
+await fs.copyFile(audioPath, mediaUriAudioPath);
 
 const tools = new Map();
 plugin.register({
   config: {
     mediaDir: path.join(root, "out-media"),
+    openclawMediaRoot: mediaRoot,
     storeDir: path.join(root, "store"),
     allowedMediaRoots: [mediaRoot]
   },
@@ -46,6 +50,13 @@ const probe = await tools.get("audio_transcribe").execute("probe", {
 assert.equal(probe.details.status, "ok");
 assert.equal(probe.details.action, "probe");
 assert.ok(probe.details.summary.hasAudio);
+
+const mediaUriProbe = await tools.get("audio_transcribe").execute("probe-media-uri", {
+  action: "probe",
+  input: "media://inbound/tone.wav (audio/wav)"
+});
+assert.equal(mediaUriProbe.details.status, "ok");
+assert.ok(mediaUriProbe.details.summary.hasAudio);
 
 __testing.setTranscriberForTests(async (audio, options) => {
   assert.ok(audio instanceof Float32Array);

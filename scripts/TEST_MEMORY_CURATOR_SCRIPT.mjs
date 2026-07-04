@@ -13,9 +13,9 @@ assert.ok(script.includes('const curatorProfile = args.get("curator-profile") ||
 assert.equal(deepProfile?.model, "openai/gpt-5.5", "deep profile must use GPT-5.5");
 assert.equal(deepProfile?.reasoningEffort, "high", "deep profile must use high reasoning");
 assert.ok(script.includes('commandArgs.push("--model", curatorModel)'), "curator must pass a single-run model override when configured");
-assert.ok(script.includes("neutral memory curator"), "curator prompt must be neutral");
-assert.ok(script.includes("Memory is shared across speaking personas"), "curator prompt must use shared persona memory");
-assert.ok(script.includes("Memory rules:"), "curator prompt should use neutral memory-rule wording");
+assert.ok(script.includes("中性记忆整理器"), "curator prompt must be neutral");
+assert.ok(script.includes("记忆在不同说话角色之间共享"), "curator prompt must use shared persona memory");
+assert.ok(script.includes("记忆规则："), "curator prompt should use neutral memory-rule wording");
 assert.ok(!script.includes("private memory curator"), "curator prompt must not describe itself as private/persona-bound");
 assert.ok(!script.includes("Privacy and safety:"), "curator prompt should not foreground safety framing");
 

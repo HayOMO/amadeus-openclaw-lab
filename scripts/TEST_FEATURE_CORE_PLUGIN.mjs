@@ -97,7 +97,7 @@ const archiveCaption = __testing.buildGachaArchiveCaption({
   name: "Test Waifu",
   rarity: "SSR",
   score: 150,
-  pageUrl: "https://safebooru.donmai.us/posts/12345",
+  pageUrl: "https://danbooru.donmai.us/posts/12345",
   sourceUrl: "https://cdn.donmai.us/original/example.jpg",
   primaryTags: ["solo", "smile"],
   archiveTags: ["score_150", "1girl"],
@@ -149,7 +149,7 @@ const goodPost = {
   tag_string_artist: "test_artist",
   tag_string_general: "1girl solo smile labcoat"
 };
-assert.equal(__testing.isSafeDanbooruPost(goodPost, {
+assert.equal(__testing.isGachaEligibleDanbooruPost(goodPost, {
   blockedTags: [],
   minScore: 20,
   minFavCount: 0,
@@ -159,7 +159,7 @@ assert.equal(__testing.isSafeDanbooruPost(goodPost, {
   maxAspectRatio: 4,
   minTagCount: 12
 }), true);
-assert.equal(__testing.isSafeDanbooruPost({ ...goodPost, image_width: 240, image_height: 240 }, {
+assert.equal(__testing.isGachaEligibleDanbooruPost({ ...goodPost, image_width: 240, image_height: 240 }, {
   blockedTags: [],
   minScore: 20,
   minFavCount: 0,
@@ -169,7 +169,7 @@ assert.equal(__testing.isSafeDanbooruPost({ ...goodPost, image_width: 240, image
   maxAspectRatio: 4,
   minTagCount: 12
 }), false);
-assert.equal(__testing.isSafeDanbooruPost({ ...goodPost, rating: "s" }, {
+assert.equal(__testing.isGachaEligibleDanbooruPost({ ...goodPost, rating: "s" }, {
   blockedTags: [],
   minScore: 20,
   minFavCount: 0,
@@ -181,7 +181,7 @@ assert.equal(__testing.isSafeDanbooruPost({ ...goodPost, rating: "s" }, {
 }), false);
 const safetyConfig = __testing.danbooruConfig({ config: { danbooru: { excludeTags: [] } } });
 assert.equal(safetyConfig.blockedTags.includes("loli"), false);
-assert.equal(__testing.isSafeDanbooruPost({
+assert.equal(__testing.isGachaEligibleDanbooruPost({
   ...goodPost,
   tag_string: `${goodPost.tag_string} loli`,
   tag_string_general: `${goodPost.tag_string_general} loli`
@@ -482,7 +482,7 @@ const archived = await tools.get("gacha_archive").execute("archive-waifu", {
   name: "Test Waifu",
   rarity: "SSR",
   score: 150,
-  pageUrl: "https://safebooru.donmai.us/posts/12345",
+  pageUrl: "https://danbooru.donmai.us/posts/12345",
   sourceUrl: "https://cdn.donmai.us/original/example.jpg",
   primaryTags: ["test_girl", "test_series"],
   archiveTags: ["1girl", "solo", "smile", "test_series"],

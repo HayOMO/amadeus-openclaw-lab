@@ -10,6 +10,7 @@ import {
   installBrowserNetworkGuard,
   normalizePublicHttpUrl
 } from "../imagebot-shared/public-network-guard.mjs";
+import { mediaReferenceToLocalPath, openclawMediaRoot } from "../imagebot-shared/media-uri.mjs";
 
 const IMAGE_TOOL_NAME = "web_image_search";
 const TEXT_TOOL_NAME = "web_text_search";
@@ -18,6 +19,7 @@ const REVERSE_TOOL_NAME = "reverse_image_search";
 const DOWNLOAD_TOOL_NAME = "download_image_url";
 const DOWNLOAD_MANY_TOOL_NAME = "download_image_urls";
 const SPOILER_TOOL_NAME = "telegram_media_spoiler";
+const DANBOORU_TOOL_NAME = "danbooru_resource";
 const DEFAULT_COUNT = 6;
 const MAX_COUNT = 12;
 const MODEL_VISIBLE_IMAGE_RESULTS = 6;
@@ -39,6 +41,11 @@ const TOOL_RESULT_IMAGE_PREVIEW_TOTAL_MAX_BYTES = 3 * 1024 * 1024;
 const TOOL_RESULT_IMAGE_PREVIEW_MAX_COUNT = 4;
 const TOOL_RESULT_IMAGE_PREVIEW_MAX_EDGE = 1536;
 const DANBOORU_HOME_URL = "https://danbooru.donmai.us/";
+const DANBOORU_DEFAULT_BASE_URL = "https://danbooru.donmai.us";
+const DANBOORU_DEFAULT_COUNT = 12;
+const DANBOORU_MAX_COUNT = 50;
+const DANBOORU_MAX_DOWNLOAD_COUNT = 10;
+const DANBOORU_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_REVERSE_PROVIDERS = ["saucenao", "iqdb"];
 const REVERSE_PROVIDERS = new Set(["saucenao", "iqdb", "ascii2d", "google_lens"]);
 const DOWNLOAD_ALLOWED_TYPES = new Map([
@@ -116,6 +123,13 @@ function readBoolean(params, key) {
     if (["false", "0", "no", "off"].includes(normalized)) return false;
   }
   return undefined;
+}
+
+function readNumberParam(params, key, fallback, min, max) {
+  const raw = isRecord(params) ? params[key] : undefined;
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(value)));
 }
 
 function decodeHtmlEntities(value) {
@@ -240,6 +254,650 @@ function isDanbooruUrl(raw) {
   } catch {
     return false;
   }
+}
+
+function expandHomePath(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (value === "~") return os.homedir();
+  if (value.startsWith("~/") || value.startsWith("~\\")) return path.join(os.homedir(), value.slice(2));
+  return value;
+}
+
+function normalizeDanbooruBaseUrl(raw) {
+  const value = String(raw || DANBOORU_DEFAULT_BASE_URL).trim();
+  const url = new URL(value);
+  if (url.protocol !== "https:") throw new Error("Danbooru baseUrl must be https");
+  const host = url.hostname.toLowerCase();
+  if (host !== "danbooru.donmai.us") {
+    throw new Error("Danbooru baseUrl must be https://danbooru.donmai.us");
+  }
+  return url.origin;
+}
+
+function danbooruSecretPath(config = {}) {
+  const raw = isRecord(config.danbooru) ? config.danbooru.secretFile : config.danbooruSecretFile;
+  return path.resolve(expandHomePath(raw) || path.join(os.homedir(), ".openclaw", "secrets", "danbooru-imagebot.json"));
+}
+
+async function readDanbooruSecret(config = {}) {
+  const file = danbooruSecretPath(config);
+  try {
+    const raw = (await fs.readFile(file, "utf8")).replace(/^\uFEFF/, "").trim();
+    if (!raw) return { file, found: false };
+    const parsed = JSON.parse(raw);
+    if (!isRecord(parsed)) return { file, found: false };
+    return {
+      file,
+      found: true,
+      login: String(parsed.login || parsed.username || parsed.user || "").trim(),
+      apiKey: String(parsed.apiKey || parsed.api_key || parsed.key || "").trim(),
+      baseUrl: String(parsed.baseUrl || parsed.base_url || "").trim()
+    };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { file, found: false };
+    throw error;
+  }
+}
+
+async function danbooruRuntimeConfig(config = {}) {
+  const raw = isRecord(config.danbooru) ? config.danbooru : {};
+  const secret = await readDanbooruSecret(config);
+  const secretBaseUrl = secret.baseUrl === DANBOORU_DEFAULT_BASE_URL ? secret.baseUrl : "";
+  const baseUrl = normalizeDanbooruBaseUrl(raw.baseUrl || config.danbooruBaseUrl || secretBaseUrl || DANBOORU_DEFAULT_BASE_URL);
+  const login = String(process.env.DANBOORU_LOGIN || raw.login || secret.login || "").trim();
+  const apiKey = String(process.env.DANBOORU_API_KEY || raw.apiKey || raw.api_key || secret.apiKey || "").trim();
+  const timeoutMs = readNumberParam(raw, "timeoutMs", DANBOORU_REQUEST_TIMEOUT_MS, 1000, 90_000);
+  const userAgentName = String(raw.userAgent || "AmadeusImageBot/1.0").trim();
+  const userAgent = login ? `${userAgentName} (${login})` : userAgentName;
+  return {
+    baseUrl,
+    login,
+    apiKey,
+    timeoutMs,
+    userAgent,
+    secretFile: secret.file,
+    credentialsFound: Boolean(secret.found || login || apiKey),
+    authenticated: Boolean(login && apiKey)
+  };
+}
+
+function danbooruAuthHeader(runtime) {
+  if (!runtime?.login || !runtime?.apiKey) return "";
+  return `Basic ${Buffer.from(`${runtime.login}:${runtime.apiKey}`).toString("base64")}`;
+}
+
+async function fetchDanbooruJson(url, runtime, signal) {
+  const request = timeoutSignal(signal, runtime.timeoutMs || DANBOORU_REQUEST_TIMEOUT_MS);
+  try {
+    const headers = {
+      "user-agent": runtime.userAgent || "AmadeusImageBot/1.0",
+      accept: "application/json"
+    };
+    const auth = danbooruAuthHeader(runtime);
+    if (auth) headers.authorization = auth;
+    const response = await fetch(url, {
+      method: "GET",
+      signal: request.signal,
+      headers
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      const reason = text.replace(/\s+/g, " ").slice(0, 240);
+      throw new Error(`HTTP ${response.status} from ${new URL(url).hostname}${reason ? `: ${reason}` : ""}`);
+    }
+    return JSON.parse(text);
+  } finally {
+    request.cleanup();
+  }
+}
+
+function danbooruApiUrl(runtime, pathname, params = {}) {
+  const url = new URL(pathname, runtime.baseUrl);
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue;
+    url.searchParams.set(key, String(value));
+  }
+  return url.toString();
+}
+
+function readDanbooruCount(params = {}) {
+  return readNumberParam(params, "count", DANBOORU_DEFAULT_COUNT, 1, DANBOORU_MAX_COUNT);
+}
+
+function readDanbooruDownloadCount(params = {}, count = DANBOORU_MAX_DOWNLOAD_COUNT) {
+  return readNumberParam(params, "downloadCount", 0, 0, Math.min(DANBOORU_MAX_DOWNLOAD_COUNT, count));
+}
+
+function readDanbooruMinScore(params = {}) {
+  return readNumberParam(params, "minScore", 0, 0, 1_000_000);
+}
+
+function readDanbooruMinFavCount(params = {}) {
+  for (const key of ["minFavCount", "minFavorites", "minFavs", "minBookmarkCount", "minBookmarks"]) {
+    const value = readNumberParam(params, key, NaN, 0, 1_000_000);
+    if (Number.isFinite(value)) return value;
+  }
+  return 0;
+}
+
+function readDanbooruTagList(params = {}) {
+  const raw = isRecord(params) ? params.tags ?? params.query ?? params.tagString : undefined;
+  const values = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/\s+/) : [];
+  return values.map((tag) => String(tag || "").trim()).filter(Boolean).slice(0, 16);
+}
+
+function readDanbooruListParam(params = {}, key) {
+  const raw = isRecord(params) ? params[key] : undefined;
+  const values = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/\s+|,/g) : [];
+  return values.map((entry) => String(entry || "").trim()).filter(Boolean).slice(0, 24);
+}
+
+function normalizeDanbooruRating(raw) {
+  const value = String(raw || "any").trim().toLowerCase().replace(/^rating:/, "");
+  if (!value || value === "any" || value === "all") return "";
+  if (value === "g" || value === "general") return "rating:g";
+  if (value === "s" || value === "sensitive") return "rating:s";
+  if (value === "q" || value === "questionable") return "rating:q";
+  if (value === "e" || value === "explicit") return "rating:e";
+  if (value === "sfw") return "rating:g,s";
+  if (value === "nsfw") return "rating:q,e";
+  return "";
+}
+
+function normalizeDanbooruOrder(raw) {
+  const value = String(raw || "").trim().toLowerCase().replace(/^order:/, "");
+  const allowed = new Set([
+    "id",
+    "id_desc",
+    "score",
+    "score_asc",
+    "favcount",
+    "favcount_asc",
+    "created_at",
+    "created_at_asc",
+    "rank",
+    "curated",
+    "random",
+    "none",
+    "mpixels",
+    "mpixels_asc",
+    "filesize",
+    "filesize_asc"
+  ]);
+  return allowed.has(value) ? value : "";
+}
+
+function buildDanbooruQueryTags(params = {}) {
+  const tags = [];
+  const seen = new Set();
+  const add = (tag) => {
+    const value = String(tag || "").trim();
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    tags.push(value);
+  };
+  for (const tag of readDanbooruTagList(params)) add(tag);
+  const rating = normalizeDanbooruRating(readString(params, "rating", "any"));
+  if (rating) add(rating);
+  const status = String(readString(params, "status", "active")).trim().toLowerCase().replace(/^status:/, "");
+  if (status && !["any", "all"].includes(status)) add(`status:${status}`);
+  const minScore = readDanbooruMinScore(params);
+  const minFavCount = readDanbooruMinFavCount(params);
+  if (minScore > 0) add(`score:${minScore}..`);
+  else if (minFavCount > 0) add("score:0..");
+  if (minFavCount > 0) add(`favcount:${minFavCount}..`);
+  if (readBoolean(params, "random") === true) {
+    add("order:random");
+  } else {
+    const order = normalizeDanbooruOrder(readString(params, "order"));
+    if (order) add(`order:${order}`);
+    else if (minFavCount > 0) add("order:favcount");
+    else if (minScore > 0) add("order:score");
+  }
+  return tags;
+}
+
+function danbooruSearchTagPlans(tags = []) {
+  const plans = [];
+  const seen = new Set();
+  const addPlan = (candidate) => {
+    const clean = candidate.map((tag) => String(tag || "").trim()).filter(Boolean);
+    const key = clean.join(" ");
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    plans.push(clean);
+  };
+  addPlan(tags);
+  if (tags.some((tag) => /^order:(?:favcount|score|random)$/i.test(tag))) {
+    addPlan(tags.filter((tag) => !/^order:(?:favcount|score|random)$/i.test(tag)));
+  }
+  if (tags.some((tag) => /^score:0\.\.$/i.test(tag))) {
+    addPlan(tags.filter((tag) => !/^score:0\.\.$/i.test(tag)));
+  }
+  if (tags.some((tag) => /^favcount:/i.test(tag))) {
+    addPlan(tags.filter((tag) => !/^favcount:/i.test(tag)));
+  }
+  return plans;
+}
+
+function isRetryableDanbooruSearchError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /HTTP 500|QueryCanceled|timeout|Search Timeout|database timed out/i.test(message);
+}
+
+function readDanbooruImageSize(params = {}) {
+  const value = String(readString(params, "imageSize", "large")).trim().toLowerCase();
+  if (["original", "large", "sample", "preview"].includes(value)) return value;
+  return "large";
+}
+
+function absoluteDanbooruUrl(runtime, raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  return normalizeDownloadUrl(value, runtime.baseUrl);
+}
+
+function pickDanbooruVariant(post = {}, runtime, imageSize = "large") {
+  const variants = Array.isArray(post.media_asset?.variants) ? post.media_asset.variants : [];
+  const byType = (type) => variants.find((variant) => variant?.type === type && variant.url) || null;
+  const original = post.file_url ? { url: post.file_url, type: "original", fileExt: post.file_ext, width: post.image_width, height: post.image_height } : null;
+  const large = post.large_file_url ? { url: post.large_file_url, type: "large", fileExt: post.file_ext, width: post.image_width, height: post.image_height } : null;
+  const sampleVariant = byType("sample") || byType("720x720") || byType("360x360") || null;
+  const sample = sampleVariant ? { url: sampleVariant.url, type: sampleVariant.type || "sample", fileExt: sampleVariant.file_ext || post.file_ext, width: sampleVariant.width, height: sampleVariant.height } : null;
+  const preview = post.preview_file_url ? { url: post.preview_file_url, type: "preview", fileExt: "jpg", width: 0, height: 0 } : null;
+  const preference = imageSize === "original"
+    ? [original, large, sample, preview]
+    : imageSize === "sample"
+      ? [sample, large, preview, original]
+      : imageSize === "preview"
+        ? [preview, sample, large, original]
+        : [large, original, sample, preview];
+  const selected = preference.find((entry) => entry?.url) || null;
+  return selected ? { ...selected, url: absoluteDanbooruUrl(runtime, selected.url) } : null;
+}
+
+function normalizeDanbooruPost(post = {}, runtime, options = {}) {
+  if (!isRecord(post) || !post.id) return null;
+  const variant = pickDanbooruVariant(post, runtime, options.imageSize || "large");
+  if (!variant?.url) return null;
+  const postUrl = new URL(`/posts/${post.id}`, runtime.baseUrl).toString();
+  const tagFields = {
+    general: String(post.tag_string_general || "").split(/\s+/).filter(Boolean),
+    character: String(post.tag_string_character || "").split(/\s+/).filter(Boolean),
+    copyright: String(post.tag_string_copyright || "").split(/\s+/).filter(Boolean),
+    artist: String(post.tag_string_artist || "").split(/\s+/).filter(Boolean),
+    meta: String(post.tag_string_meta || "").split(/\s+/).filter(Boolean)
+  };
+  return {
+    id: Number(post.id),
+    postUrl,
+    imageUrl: variant.url,
+    previewUrl: absoluteDanbooruUrl(runtime, post.preview_file_url),
+    originalUrl: absoluteDanbooruUrl(runtime, post.file_url),
+    largeUrl: absoluteDanbooruUrl(runtime, post.large_file_url),
+    imageQuality: variant.type || "",
+    sourceUrl: normalizeHttpUrl(post.source) || "",
+    rating: String(post.rating || ""),
+    score: Number(post.score || 0),
+    favCount: Number(post.fav_count || 0),
+    upScore: Number(post.up_score || 0),
+    downScore: Number(post.down_score || 0),
+    tagCount: Number(post.tag_count || 0),
+    width: Number(variant.width || post.image_width || 0),
+    height: Number(variant.height || post.image_height || 0),
+    originalWidth: Number(post.image_width || 0),
+    originalHeight: Number(post.image_height || 0),
+    fileExt: String(variant.fileExt || post.file_ext || ""),
+    createdAt: String(post.created_at || ""),
+    md5: String(post.md5 || ""),
+    tagString: String(post.tag_string || ""),
+    tags: tagFields,
+    isDeleted: Boolean(post.is_deleted),
+    isBanned: Boolean(post.is_banned),
+    raw: post
+  };
+}
+
+function danbooruPostTagSet(post = {}) {
+  const tags = new Set();
+  const add = (value) => {
+    const text = String(value || "").trim().toLowerCase();
+    if (text) tags.add(text);
+  };
+  add(post.tagString);
+  for (const values of Object.values(post.tags || {})) {
+    if (Array.isArray(values)) values.forEach(add);
+  }
+  for (const value of String(post.tagString || "").split(/\s+/).filter(Boolean)) add(value);
+  return tags;
+}
+
+function filterDanbooruPosts(posts = [], params = {}) {
+  const minScore = readDanbooruMinScore(params);
+  const minFavCount = readDanbooruMinFavCount(params);
+  const minWidth = readNumberParam(params, "minWidth", 0, 0, 100_000);
+  const minHeight = readNumberParam(params, "minHeight", 0, 0, 100_000);
+  const fileTypeList = readDanbooruListParam(params, "fileTypes").map((entry) => entry.replace(/^\./, "").toLowerCase());
+  const includeVideos = readBoolean(params, "includeVideos") === true;
+  const fileTypes = new Set(fileTypeList.length || !includeVideos ? fileTypeList.length ? fileTypeList : ["jpg", "jpeg", "png", "webp", "gif"] : []);
+  const excludeTags = new Set(readDanbooruListParam(params, "excludeTags").map((entry) => entry.toLowerCase()));
+  const filtered = [];
+  let skippedQuality = 0;
+  let skippedTags = 0;
+  for (const post of posts) {
+    if (post.isDeleted || post.isBanned) {
+      skippedQuality += 1;
+      continue;
+    }
+    if (minScore > 0 && post.score < minScore || minFavCount > 0 && post.favCount < minFavCount || minWidth > 0 && post.width < minWidth || minHeight > 0 && post.height < minHeight) {
+      skippedQuality += 1;
+      continue;
+    }
+    if (fileTypes.size && !fileTypes.has(String(post.fileExt || "").toLowerCase())) {
+      skippedQuality += 1;
+      continue;
+    }
+    if (excludeTags.size) {
+      const tagSet = danbooruPostTagSet(post);
+      if ([...excludeTags].some((tag) => tagSet.has(tag))) {
+        skippedTags += 1;
+        continue;
+      }
+    }
+    filtered.push(post);
+  }
+  return { posts: filtered, skippedQuality, skippedTags };
+}
+
+async function searchDanbooruPosts(params = {}, signal, config = {}) {
+  const runtime = await danbooruRuntimeConfig(config);
+  const count = readDanbooruCount(params);
+  const imageSize = readDanbooruImageSize(params);
+  const tags = buildDanbooruQueryTags(params);
+  const page = readString(params, "page");
+  const limit = Math.min(DANBOORU_MAX_COUNT, Math.max(count, readDanbooruDownloadCount(params, count), count * 5, 20));
+  const attempts = [];
+  let searchUrl = "";
+  let finalTags = tags;
+  let rawPosts = null;
+  let lastError = null;
+  for (const tagPlan of danbooruSearchTagPlans(tags)) {
+    searchUrl = danbooruApiUrl(runtime, "/posts.json", {
+      tags: tagPlan.join(" "),
+      limit,
+      ...(page ? { page } : {})
+    });
+    try {
+      rawPosts = await fetchDanbooruJson(searchUrl, runtime, signal);
+      finalTags = tagPlan;
+      attempts.push({ tags: tagPlan, ok: true });
+      break;
+    } catch (error) {
+      lastError = error;
+      attempts.push({ tags: tagPlan, ok: false, error: error instanceof Error ? error.message : String(error) });
+      if (!isRetryableDanbooruSearchError(error)) throw error;
+    }
+  }
+  if (!rawPosts) throw lastError || new Error("Danbooru search failed");
+  if (!Array.isArray(rawPosts)) throw new Error("Danbooru posts response was not an array");
+  const normalized = rawPosts.map((post) => normalizeDanbooruPost(post, runtime, { imageSize })).filter(Boolean);
+  const filtered = filterDanbooruPosts(normalized, params);
+  return {
+    runtime,
+    action: "search",
+    tags: finalTags,
+    requestedTags: tags,
+    queryAttempts: attempts,
+    searchUrl,
+    rawCount: rawPosts.length,
+    posts: filtered.posts.slice(0, count),
+    skippedQuality: filtered.skippedQuality,
+    skippedTags: filtered.skippedTags,
+    imageSize
+  };
+}
+
+async function getDanbooruPost(params = {}, signal, config = {}) {
+  const runtime = await danbooruRuntimeConfig(config);
+  const id = Number(readString(params, "postId") || readString(params, "id"));
+  if (!Number.isInteger(id) || id <= 0) throw new Error("postId is required");
+  const imageSize = readDanbooruImageSize(params);
+  const postUrl = danbooruApiUrl(runtime, `/posts/${id}.json`);
+  const rawPost = await fetchDanbooruJson(postUrl, runtime, signal);
+  const post = normalizeDanbooruPost(rawPost, runtime, { imageSize });
+  const filtered = filterDanbooruPosts(post ? [post] : [], params);
+  return {
+    runtime,
+    action: "detail",
+    tags: [`id:${id}`],
+    searchUrl: postUrl,
+    rawCount: post ? 1 : 0,
+    posts: filtered.posts,
+    skippedQuality: filtered.skippedQuality,
+    skippedTags: filtered.skippedTags,
+    imageSize
+  };
+}
+
+function isSensitiveDanbooruRating(rating) {
+  return rating && rating !== "g";
+}
+
+async function downloadDanbooruPosts(posts = [], params = {}, signal) {
+  const requested = readDanbooruDownloadCount(params, posts.length);
+  if (requested <= 0) return [];
+  const requestedTransport = readString(params, "transport");
+  const primaryTransport = requestedTransport === "browser" ? "browser" : "http";
+  const allowBrowserFallback = requestedTransport === "auto" && readBoolean(params, "browserFallback") === true;
+  let browserSessionPromise = null;
+  const getBrowserSession = async () => {
+    if (!browserSessionPromise) browserSessionPromise = createBrowserDownloadSession(signal);
+    return await browserSessionPromise;
+  };
+  try {
+    return await mapConcurrent(posts.slice(0, requested), DOWNLOAD_MANY_CONCURRENCY, async (post) => {
+      try {
+        const downloaded = await downloadImageUrl({
+          url: post.imageUrl,
+          filename: `danbooru-${post.id}`,
+          maxBytes: DOWNLOAD_MAX_BYTES,
+          transport: primaryTransport,
+          refererUrl: post.postUrl
+        }, signal, { getBrowserSession });
+        return {
+          ok: true,
+          postId: post.id,
+          rating: post.rating,
+          sensitiveMedia: isSensitiveDanbooruRating(post.rating),
+          ...downloaded
+        };
+      } catch (error) {
+        if (allowBrowserFallback && primaryTransport !== "browser") {
+          try {
+            const downloaded = await downloadImageUrl({
+              url: post.imageUrl,
+              filename: `danbooru-${post.id}`,
+              maxBytes: DOWNLOAD_MAX_BYTES,
+              transport: "browser",
+              refererUrl: post.postUrl
+            }, signal, { getBrowserSession });
+            return {
+              ok: true,
+              postId: post.id,
+              rating: post.rating,
+              sensitiveMedia: isSensitiveDanbooruRating(post.rating),
+              ...downloaded,
+              fallbackFrom: "http",
+              fallbackError: error instanceof Error ? error.message : String(error)
+            };
+          } catch (fallbackError) {
+            return {
+              ok: false,
+              postId: post.id,
+              rating: post.rating,
+              imageUrl: post.imageUrl,
+              error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+              fallbackFrom: "http",
+              fallbackError: error instanceof Error ? error.message : String(error)
+            };
+          }
+        }
+        return {
+          ok: false,
+          postId: post.id,
+          rating: post.rating,
+          imageUrl: post.imageUrl,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    });
+  } finally {
+    if (browserSessionPromise) {
+      try {
+        const session = await browserSessionPromise;
+        await session.close();
+      } catch {}
+    }
+  }
+}
+
+function formatDanbooruPost(post, index) {
+  const parts = [
+    `${index + 1}. post=${post.id}`,
+    `rating=${post.rating || "?"}`,
+    `score=${post.score}`,
+    `fav=${post.favCount}`,
+    post.width && post.height ? `size=${post.width}x${post.height}` : "",
+    post.imageQuality ? `image=${post.imageQuality}` : ""
+  ].filter(Boolean);
+  const tags = [
+    ...post.tags.character.slice(0, 5),
+    ...post.tags.copyright.slice(0, 3),
+    ...post.tags.artist.slice(0, 3),
+    ...post.tags.general.slice(0, 8)
+  ];
+  return [
+    parts.join(" | "),
+    `   postUrl: ${post.postUrl}`,
+    `   imageUrl: ${post.imageUrl}`,
+    post.sourceUrl ? `   sourceUrl: ${post.sourceUrl}` : "",
+    tags.length ? `   tags: ${tags.join(", ")}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+function formatDanbooruMedia(downloads = []) {
+  return downloads.flatMap((entry, index) => {
+    if (!entry.ok) return [`media${index + 1}: post=${entry.postId} unavailable (${entry.error || "download failed"})`];
+    return [
+      `media${index + 1}: post=${entry.postId} size=${entry.sizeBytes || 0} transport=${entry.transport || "unknown"}`,
+      `${entry.sensitiveMedia ? "SPOILER_MEDIA" : "MEDIA"}: \`${entry.path}\``
+    ];
+  });
+}
+
+function formatDanbooruResult(result, downloads = []) {
+  const lines = [
+    `DANBOORU_RESOURCE ${result.action} ok base=${result.runtime.baseUrl} results=${result.posts.length} media=${downloads.filter((entry) => entry.ok).length}`,
+    `query_tags: ${result.tags.join(" ") || "(none)"}`,
+    `searchUrl: ${result.searchUrl}`,
+    `auth: ${result.runtime.authenticated ? "configured" : "anonymous"}`
+  ];
+  if (result.skippedQuality || result.skippedTags) {
+    lines.push(`filters: skipped_quality=${result.skippedQuality || 0} skipped_tags=${result.skippedTags || 0}`);
+  }
+  if (Array.isArray(result.queryAttempts) && result.queryAttempts.length > 1) {
+    lines.push(`query_retry: attempts=${result.queryAttempts.length} final_tags=${result.tags.join(" ") || "(none)"}`);
+  }
+  result.posts.forEach((post, index) => lines.push(formatDanbooruPost(post, index)));
+  lines.push(...formatDanbooruMedia(downloads));
+  if (downloads.length > 0) {
+    lines.push("Use returned MEDIA/SPOILER_MEDIA lines for Telegram delivery; keep postUrl/sourceUrl exact when citing source.");
+  }
+  return lines.join("\n");
+}
+
+async function runDanbooruResource(params = {}, signal, config = {}) {
+  const action = readString(params, "action", "search").toLowerCase();
+  if (action === "auth_check" || action === "auth") {
+    const runtime = await danbooruRuntimeConfig(config);
+    const searchUrl = danbooruApiUrl(runtime, "/posts.json", { tags: "rating:g", limit: 1 });
+    const rawPosts = await fetchDanbooruJson(searchUrl, runtime, signal);
+    const sample = Array.isArray(rawPosts) ? rawPosts[0] || null : null;
+    const text = [
+      `DANBOORU_RESOURCE auth_check ${sample ? "ok" : "empty"}`,
+      `base=${runtime.baseUrl}`,
+      `auth=${runtime.authenticated ? "configured" : "anonymous"}`,
+      `secretFile=${runtime.secretFile}`,
+      sample?.id ? `samplePost=${runtime.baseUrl}/posts/${sample.id}` : "samplePost=none"
+    ].join("\n");
+    return {
+      content: [{ type: "text", text }],
+      details: {
+        status: "ok",
+        action: "auth_check",
+        baseUrl: runtime.baseUrl,
+        authenticated: runtime.authenticated,
+        credentialsFound: runtime.credentialsFound,
+        secretFile: runtime.secretFile,
+        samplePostId: sample?.id || null
+      }
+    };
+  }
+  const result = action === "detail" || action === "show"
+    ? await getDanbooruPost(params, signal, config)
+    : await searchDanbooruPosts(params, signal, config);
+  const downloads = await downloadDanbooruPosts(result.posts, params, signal);
+  const previewImages = await buildToolResultImagePreviews(downloads.filter((entry) => entry.ok && entry.path));
+  return {
+    content: [
+      { type: "text", text: formatDanbooruResult(result, downloads) },
+      ...previewImages
+    ],
+    details: {
+      status: "ok",
+      action: result.action,
+      baseUrl: result.runtime.baseUrl,
+      authenticated: result.runtime.authenticated,
+      tags: result.tags,
+      requestedTags: result.requestedTags || result.tags,
+      queryAttempts: result.queryAttempts || [],
+      searchUrl: result.searchUrl,
+      rawCount: result.rawCount,
+      count: result.posts.length,
+      imageSize: result.imageSize,
+      posts: result.posts.map((post) => ({
+        id: post.id,
+        postUrl: post.postUrl,
+        imageUrl: post.imageUrl,
+        sourceUrl: post.sourceUrl,
+        rating: post.rating,
+        score: post.score,
+        favCount: post.favCount,
+        width: post.width,
+        height: post.height,
+        fileExt: post.fileExt,
+        imageQuality: post.imageQuality,
+        tags: post.tags
+      })),
+      media: {
+        mediaUrls: downloads.filter((entry) => entry.ok && entry.path).map((entry) => entry.path),
+        outbound: false,
+        sensitiveMedia: downloads.some((entry) => entry.ok && entry.sensitiveMedia),
+        visionContextImages: previewImages.length
+      },
+      downloads: downloads.map((entry) => ({
+        ok: entry.ok === true,
+        postId: entry.postId,
+        path: entry.path,
+        mimeType: entry.mimeType,
+        sizeBytes: entry.sizeBytes,
+        transport: entry.transport,
+        sensitiveMedia: entry.sensitiveMedia,
+        error: entry.error
+      }))
+    }
+  };
 }
 
 function isSurugaYaHost(hostname) {
@@ -428,7 +1086,7 @@ async function fetchImageWithRedirects(rawUrl, { signal, maxBytes, refererUrl })
         redirect: "manual",
         signal: request.signal,
         headers: {
-          "user-agent": USER_AGENT,
+          "user-agent": isDanbooruUrl(currentUrl) ? "AmadeusImageBot/1.0 (danbooru_resource)" : USER_AGENT,
           "accept-language": "ja,en-US;q=0.8,en;q=0.6",
           accept: "image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.5",
           ...(refererUrl ? { referer: refererUrl } : {})
@@ -1271,7 +1929,7 @@ function formatTextResults(query, results, prefix = "WEB_TEXT_SEARCH") {
       `   snippet: ${result.snippet || ""}`
     );
   });
-  lines.push("Treat these URLs as public source leads. Do not loop with more keyword variants in the same turn.");
+  lines.push("Treat these URLs as public source leads. Do not loop with more wording variants in the same turn.");
   return lines.join("\n");
 }
 
@@ -1286,35 +1944,37 @@ function normalizeAbsolutePath(value) {
   return path.resolve(expanded).replace(/\//g, "\\").toLowerCase();
 }
 
-function defaultAllowedPathPrefixes() {
-  const home = os.homedir();
+function defaultAllowedPathPrefixes(config = {}) {
+  const root = openclawMediaRoot(config);
   return [
-    path.join(home, ".openclaw", "media", "inbound"),
-    path.join(home, ".openclaw", "media", "tool-image-generation"),
-    path.join(home, ".openclaw", "media", "downloaded"),
-    path.join(home, ".openclaw", "media", "practical-tools"),
-    path.join(home, ".openclaw", "media", "gallery-resend"),
-    path.join(home, ".openclaw", "media", "gacha-archive")
+    path.join(root, "inbound"),
+    path.join(root, "tool-image-generation"),
+    path.join(root, "downloaded"),
+    path.join(root, "practical-tools"),
+    path.join(root, "meme-tools"),
+    path.join(root, "sticker-pack"),
+    path.join(root, "gallery-resend"),
+    path.join(root, "gacha-archive")
   ].map((entry) => normalizeAbsolutePath(entry));
 }
 
-function isAllowedLocalFile(filePath) {
+function isAllowedLocalFile(filePath, config = {}) {
   const normalized = normalizeAbsolutePath(filePath);
   if (!normalized) return false;
-  return defaultAllowedPathPrefixes().some((root) => normalized === root || normalized.startsWith(`${root}\\`));
+  return defaultAllowedPathPrefixes(config).some((root) => normalized === root || normalized.startsWith(`${root}\\`));
 }
 
 function unwrapMediaDirective(value) {
   const raw = String(value || "").trim().replace(/^`+|`+$/g, "");
-  const match = raw.match(/^(?:SPOILER_MEDIA|MEDIA):\s*`?([^`\r\n]+)`?$/i);
+  const match = raw.match(/^(?:SPOILER_MEDIA|MEDIA):(?!\/\/)\s*`?([^`\r\n]+)`?$/i);
   return match ? match[1].trim() : raw;
 }
 
-async function resolveLocalMediaForSpoiler(value) {
-  const candidate = unwrapMediaDirective(value);
+async function resolveLocalMediaForSpoiler(value, config = {}) {
+  const candidate = mediaReferenceToLocalPath(unwrapMediaDirective(value), config);
   if (!candidate) throw new Error("media path is required");
   if (/^https?:\/\//i.test(candidate)) throw new Error("telegram_media_spoiler accepts bot-local media paths, not URLs");
-  if (!isAllowedLocalFile(candidate)) {
+  if (!isAllowedLocalFile(candidate, config)) {
     throw new Error("media path is blocked; only current bot media paths are allowed");
   }
   const stat = await fs.stat(candidate);
@@ -1868,7 +2528,7 @@ const explicitTextTool = {
   name: EXPLICIT_TEXT_TOOL_NAME,
   label: "Explicit Web Text Search",
   description:
-    "Bounded DuckDuckGo public text search. Use for general public lookup when Zhihu search is not the right fit; do not loop keyword variants.",
+    "Bounded DuckDuckGo public text search. Use for external-current public facts or source leads when native search/Zhihu is unavailable, unobservable, or insufficient; do not loop wording variants.",
   async execute(_toolCallId, params, signal) {
     return executeTextSearch("EXPLICIT_WEB_TEXT_SEARCH", params, signal);
   }
@@ -1878,8 +2538,8 @@ const imageTool = {
   name: IMAGE_TOOL_NAME,
   label: "Web Image Search",
   description:
-    "Search public web image results, return candidate URLs/source pages, and for imagebot foreground turns auto-download visible previews into local MEDIA paths. " +
-    "Use visible previews plus localMedia paths for generation references; direct public URLs are not stable image_generate inputs.",
+    "Generic public image-search fallback. Prefer pixiv_resource for Pixiv, danbooru_resource for booru tags, and web_snapshot/web_card for source pages. " +
+    "Returns candidate URLs/source pages and auto-downloads visible previews into local MEDIA paths on imagebot foreground turns.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -1993,6 +2653,152 @@ const imageTool = {
       const message = error instanceof Error ? error.message : String(error);
       return {
         content: [{ type: "text", text: `WEB_IMAGE_SEARCH error: ${message}` }],
+        details: { status: "failed", error: message }
+      };
+    }
+  }
+};
+
+const danbooruTool = {
+  name: DANBOORU_TOOL_NAME,
+  label: "Danbooru Resource",
+  description:
+    "Search/read Danbooru posts through the official posts.json API with tag, rating, score, favorite-count, order, and optional local media download. " +
+    "Use for Danbooru-native anime image lookup instead of generic web image search; rating is not forced to safe.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      action: {
+        type: "string",
+        enum: ["search", "detail", "auth_check"],
+        description: "search posts, read one post by postId, or check configured API credentials. Default search."
+      },
+      tags: {
+        type: "array",
+        items: { type: "string" },
+        description: "Danbooru tags/metatags, for example ['1girl','blue_archive']."
+      },
+      query: {
+        type: "string",
+        description: "Whitespace-separated Danbooru tags when tags array is inconvenient."
+      },
+      postId: {
+        type: "number",
+        description: "Danbooru post id for action=detail."
+      },
+      count: {
+        type: "number",
+        description: `Number of posts to return, 1-${DANBOORU_MAX_COUNT}. Default ${DANBOORU_DEFAULT_COUNT}.`
+      },
+      page: {
+        type: "string",
+        description: "Optional Danbooru page parameter."
+      },
+      rating: {
+        type: "string",
+        enum: ["any", "general", "sensitive", "questionable", "explicit", "sfw", "nsfw", "g", "s", "q", "e"],
+        description: "Rating filter. Default any; explicit/nsfw are allowed when requested."
+      },
+      status: {
+        type: "string",
+        enum: ["active", "any", "all", "deleted", "pending", "flagged", "banned"],
+        description: "Danbooru status filter. Default active."
+      },
+      minScore: {
+        type: "number",
+        description: "Minimum Danbooru score; converted to score:N.. and also checked locally."
+      },
+      minFavCount: {
+        type: "number",
+        description: "Minimum Danbooru favorite count; converted to favcount:N.. and also checked locally."
+      },
+      minBookmarkCount: {
+        type: "number",
+        description: "Alias for minFavCount, useful when the user says bookmarks/favorites."
+      },
+      minWidth: {
+        type: "number",
+        description: "Local minimum selected image width."
+      },
+      minHeight: {
+        type: "number",
+        description: "Local minimum selected image height."
+      },
+      fileTypes: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional file extensions to keep, for example ['jpg','png','webp']. Defaults to image formats."
+      },
+      includeVideos: {
+        type: "boolean",
+        description: "Allow Danbooru video file types when fileTypes is omitted. Default false for image search."
+      },
+      excludeTags: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional tags to exclude after API fetch."
+      },
+      order: {
+        type: "string",
+        enum: ["id", "id_desc", "score", "score_asc", "favcount", "favcount_asc", "created_at", "created_at_asc", "rank", "curated", "random", "none", "mpixels", "mpixels_asc", "filesize", "filesize_asc"],
+        description: "Danbooru order metatag. Defaults to favcount when minFavCount is set, score when minScore is set."
+      },
+      random: {
+        type: "boolean",
+        description: "Shortcut for order:random."
+      },
+      imageSize: {
+        type: "string",
+        enum: ["large", "original", "sample", "preview"],
+        description: "Preferred image URL variant for download/attachment. Default large."
+      },
+      downloadCount: {
+        type: "number",
+        description: `Download the first N returned posts into local MEDIA paths, 0-${DANBOORU_MAX_DOWNLOAD_COUNT}. Default 0.`
+      },
+      transport: {
+        type: "string",
+        enum: ["auto", "http", "browser"],
+        description: "Download transport for downloadCount. Default/auto uses HTTP first; browser is explicit because it can be slow."
+      },
+      browserFallback: {
+        type: "boolean",
+        description: "With transport=auto, allow slow browser fallback after HTTP download failure. Default false."
+      },
+      ...backgroundToolParameters()
+    }
+  },
+  async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    try {
+      if (shouldRunInBackground(params)) {
+        const labelTags = buildDanbooruQueryTags(params).join(" ") || readString(params, "postId") || "danbooru";
+        return await enqueueBackgroundTool({
+          toolName: DANBOORU_TOOL_NAME,
+          config: danbooruTool.config || {},
+          params,
+          ctx,
+          kind: `${DANBOORU_TOOL_NAME}.search`,
+          label: `danbooru_resource ${labelTags}`,
+          payload: params,
+          timeoutMs: DANBOORU_REQUEST_TIMEOUT_MS + DOWNLOAD_BROWSER_TIMEOUT_MS + 30_000,
+          handler: async ({ payload, signal: jobSignal, progress }) => {
+            await progress({ percent: 10, note: "querying danbooru" });
+            const result = await runDanbooruResource(payload, jobSignal, danbooruTool.config || {});
+            await progress({ percent: 95, note: "danbooru completed" });
+            return {
+              status: result.details?.status || "ok",
+              resultText: result.content?.[0]?.text || "DANBOORU_RESOURCE ok",
+              details: result.details || {}
+            };
+          }
+        });
+      }
+      return await runDanbooruResource(params, signal, danbooruTool.config || {});
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{ type: "text", text: `DANBOORU_RESOURCE error: ${message}` }],
         details: { status: "failed", error: message }
       };
     }
@@ -2259,7 +3065,7 @@ const spoilerTool = {
     properties: {
       media: {
         type: "string",
-        description: "Bot-local media path or MEDIA line to send with Telegram native spoiler."
+        description: "Bot-local media path, MEDIA line, media:// URI, or current/reply media handle to send with Telegram native spoiler."
       },
       path: {
         type: "string",
@@ -2270,7 +3076,7 @@ const spoilerTool = {
         items: { type: "string" },
         minItems: 1,
         maxItems: DOWNLOAD_MANY_MAX_COUNT,
-        description: "Bot-local media paths or MEDIA lines to send with Telegram native spoiler."
+        description: "Bot-local media paths, MEDIA lines, media:// URIs, or current/reply media handles to send with Telegram native spoiler."
       }
     }
   },
@@ -2285,7 +3091,7 @@ const spoilerTool = {
       if (uniqueValues.length === 0) throw new Error("media or mediaUrls is required");
       const resolved = [];
       for (const value of uniqueValues.slice(0, DOWNLOAD_MANY_MAX_COUNT)) {
-        resolved.push(await resolveLocalMediaForSpoiler(value));
+        resolved.push(await resolveLocalMediaForSpoiler(value, spoilerTool.config || {}));
       }
       const lines = [
         "TELEGRAM_MEDIA_SPOILER ok",
@@ -2418,6 +3224,13 @@ export const __testing = {
   sourceSafetyHintForImageUrl,
   resolveLocalMediaForSpoiler,
   isDanbooruUrl,
+  danbooruRuntimeConfig,
+  buildDanbooruQueryTags,
+  danbooruSearchTagPlans,
+  normalizeDanbooruPost,
+  filterDanbooruPosts,
+  searchDanbooruPosts,
+  formatDanbooruResult,
   cachedDownloadTransport,
   rememberDownloadTransport,
   downloadUrlCandidates,
@@ -2447,6 +3260,7 @@ export default {
     textTool.config = config;
     explicitTextTool.config = config;
     imageTool.config = config;
+    danbooruTool.config = config;
     downloadImageTool.config = config;
     downloadImagesTool.config = config;
     spoilerTool.config = config;
@@ -2455,6 +3269,7 @@ export default {
     api.registerTool(textTool, { name: TEXT_TOOL_NAME });
     api.registerTool(explicitTextTool, { name: EXPLICIT_TEXT_TOOL_NAME });
     api.registerTool(imageTool, { name: IMAGE_TOOL_NAME });
+    api.registerTool(danbooruTool, { name: DANBOORU_TOOL_NAME });
     api.registerTool(downloadImageTool, { name: DOWNLOAD_TOOL_NAME });
     api.registerTool(downloadImagesTool, { name: DOWNLOAD_MANY_TOOL_NAME });
     api.registerTool(spoilerTool, { name: SPOILER_TOOL_NAME });

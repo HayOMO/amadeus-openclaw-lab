@@ -132,6 +132,8 @@ try {
   assert.match(okPing.headers["content-security-policy"] || "", /default-src 'self'/);
   assert.equal(okPing.headers["x-frame-options"], "DENY");
   assert.match(okPing.headers["permissions-policy"] || "", /camera=\(\)/);
+  assert.equal(okPing.headers["cross-origin-opener-policy"], "same-origin");
+  assert.equal(okPing.headers["cross-origin-embedder-policy"], "require-corp");
 
   const statusResponse = await request({ port, target: "/api/status", token });
   assert.equal(statusResponse.status, 200);
@@ -204,6 +206,7 @@ try {
   assert.equal(index.status, 200, "static app should remain readable");
   assert.equal(index.headers["x-content-type-options"], "nosniff");
   assert.match(index.headers["content-security-policy"] || "", /frame-ancestors 'none'/);
+  assert.equal(index.headers["cross-origin-resource-policy"], "same-origin");
 
   await request({
     port,

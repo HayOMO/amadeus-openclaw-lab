@@ -30,6 +30,8 @@ for (const entry of manifest.patches) {
   const patchText = await fs.readFile(path.join(patchDir, entry.file), "utf8");
   assert.ok(patchText.includes(`b/${entry.target}`), `${entry.file} does not reference ${entry.target}`);
 }
+assert.ok(ids.has("telegram-script-micro-commands"), "micro command runtime patch must stay listed");
+assert.ok(ids.has("telegram-command-chinese-localization"), "Chinese command localization runtime patch must stay listed");
 
 await fs.access(path.join(repoRoot, "scripts", "VERIFY_RUNTIME_PATCHES.mjs"));
 await fs.access(path.join(repoRoot, "scripts", "VERIFY_RUNTIME_PATCHES.ps1"));

@@ -170,7 +170,12 @@ async function loadRuntime(config = {}) {
     });
     return { ort, sharp, labels, session };
   })();
-  return runtimePromise;
+  try {
+    return await runtimePromise;
+  } catch (error) {
+    runtimePromise = undefined;
+    throw error;
+  }
 }
 
 async function preprocessImage(filePath, runtime, config = {}) {

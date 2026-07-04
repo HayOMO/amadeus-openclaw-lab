@@ -18,10 +18,11 @@ here, then retrieve only the relevant section when the model needs it.
 - `image`: inspect delivered or selected images.
 - Provider-native/current-model search may exist without being a normal callable
   tool. If no native search tool is visible, use the explicit search tools.
-- `zhihu_search` / `zhihu_global_search` / `zhihu_hot_list`: Zhihu OpenAPI
-  search and Chinese-community lookup.
+- `zhihu`: Zhihu OpenAPI search, Chinese-community lookup, and hot-list lookup.
 - `explicit_web_text_search`: bounded generic text-search fallback.
 - `web_image_search`: public image-reference search.
+- `danbooru_resource`: Danbooru tag/rating/score/favorite-count image lookup
+  and optional local download.
 - `reverse_image_search`: source, artist, character, or original-post lookup from
   an image.
 - `download_image_url`, `download_image_urls`: safe public image attachment cache.
@@ -30,11 +31,10 @@ here, then retrieve only the relevant section when the model needs it.
   and account-site placeholder.
 - `telegram_media_spoiler`: Telegram native click-to-view media spoiler delivery
   flag for bot-local visual media.
-- `generated_gallery_recent`, `generated_gallery_search`, `generated_gallery_resend`:
-  resend archived generated images without regenerating.
-- `image_skill_lookup`, `image_skill_save_reference`,
-  `image_skill_note_preference`: local lightweight character/style reference
-  skills for image generation.
+- `generated_gallery`, `generated_gallery_resend`: find or resend archived
+  generated images without regenerating.
+- `image_skill`, `image_skill_save_reference`, `image_skill_note_preference`:
+  local lightweight character/style reference skills for image generation.
 - `meme_transform`: create captioned memes, reaction images, and sticker-style
   WebP outputs from bot-local media.
 - `sticker_pack`: prepare, review, publish, inspect, download, copy/import,
@@ -50,7 +50,7 @@ here, then retrieve only the relevant section when the model needs it.
   animations.
 - `audio_transcribe`: probe/transcribe Telegram voice, audio, or video media.
 - `memory_search`: bot-visible user, group, and window memory recall.
-- `knowledge_search`, `knowledge_ingest`: lightweight registry search and local
+- `knowledge`, `knowledge_ingest`: lightweight registry search and local
   note/file ingest for persona, prompt library, memory, and user docs.
 - `persona_search`: legacy Amadeus/Kurisu persona notes for explicit old-card
   references.

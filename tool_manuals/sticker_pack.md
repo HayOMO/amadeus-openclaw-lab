@@ -21,10 +21,11 @@ in sets created by this bot.
 ## Exposed Actions
 
 - `plan`: create a one-shot confirmation plan for a `dryRun:false`
-  `delete_sticker` operation, or for compatibility with older mutation flows.
-  Do not show or ask for approval codes. For deletion, ask the same user for a
-  plain confirmation such as "确认删除", then run `delete_sticker` with
-  `plan_id`.
+  `delete_sticker` operation. Delete plans return an `approval_code`; the
+  original requester must send that exact code in a later message before the
+  tool runs `delete_sticker` with `plan_id`. Non-delete mutation plans remain
+  accepted for compatibility, but ordinary sticker creation/add/upload/copy
+  should rely on user alignment instead.
 - `prepare`: convert one bot-local image into a transparent WebP sticker file.
   Static rendering keeps the subject aspect ratio unless `framing=cover` is
   requested; transparent padding is used for the square working canvas.
@@ -40,8 +41,8 @@ in sets created by this bot.
   type. This does not grant Telegram edit rights.
 - `forget_managed_set`: remove one set from the local managed-set registry.
 - `publish_draft`: publish kept draft items. Defaults to `dryRun:true`.
-  `dryRun:false` requires `plan_id`, trusted runtime mutation approval, or an
-  explicit local opt-in via `trustedDirectMutations.enabled`.
+  `dryRun:false` requires trusted runtime context where `userId`/`ownerUserId`
+  matches the current Telegram sender.
 - `search_sets` / `search_sources`: search public web pages for Telegram
   `t.me/addstickers/...` set links and optionally verify them with
   `getStickerSet`.
@@ -51,28 +52,34 @@ in sets created by this bot.
   into the local sticker-pack downloads directory and write a `manifest.json`.
 - `copy_set` / `import_set`: mirror selected stickers from a known Telegram set
   into a bot-created/user-owned set. Defaults to `dryRun:true`; `dryRun:false`
-  requires `plan_id`, trusted runtime mutation approval, or explicit local
-  direct-mutation opt-in.
+  requires `userId`/`ownerUserId` to match the current Telegram sender.
 - `upload`: upload one compliant sticker file to Telegram for later use.
-  Defaults to `dryRun:true`; `dryRun:false` requires `plan_id`, trusted runtime
-  mutation approval, or explicit local direct-mutation opt-in.
+  Defaults to `dryRun:true`; `dryRun:false` requires `userId`/`ownerUserId` to
+  match the current Telegram sender.
 - `create`: create a user-owned Telegram sticker set that this bot can edit,
   with one sticker. Defaults to `dryRun:true`.
 - `create_batch`: create a user-owned Telegram sticker set that this bot can
   edit, with multiple initial stickers. Defaults to `dryRun:true`.
-- `add`: add one sticker to an existing bot-created/managed set.
+- `add`: add one sticker to an existing bot-created/managed set. When
+  `dryRun` is omitted and the runtime sender matches `userId` / `ownerUserId`,
+  this defaults to the real add path; otherwise it remains fail-closed or
+  dry-run according to the supplied parameters.
 - `add_from_sticker`: add a received/replied sticker `file_id` or bot-local
-  sticker file to a named or default managed set. Defaults to `dryRun:true`.
+  sticker file to a named or default managed set. When `dryRun` is omitted and
+  the runtime sender matches `userId` / `ownerUserId`, this defaults to the
+  real add path.
 - `add_batch`: add multiple stickers to an existing bot-created/managed set.
-  Defaults to `dryRun:true`.
+  When `dryRun` is omitted and the runtime sender matches `userId` /
+  `ownerUserId`, this defaults to the real add path.
 - `get`: read metadata for a known sticker set name or `t.me/addstickers/...`
   URL.
 - `delete_sticker`: remove a sticker from a bot-created set. It defaults to
   `dryRun:true`; `dryRun:false` requires an explicit delete confirmation plan
   or trusted runtime mutation approval.
 - `set_keywords`, `set_emoji_list`: manage sticker metadata in bot-created
-  sets. These default to `dryRun:true`; `dryRun:false` requires `plan_id`,
-  trusted runtime mutation approval, or explicit local direct-mutation opt-in.
+  sets. These default to `dryRun:true`; `dryRun:false` requires `userId` /
+  `ownerUserId` to match the current Telegram sender because a bare `fileId`
+  has no owner semantics.
 - `link`: normalize a set name and return its `t.me/addstickers/...` URL.
 
 ## Action Boundaries
@@ -84,18 +91,19 @@ Use the narrowest action that matches the task:
 - `list_managed_sets` reads local registry state only.
 - `set_default_set` and `forget_managed_set` mutate local registry state only.
 - `draft` and `review_*` prepare local candidates for judgment.
-- `upload`, `publish_draft`, `create`, `add`, `add_from_sticker`, `copy_set`,
-  `import_set`, `delete_sticker`, `set_keywords`, and `set_emoji_list` are
-  Telegram mutation paths and default to `dryRun:true`.
+- `upload`, `publish_draft`, `create`, `copy_set`, `import_set`,
+  `delete_sticker`, `set_keywords`, and `set_emoji_list` are Telegram mutation
+  paths and default to `dryRun:true`.
+- `add`, `add_from_sticker`, and `add_batch` are Telegram mutation paths too,
+  but user-aligned chat/runtime calls default to the real add path when
+  `dryRun` is omitted. Use explicit `dryRun:true` for preview-only add checks.
 - When the runtime passes the current Telegram sender id, `dryRun:false`
   owner-scoped actions require `userId` / `ownerUserId` to match that sender.
   Missing requester context fails closed.
-- Do not ask users for approval codes. Non-delete sticker mutations should use
-  `plan_id` or trusted runtime mutation approval by default. A private operator
-  may opt into direct trusted-sender mutations with
-  `trustedDirectMutations.enabled:true`, but this is intentionally off by
-  default. Deletion is the only sticker action that should require a separate
-  confirmation step.
+- Do not ask for approval codes for ordinary create/add/upload/copy/publish
+  flows. Deletion is the only sticker action that should require a separate
+  confirmation step; ask the original requester to repeat the delete
+  `approval_code` from `action=plan` in a later message.
 - Telegram Bot API does not provide a way for this bot to attach itself to an
   arbitrary existing user sticker pack and gain edit rights. Use `get`,
   `source_set`, `download_set`, or `copy_set` for existing packs; use
@@ -116,11 +124,22 @@ For image preparation before this publishing step:
   must end with `_by_<bot_username>`. Telegram set short names are ASCII-only;
   non-ASCII base names are converted to a safe ASCII name with a short hash.
 - `set_default_set` with `name` / `setName` records the local default target for
-  later `add_from_sticker` calls. It does not call Telegram.
+  later `add` / `add_from_sticker` calls. It does not call Telegram.
 - `add_from_sticker` accepts `fileId`, `stickerFileId`, a Telegram sticker
-  object in `sticker` / `stickerObject`, or a bot-local `input` /
-  `stickerPath`. If `name` / `setName` is omitted, the local default set for
-  `userId` and `stickerType` is used.
+  object in `sticker` / `telegramSticker` / `stickerObject`, or a bot-local
+  `input` / `stickerPath`. If `name` / `setName` is omitted, the local default
+  set for `userId` and `stickerType` is used.
+- If the user is replying to an already sent Telegram sticker and asks to steal
+  or save it, use `add_from_sticker` with the sticker `file_id` or the whole
+  `ReplySticker` / `Sticker` object. Do not first convert it through
+  `media_transform`; Telegram can add the existing `file_id` directly.
+- If the user is replying to an ordinary image, generated image, or downloaded
+  media, use `add`. If `name` / `setName` is omitted and the user has a managed
+  default set, `add` uses that default.
+- A short reply on replied/generated media with clear save/add intent should
+  use `add_from_sticker` or `add` against the user's managed set. Decide this
+  from the operation intent and runtime media context, not from a fixed phrase
+  list.
 - `sourceSet` / `sourceName` / `fromSet` / `source`: existing Telegram sticker
   set name or `t.me/addstickers/...` URL.
 - `query` / `sourceQuery` / `theme`: search or draft theme text.
@@ -131,8 +150,11 @@ For image preparation before this publishing step:
   `copyApproved`, `formatFilter`, and per-item `reason`/`note` are accepted by
   the tool code and documented here rather than kept in the global prompt.
 - `title`: sticker set title.
-- `input`: one bot-local image/sticker path or `MEDIA:` line.
-- `inputs`: array of bot-local image/sticker paths or `MEDIA:` lines.
+- `input`: one bot-local image/sticker path, `MEDIA:` line, `media://...` URI,
+  or current/reply media handle such as `current.image.0` or `reply.image.0`
+  when the current runtime context lists that handle.
+- `inputs`: array of bot-local image/sticker paths, `MEDIA:` lines,
+  `media://...` URIs, or current/reply media handles.
 - `items`: per-sticker objects with `input`, `fileId`, `emoji`, `emojiList`,
   `keywords`, `format` / `stickerFormat`, and optional framing/compression
   settings.
@@ -145,16 +167,18 @@ For image preparation before this publishing step:
 - `padding`, `trim`, `trimThreshold`, `quality`: local static-sticker rendering
   controls.
 - `dryRun:true`: validate and show the normalized Telegram operation without
-  mutating Telegram. Telegram mutation actions default to dry run.
+  mutating Telegram. Most Telegram mutation actions default to dry run; add
+  actions default to real execution only when the current runtime sender is
+  aligned with `userId` / `ownerUserId`.
 - `targetAction`: with `action=plan`, the Telegram mutation action to confirm.
-  Prefer using it for `delete_sticker` and use it for ordinary
-  publish/create/add/copy/upload actions unless direct trusted mutations were
-  explicitly enabled by local config.
+  Prefer using it only for `delete_sticker`. Ordinary publish/create/add/copy
+  and upload actions should use trusted runtime user alignment.
 - `plan_id`: one-shot sticker mutation plan id returned by `action=plan`.
 - `directImportApproved`, `directUploadApproved`, and
   `directManagementApproved`: legacy model-supplied flags. They are kept for
-  compatibility visibility but do not authorize `dryRun:false`; use `plan_id`,
-  trusted runtime mutation approval, or explicit local direct-mutation opt-in.
+  compatibility visibility but do not authorize `dryRun:false`; use
+  user-aligned runtime context for non-delete actions and a delete plan for
+  `delete_sticker`.
 
 ## Telegram Limits
 

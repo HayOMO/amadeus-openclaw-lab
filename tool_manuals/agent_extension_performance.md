@@ -1,6 +1,6 @@
 ---
 id: agent_extension_performance
-tools: tool_manual_search, script_action, prompt_library, image_feedback, learned_skill, failure_memory
+tools: tool_manual_search, script_action, prompt_library, image_feedback, learned_skill, failure_memory, bot_board
 keywords: performance budget, latency, overhead, hook cost, token cost, tool cost, 性能, 延迟, 开销, 优化
 when_to_read: When evaluating whether a new imagebot feature is too heavy or diagnosing prompt/tool overhead.
 ---
@@ -28,10 +28,18 @@ Daily chat should stay light:
 The current extension design follows that rule:
 
 - `image_feedback` reads the feedback tail and injects at most 3 short hints.
-- `learned_skill` injects at most 3 approved workflow hints.
+- `learned_skill` injects at most 3 active workflow hints.
 - `agent_mode` injects one active mode note.
 - `prompt_library` is not auto-injected; it is called only when needed.
 - `script_action` runs only when explicitly called.
+- `tool_manual_search` parses local manuals on demand and reuses a cache while
+  manual file size/mtime signatures are unchanged.
+- `agent_ops` prompt hooks collect persona, mode, and skill context in parallel
+  and reuse mtime/size-validated JSON state cache entries.
+- `creative_ops` reuses mtime/size-validated JSONL caches for append-only
+  feedback and script history logs, invalidating them on append.
+- `memory_search` reuses a mtime/size-validated known-user cache for the window
+  store; semantic memory has its own signature-based index.
 
 ## Tool Costs
 
@@ -42,6 +50,9 @@ Expected local overhead, excluding model/network time:
 - `image_feedback record/search/summary`: milliseconds to low tens of
   milliseconds for normal JSONL sizes.
 - `script_action list/route/plan/history`: milliseconds.
+- `bot_board rule/ticket/schedule/flow/preset list/get/match/validate`:
+  milliseconds to low tens of milliseconds; it reads a bounded local JSONL tail
+  and never sends messages.
 - `script_action run`: depends on the registered script; timeout capped.
 - `background_job list/get/recent/cancel`: milliseconds to low tens of
   milliseconds; it reads runtime state and a bounded JSONL tail.

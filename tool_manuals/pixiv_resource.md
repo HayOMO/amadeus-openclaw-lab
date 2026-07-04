@@ -22,6 +22,8 @@ Common calls:
 
 - Ranking metadata only:
   `{"action":"ranking","mode":"daily","count":10}`
+- Ranking with bookmark gate:
+  `{"action":"ranking","mode":"daily","count":10,"minBookmarkCount":500}`
 - Ranking plus media for visual choice/comparison:
   `{"action":"ranking","mode":"daily","count":10,"downloadCount":5,"visionCount":3}`
 - Specific artwork download:
@@ -42,6 +44,9 @@ Notes:
   it.
 - `downloadCount`, `downloadConcurrency`, and `visionCount` are capped to avoid
   flooding Telegram or Pixiv.
+- `minBookmarkCount` / `minBookmarks` / `minFavCount` / `minFavorites` filter
+  metadata before ranking media download, so low-bookmark candidates are not
+  downloaded.
 - The tool has a built-in account-safety exact tag filter. By default it skips
   Pixiv items tagged `loli` only in adult/R18 Pixiv contexts, before media
   download or cache writes.

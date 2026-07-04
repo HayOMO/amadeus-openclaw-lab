@@ -4,6 +4,7 @@ import os from "node:os";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
+import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
 
 const TOOL_NAME = "video_keyframes";
 const MEDIA_BRIEF_TOOL = "media_brief";
@@ -34,8 +35,9 @@ function resolveHomePath(...parts) {
 }
 
 function resolveAllowedInput(videoPath) {
-  if (!videoPath) throw new Error("video path is required");
-  const resolved = path.resolve(videoPath);
+  const input = mediaReferenceToLocalPath(videoPath);
+  if (!input) throw new Error("video path is required");
+  const resolved = path.resolve(input);
   const mediaRoot = path.resolve(resolveHomePath("media"));
   const normalizedRoot = mediaRoot.toLowerCase();
   const normalizedPath = resolved.toLowerCase();
@@ -270,7 +272,7 @@ const videoKeyframesTool = {
     properties: {
       video: {
         type: "string",
-        description: "Current Telegram video local path from CurrentMediaPaths/MediaPaths."
+        description: "Current Telegram video local path, MEDIA line, media:// URI, or current/reply media handle."
       },
       maxFrames: {
         type: "number",
@@ -349,7 +351,7 @@ const mediaBriefTool = {
     properties: {
       video: {
         type: "string",
-        description: "Current Telegram video/animation local path from CurrentMediaPaths/MediaPaths."
+        description: "Current Telegram video/animation local path, MEDIA line, media:// URI, or current/reply media handle."
       },
       input: {
         type: "string",

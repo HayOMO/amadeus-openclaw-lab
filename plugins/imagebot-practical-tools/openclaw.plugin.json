@@ -15,6 +15,7 @@
       "web_snapshot",
       "web_card",
       "media_transform",
+      "artifact",
       "artifact_recent",
       "artifact_search",
       "artifact_get",

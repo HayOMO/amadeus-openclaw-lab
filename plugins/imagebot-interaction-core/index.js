@@ -5,10 +5,14 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
+import { createCallbackRecord } from "../imagebot-shared/interaction-session-registry.js";
 
 const TOOL_NAME = "interaction_pipeline";
 const MARS_FORWARD_LOOKUP_TOOL = "mars_forward_lookup";
 const MAX_TEXT = 5000;
+const UI_PLAN_VERSION = "telegram-ui-plan-v1";
+const DEFAULT_UI_CALLBACK_PREFIX = "/amui";
+const CALLBACK_DATA_MAX_BYTES = 64;
 
 const DEFAULT_TRIGGER_PREFIXES = [
   "助手",
@@ -32,6 +36,10 @@ const CONTROL_COMMANDS = [
   "/ambackup",
   "/amarchive"
 ];
+
+const UNSUPPORTED_CONTROL_COMMANDS = {
+  "/model": "Use /ammodel for model status and switching. This command does not change the model."
+};
 
 const PIPELINE_VERSION = "middleware-v2";
 const RATE_EVENTS = new Map();
@@ -295,6 +303,7 @@ function evaluateMessage(config, params) {
   let shouldRespond = false;
   let reason = "ignored";
   let normalizedText = originalText.trim();
+  let controlReply = "";
 
   stages.push({ stage: "identity", userId: identity.userId, chatId: identity.chatId });
   pipeline.push(stage("receive", "ok", { chatType: isPrivate ? "private" : "group", hasText: Boolean(originalText.trim()), hasMedia }));
@@ -311,7 +320,12 @@ function evaluateMessage(config, params) {
       target: command.target || "",
       addressedToBot: command.addressedToBot
     }));
-    if (command.addressedToBot && CONTROL_COMMANDS.includes(command.command)) {
+    if (command.addressedToBot && UNSUPPORTED_CONTROL_COMMANDS[command.command]) {
+      shouldRespond = true;
+      reason = "unsupported_control_command";
+      normalizedText = "";
+      controlReply = UNSUPPORTED_CONTROL_COMMANDS[command.command];
+    } else if (command.addressedToBot && CONTROL_COMMANDS.includes(command.command)) {
       shouldRespond = true;
       reason = command.command === "/amnew" ? "new_window" : "control_command";
       normalizedText = command.text;
@@ -398,6 +412,7 @@ function evaluateMessage(config, params) {
     isReplyToBot,
     command: command.command,
     normalizedText: clip(normalizedText, 1200),
+    controlReply,
     identity,
     window,
     stages,
@@ -406,8 +421,309 @@ function evaluateMessage(config, params) {
     rateLimit,
     policy: {
       respondOnlyWhenTriggeredInGroups: true,
-      groupTriggers: ["control_command", "reply_to_bot", "bot_mention", "trigger_prefix"],
+      groupTriggers: ["control_command", "unsupported_control_command", "reply_to_bot", "bot_mention", "trigger_prefix"],
       defaultIgnoredReason: "No command, mention, reply-to-bot, or configured prefix."
+    }
+  };
+}
+
+function byteLength(value) {
+  return Buffer.byteLength(String(value || ""), "utf8");
+}
+
+function normalizeUiKind(value) {
+  const raw = String(value || "actions").trim().toLowerCase();
+  const aliases = {
+    action: "actions",
+    menu: "actions",
+    menus: "actions",
+    setting: "settings",
+    toggle: "settings",
+    image: "gallery",
+    images: "gallery",
+    media: "gallery",
+    pagination: "pager",
+    page: "pager",
+    confirm_required: "confirm"
+  };
+  const kind = aliases[raw] || raw;
+  return ["actions", "settings", "gallery", "confirm", "choice", "pager"].includes(kind) ? kind : "actions";
+}
+
+function uiText(value, fallback = "", max = 56) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim() || fallback;
+  return clip(text, max);
+}
+
+function callbackToken(value, fallback = "item") {
+  const text = String(value ?? "").trim();
+  if (!text) return fallback;
+  const clean = text.replace(/\s+/g, "-").replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 32);
+  return clean || hash(text, 16);
+}
+
+function normalizeCallbackPrefix(value) {
+  let prefix = String(value || DEFAULT_UI_CALLBACK_PREFIX).trim().replace(/\s+/g, "");
+  if (!prefix) prefix = DEFAULT_UI_CALLBACK_PREFIX;
+  if (!prefix.startsWith("/")) prefix = `/${prefix}`;
+  prefix = prefix.replace(/[^/A-Za-z0-9_:-]/g, "").slice(0, 24);
+  if (!prefix || prefix === "/") return DEFAULT_UI_CALLBACK_PREFIX;
+  return prefix;
+}
+
+function readStringSet(params, key) {
+  const values = readArrayStrings(params, key);
+  const set = new Set();
+  for (const value of values) {
+    set.add(value);
+    set.add(value.toLowerCase());
+  }
+  return set;
+}
+
+function matchesUiSet(set, item) {
+  if (!set?.size) return false;
+  const keys = [item.id, item.key, item.value, item.action, item.label]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return keys.some((key) => set.has(key) || set.has(key.toLowerCase()));
+}
+
+function normalizeUiItem(raw, index, sets, ownerOnlyDefault) {
+  const simple = !isRecord(raw);
+  const source = simple ? {} : raw;
+  const rawValue = simple ? String(raw ?? "") : readString(source, "value");
+  const rawId = simple
+    ? rawValue
+    : readString(source, "id") || readString(source, "key") || rawValue || readString(source, "label") || readString(source, "text");
+  const id = callbackToken(rawId, `item${index + 1}`);
+  const label = uiText(simple ? rawValue : (readString(source, "label") || readString(source, "text") || rawId), `Item ${index + 1}`);
+  const action = callbackToken(simple ? "select" : readString(source, "action", "select"), "select");
+  const provisional = {
+    id,
+    key: readString(source, "key") || id,
+    value: rawValue,
+    action,
+    label
+  };
+  const hidden = !readBoolean(source, "visible", true)
+    || readBoolean(source, "hidden", false)
+    || matchesUiSet(sets.hidden, provisional);
+  const disabled = !readBoolean(source, "enabled", true)
+    || readBoolean(source, "disabled", false)
+    || matchesUiSet(sets.disabled, provisional);
+  return {
+    ...provisional,
+    sourceIndex: index,
+    visible: !hidden,
+    enabled: !disabled,
+    selected: readBoolean(source, "selected", false) || matchesUiSet(sets.selected, provisional),
+    danger: readBoolean(source, "danger", false),
+    confirm: readBoolean(source, "confirm", false),
+    ownerOnly: readBoolean(source, "ownerOnly", ownerOnlyDefault),
+    url: readString(source, "url"),
+    reason: uiText(readString(source, "reason") || readString(source, "disabledReason") || readString(source, "hiddenReason"), "", 160)
+  };
+}
+
+function makeSafeCallback(prefix, requestedId, rawHint) {
+  let id = callbackToken(requestedId, `ui_${hash(rawHint, 20)}`);
+  let data = `${prefix} ${id}`;
+  if (byteLength(data) <= CALLBACK_DATA_MAX_BYTES) return { id, data, shortened: false };
+  id = `ui_${hash(`${requestedId}:${rawHint}`, 20)}`;
+  data = `${DEFAULT_UI_CALLBACK_PREFIX} ${id}`;
+  return { id, data, shortened: byteLength(data) <= CALLBACK_DATA_MAX_BYTES };
+}
+
+function pushButtonGrid(rows, buttons, columns) {
+  const width = Math.max(1, Math.min(4, Math.trunc(columns || 1)));
+  for (let index = 0; index < buttons.length; index += width) {
+    const row = buttons.slice(index, index + width).filter(Boolean);
+    if (row.length) rows.push(row);
+  }
+}
+
+function buildUiPlan(_config, params = {}, ctx = {}) {
+  const controls = readObject(params, "controls");
+  const uiKind = normalizeUiKind(readString(params, "uiKind") || readString(controls, "uiKind"));
+  const callbackPrefix = normalizeCallbackPrefix(readString(params, "callbackPrefix") || readString(controls, "callbackPrefix"));
+  const identity = readIdentity({
+    ...params,
+    userId: readString(params, "userId") || readString(ctx, "userId") || readString(ctx, "senderId"),
+    chatId: readString(params, "chatId") || readString(ctx, "chatId") || readString(ctx, "groupId")
+  });
+  const creatorUserId = identity.userId;
+  const chatId = identity.chatId;
+  const windowId = readString(params, "replySessionKey")
+    || readString(params, "activeSessionKey")
+    || readString(controls, "sessionKey")
+    || readString(ctx, "sessionKey");
+  const messageId = readString(controls, "messageId") || readString(params, "messageId") || readString(ctx, "messageId");
+  const featureId = callbackToken(readString(controls, "featureId") || readString(params, "text") || uiKind, `ui_${uiKind}`);
+  const ownerOnlyDefault = readBoolean(params, "ownerOnly", readBoolean(controls, "ownerOnly", true));
+  const allowedUserIds = [
+    ...readArrayStrings(params, "allowFrom"),
+    ...readArrayStrings(controls, "allowedUserIds"),
+    creatorUserId
+  ].filter(Boolean);
+  const sets = {
+    selected: readStringSet(params, "selected"),
+    disabled: readStringSet(params, "disabled"),
+    hidden: readStringSet(params, "hidden")
+  };
+  const rawItems = Array.isArray(params.items) ? params.items.slice(0, 100) : [];
+  const normalizedItems = rawItems.map((item, index) => normalizeUiItem(item, index, sets, ownerOnlyDefault));
+  const suppressed = [];
+  const availableItems = [];
+  for (const item of normalizedItems) {
+    if (!item.visible) {
+      suppressed.push({ id: item.id, label: item.label, reason: "hidden", detail: item.reason, sourceIndex: item.sourceIndex });
+    } else if (!item.enabled) {
+      suppressed.push({ id: item.id, label: item.label, reason: "disabled", detail: item.reason, sourceIndex: item.sourceIndex });
+    } else {
+      availableItems.push(item);
+    }
+  }
+
+  const defaultPageSize = uiKind === "gallery" ? 6 : 8;
+  const pageSize = Math.trunc(readNumber(params, "pageSize", readNumber(controls, "pageSize", defaultPageSize, 1, 20), 1, 20));
+  const total = Math.max(availableItems.length, Math.trunc(readNumber(controls, "total", availableItems.length, 0, 1_000_000)));
+  const maxPage = Math.max(0, Math.ceil(Math.max(total, 1) / pageSize) - 1);
+  const requestedPage = Math.trunc(readNumber(params, "page", readNumber(controls, "page", 0, 0, 1_000_000), 0, 1_000_000));
+  const currentPage = Math.min(requestedPage, maxPage);
+  const pageItems = availableItems.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
+  const columns = Math.trunc(readNumber(params, "columns", readNumber(controls, "columns", uiKind === "gallery" ? 2 : 1, 1, 4), 1, 4));
+  const now = Math.trunc(readNumber(controls, "now", Date.now(), 0, Number.MAX_SAFE_INTEGER));
+  const ttlMs = Math.trunc(readNumber(controls, "ttlMs", 15 * 60 * 1000, 1_000, 24 * 60 * 60 * 1000));
+  const callbackRecords = [];
+  const rows = [];
+  const scope = { chatId, windowId, messageId, featureId, creatorUserId };
+  const scopeKey = `${chatId}|${windowId}|${messageId}|${featureId}|${uiKind}|${currentPage}`;
+
+  function makeCallbackButton(button) {
+    const operation = callbackToken(button.operation || button.action || "select", "select");
+    const itemId = callbackToken(button.id || button.itemId || operation, operation);
+    const requestedId = `ui_${hash(`${scopeKey}|${operation}|${itemId}|${callbackRecords.length}`, 20)}`;
+    const safe = makeSafeCallback(callbackPrefix, requestedId, `${operation}:${itemId}`);
+    const ownerOnly = button.ownerOnly !== false;
+    const record = createCallbackRecord({
+      id: safe.id,
+      action: operation,
+      role: ownerOnly ? "creator" : "any",
+      ...scope,
+      allowedUserIds: ownerOnly ? allowedUserIds : [],
+      payload: {
+        version: UI_PLAN_VERSION,
+        uiKind,
+        operation,
+        itemId,
+        page: currentPage,
+        targetPage: Number.isFinite(button.targetPage) ? button.targetPage : undefined,
+        selected: Boolean(button.selected),
+        danger: Boolean(button.danger),
+        confirm: Boolean(button.confirm)
+      }
+    }, { now, ttlMs });
+    callbackRecords.push(record);
+    return { text: uiText(button.text, operation), callback_data: safe.data };
+  }
+
+  const itemButtons = pageItems.map((item) => {
+    const text = uiText(`${item.selected ? "[x] " : ""}${item.danger ? "[!] " : ""}${item.label}`, item.id);
+    if (item.url) return { text, url: item.url };
+    return makeCallbackButton({
+      text,
+      operation: item.confirm || item.danger ? "confirm_item" : item.action,
+      id: item.id,
+      ownerOnly: item.ownerOnly,
+      selected: item.selected,
+      danger: item.danger,
+      confirm: item.confirm || item.danger
+    });
+  });
+  pushButtonGrid(rows, itemButtons, columns);
+
+  const pageButtons = [];
+  if (currentPage > 0) {
+    pageButtons.push(makeCallbackButton({ text: "< Prev", operation: "page", id: `p${currentPage - 1}`, targetPage: currentPage - 1 }));
+  }
+  if (currentPage < maxPage) {
+    pageButtons.push(makeCallbackButton({ text: "Next >", operation: "page", id: `p${currentPage + 1}`, targetPage: currentPage + 1 }));
+  }
+  if (pageButtons.length) rows.push(pageButtons);
+
+  const auxButtons = [];
+  if (readBoolean(controls, "refresh", false) || readBoolean(controls, "includeRefresh", false)) {
+    auxButtons.push(makeCallbackButton({ text: "Refresh", operation: "refresh", id: "refresh" }));
+  }
+  if (readBoolean(controls, "back", false) || readBoolean(controls, "includeBack", false)) {
+    auxButtons.push(makeCallbackButton({ text: "Back", operation: "back", id: "back" }));
+  }
+  const confirmRequired = uiKind === "confirm"
+    || readBoolean(controls, "confirm", false)
+    || readBoolean(controls, "confirmRequired", false);
+  const includeCancel = readBoolean(controls, "cancel", false) || readBoolean(controls, "includeCancel", false);
+  if (!confirmRequired && includeCancel) {
+    auxButtons.push(makeCallbackButton({ text: "Cancel", operation: "cancel", id: "cancel" }));
+  }
+  if (auxButtons.length) rows.push(auxButtons);
+
+  if (confirmRequired) {
+    rows.push([
+      makeCallbackButton({
+        text: uiText(readString(controls, "confirmLabel"), "Confirm"),
+        operation: "confirm",
+        id: "confirm",
+        danger: readBoolean(controls, "danger", false),
+        confirm: true
+      }),
+      makeCallbackButton({
+        text: uiText(readString(controls, "cancelLabel"), "Cancel"),
+        operation: "cancel",
+        id: "cancel"
+      })
+    ]);
+  }
+
+  const allButtons = rows.flat();
+  const callbackButtons = allButtons.filter((button) => button.callback_data);
+  const maxCallbackBytes = callbackButtons.reduce((max, button) => Math.max(max, byteLength(button.callback_data)), 0);
+  return {
+    version: UI_PLAN_VERSION,
+    uiKind,
+    title: uiText(readString(controls, "title") || readString(params, "text") || readString(params, "message"), "", 160),
+    scope,
+    replyMarkup: { inline_keyboard: rows },
+    page: {
+      current: currentPage,
+      pageSize,
+      total,
+      maxPage,
+      hasPrev: currentPage > 0,
+      hasNext: currentPage < maxPage
+    },
+    counts: {
+      inputItems: normalizedItems.length,
+      availableItems: availableItems.length,
+      suppressedItems: suppressed.length,
+      rows: rows.length,
+      buttons: allButtons.length,
+      callbackButtons: callbackButtons.length
+    },
+    callbackRecords,
+    suppressed,
+    conditions: {
+      ownerOnlyDefault,
+      disabledButtonsOmitted: true,
+      hiddenButtonsOmitted: true,
+      callbackDataMaxBytes: CALLBACK_DATA_MAX_BYTES,
+      maxCallbackBytes
+    },
+    policy: {
+      telegramInlineKeyboard: true,
+      useCallbackQueryAnswer: true,
+      editExistingMessagePreferred: true,
+      noMessageSending: true
     }
   };
 }
@@ -737,24 +1053,93 @@ async function forwardFirstMarsMessage(config, record, params = {}, ctx = {}) {
   }
 }
 
+function asTelegramMessageId(value) {
+  const messageId = normalizeMessageId(value);
+  if (!messageId) return "";
+  return Number.isFinite(Number(messageId)) ? Number(messageId) : messageId;
+}
+
+function buildMarsReplyPayload(chatId, text, messageId, threadId = "") {
+  const payload = {
+    chat_id: chatId,
+    text,
+    disable_notification: true,
+    reply_parameters: {
+      message_id: asTelegramMessageId(messageId)
+    }
+  };
+  if (threadId && Number.isFinite(Number(threadId))) payload.message_thread_id = Number(threadId);
+  return payload;
+}
+
+async function replyFirstMarsMessage(config, record, params = {}, ctx = {}) {
+  const first = record?.first || {};
+  const targetChatId = normalizeChatId(readString(params, "targetChatId") || readString(params, "chatId") || ctx?.chatId || ctx?.groupId);
+  const fromChatId = normalizeChatId(first.chatId);
+  const firstMessageId = normalizeMessageId(first.messageId);
+  const firstThreadId = normalizeMessageId(first.threadId);
+  const fallbackMessageId = normalizeMessageId(readString(params, "fallbackMessageId") || ctx?.messageId || readString(params, "messageId") || readString(params, "sourceMessageId"));
+  const fallbackThreadId = normalizeMessageId(readString(params, "fallbackThreadId") || readString(params, "threadId") || ctx?.threadId || ctx?.messageThreadId);
+  const text = clip(readString(params, "message") || readString(params, "text") || "火星", 240) || "火星";
+  const fallbackText = clip(readString(params, "fallbackMessage") || "火星，但是首发消息不见了。", 240) || "火星，但是首发消息不见了。";
+  if (!targetChatId) throw new Error("target chat id is required");
+  if (fromChatId && fromChatId !== targetChatId) throw new Error("refusing to reply to a Mars first message in a different chat");
+  const firstPayload = firstMessageId ? buildMarsReplyPayload(targetChatId, text, firstMessageId, firstThreadId) : null;
+  const fallbackPayload = fallbackMessageId ? buildMarsReplyPayload(targetChatId, fallbackText, fallbackMessageId, fallbackThreadId) : null;
+  if (!firstPayload && !fallbackPayload) throw new Error("stored first message and fallback current message are missing message ids");
+  if (readBoolean(params, "dryRun", false)) {
+    return {
+      method: firstPayload ? "dry_run_reply_first" : "dry_run_reply_fallback",
+      payload: firstPayload || fallbackPayload,
+      result: null,
+      firstMissing: !firstPayload
+    };
+  }
+  if (!firstPayload) {
+    return {
+      method: "sendMessageFallback",
+      payload: fallbackPayload,
+      result: await telegramBotApi(config, "sendMessage", fallbackPayload),
+      firstMissing: true
+    };
+  }
+  try {
+    return { method: "sendMessage", payload: firstPayload, result: await telegramBotApi(config, "sendMessage", firstPayload) };
+  } catch (firstReplyError) {
+    if (!fallbackPayload) throw firstReplyError;
+    const fallbackResult = await telegramBotApi(config, "sendMessage", fallbackPayload);
+    return {
+      method: "sendMessageFallback",
+      payload: fallbackPayload,
+      result: fallbackResult,
+      firstReplyError: firstReplyError instanceof Error ? firstReplyError.message : String(firstReplyError)
+    };
+  }
+}
+
 const marsForwardLookupTool = {
   name: MARS_FORWARD_LOOKUP_TOOL,
   label: "Mars Forward Lookup",
-  description: "Find the first same-group Telegram message for a Mars duplicate and optionally forward that first group message back into the current chat.",
+  description: "查找火星重复转发在同群里的首发记录。运行时脚本命中机械火星时会直接回复首发消息；模型确认相似火星时用 reply_first 回复首发；lookup 只用于排查记录，forward_first 只在用户明确要求转出原消息时使用。",
   parameters: {
     type: "object",
     additionalProperties: false,
     properties: {
-      action: { type: "string", enum: ["lookup", "forward_first"], description: "Use lookup to inspect records; use forward_first to show the first group post." },
+      action: { type: "string", enum: ["lookup", "forward_first", "reply_first"], description: "lookup 用于查看记录；reply_first 在模型确认相似火星后回复同群首发消息；forward_first 会把同群首发消息转出来，只在用户明确要求转出原消息时使用。" },
       query: { type: "string", description: "Optional source, sender, or preview text filter." },
-      messageId: { type: "string", description: "First or duplicate Telegram message id. If omitted, lookup uses the latest matching record in the current chat." },
+      messageId: { type: "string", description: "首发或重复转发的 Telegram message id。不要传 bot 脚本火星回复自己的 message id；不确定就省略，让工具使用当前群最新匹配记录。" },
       sourceMessageId: { type: "string", description: "Alias for messageId." },
       chatId: { type: "string", description: "Telegram chat id. Defaults to the current chat." },
       threadId: { type: "string", description: "Telegram topic/thread id. Defaults to the current topic when available." },
       targetChatId: { type: "string", description: "Target Telegram chat for forward_first. Defaults to current chat; must match the stored first message chat." },
       targetThreadId: { type: "string", description: "Target topic/thread for forward_first. Defaults to current topic." },
+      fallbackMessageId: { type: "string", description: "For reply_first, current duplicate message id used only when the stored first message no longer exists." },
+      fallbackThreadId: { type: "string", description: "For reply_first, current duplicate topic/thread used only for the missing-first fallback." },
+      message: { type: "string", description: "For reply_first, short Mars/duplicate quip to send as a reply to the first same-group message." },
+      text: { type: "string", description: "Alias for message." },
+      fallbackMessage: { type: "string", description: "For reply_first, message used when the first same-group message is missing. Default: 火星，但是首发消息不见了。" },
       count: { type: "number", description: "Lookup result count, 1-10. Default 3." },
-      dryRun: { type: "boolean", description: "For forward_first, show what would be forwarded without calling Telegram." }
+      dryRun: { type: "boolean", description: "For forward_first/reply_first, show the Telegram payload without calling Telegram." }
     },
     required: ["action"]
   },
@@ -778,8 +1163,24 @@ const marsForwardLookupTool = {
           ...results.map(formatMarsRecordLine)
         ], { action, statePath: marsStatePath(config), results: results.map(publicMarsRecord) });
       }
-      if (action !== "forward_first") throw new Error("unknown action");
       const record = selected[0];
+      if (action === "reply_first") {
+        const delivery = await replyFirstMarsMessage(config, record, params, ctx);
+        return marsToolResult([
+          `replied=${delivery.method}`,
+          formatMarsRecordLine(record, 0),
+          delivery.firstMissing ? "firstMissing=true" : "",
+          delivery.firstReplyError ? `firstReplyFallbackReason=${clip(delivery.firstReplyError, 240)}` : ""
+        ], {
+          action,
+          delivered: !String(delivery.method).startsWith("dry_run"),
+          method: delivery.method,
+          payload: delivery.payload,
+          result: delivery.result,
+          selected: publicMarsRecord(record)
+        });
+      }
+      if (action !== "forward_first") throw new Error("unknown action");
       const delivery = await forwardFirstMarsMessage(config, record, params, ctx);
       const first = publicMarsSnapshot(record.first || {});
       return marsToolResult([
@@ -804,12 +1205,12 @@ const marsForwardLookupTool = {
 const interactionPipelineTool = {
   name: TOOL_NAME,
   label: "Interaction Pipeline",
-  description: "Evaluate Telegram group trigger, stable user identity, and model-window routing rules. No message sending and no hidden chat access.",
+  description: "Evaluate Telegram group trigger, stable user identity, model-window routing, and local inline-keyboard UI plans. No message sending and no hidden chat access.",
   parameters: {
     type: "object",
     additionalProperties: false,
     properties: {
-      action: { type: "string", enum: ["evaluate", "identity", "rules"], description: "Pipeline operation." },
+      action: { type: "string", enum: ["evaluate", "identity", "rules", "ui_plan"], description: "Pipeline operation." },
       text: { type: "string", description: "Message text." },
       message: { type: "string", description: "Alias for text." },
       userId: { type: "string", description: "Telegram sender id." },
@@ -834,11 +1235,22 @@ const interactionPipelineTool = {
       allowFrom: { type: "array", items: { type: "string" }, description: "Optional sender allowlist for diagnostic evaluation." },
       rateLimit: { type: "object", description: "Optional diagnostic rate limit config: enabled/windowMs/maxPerUser/maxPerChat." },
       recordRateLimit: { type: "boolean", description: "Record this evaluation in the in-memory diagnostic rate limiter." },
-      enforceRateLimit: { type: "boolean", description: "If rate limited, set shouldRespond=false in this evaluation." }
+      enforceRateLimit: { type: "boolean", description: "If rate limited, set shouldRespond=false in this evaluation." },
+      uiKind: { type: "string", enum: ["actions", "settings", "gallery", "confirm", "choice", "pager"], description: "UI plan kind for action=ui_plan." },
+      items: { type: "array", description: "Button candidates for action=ui_plan. Objects may include id/label/action/enabled/visible/selected/url." },
+      page: { type: "number", description: "Zero-based page for action=ui_plan." },
+      pageSize: { type: "number", description: "Items per page for action=ui_plan." },
+      columns: { type: "number", description: "Button columns, clamped to 1..4." },
+      selected: { type: "array", items: { type: "string" }, description: "Item ids/labels/actions to mark selected." },
+      disabled: { type: "array", items: { type: "string" }, description: "Item ids/labels/actions to omit as disabled." },
+      hidden: { type: "array", items: { type: "string" }, description: "Item ids/labels/actions to omit as hidden." },
+      controls: { type: "object", description: "UI controls such as back/cancel/refresh/confirm/total/ttlMs/featureId." },
+      callbackPrefix: { type: "string", description: "Callback command prefix, default /amui." },
+      ownerOnly: { type: "boolean", description: "Default callback owner scope for action=ui_plan." }
     },
     required: ["action"]
   },
-  async execute(_toolCallId, params) {
+  async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
     try {
       const config = interactionPipelineTool.config || {};
       const action = readString(params, "action", "evaluate").toLowerCase();
@@ -854,6 +1266,7 @@ const interactionPipelineTool = {
           "- reply-to-bot with a replySessionKey enters the replied bot window",
           "- /amnew opens a fresh sender window",
           "- sender allowlist and rate-limit checks are diagnostic unless configured/enforced",
+          "- ui_plan builds local inline keyboards with owner-scoped callback records; it does not send messages",
           `controlCommands: ${CONTROL_COMMANDS.join(", ")}`,
           `triggerPrefixes: ${prefixes.join(", ")}`,
           botNames.length ? `botUsernames: ${botNames.join(", ")}` : "botUsernames: runtime/config supplied"
@@ -867,6 +1280,16 @@ const interactionPipelineTool = {
           `chatId: ${identity.chatId || "unknown"}`,
           `identityKey: ${identity.identityKey || "unknown"}`
         ], { action, identity });
+      }
+      if (action === "ui_plan") {
+        const plan = buildUiPlan(config, params, ctx);
+        return ok([
+          `uiKind: ${plan.uiKind}`,
+          `buttons: ${plan.counts.buttons} rows: ${plan.counts.rows}`,
+          `callbacks: ${plan.counts.callbackButtons} maxBytes: ${plan.conditions.maxCallbackBytes}`,
+          `page: ${plan.page.current + 1}/${plan.page.maxPage + 1}`,
+          plan.counts.suppressedItems ? `suppressed: ${plan.counts.suppressedItems}` : ""
+        ], { action, plan });
       }
       if (action !== "evaluate") throw new Error("unknown action");
       const result = evaluateMessage(config, params);
@@ -888,27 +1311,31 @@ function contextLine(event, ctx) {
   const chatId = String(event?.chatId || event?.groupId || ctx?.chatId || ctx?.groupId || "").trim();
   if (!sessionKey && !userId && !chatId) return "";
   return [
-    "[Imagebot interaction context]",
-    "Telegram group turns are multi-user: reason by stable Telegram user id when it is available.",
-    "A reply to a bot message may intentionally enter another active window; do not silently replace it with the sender's personal window.",
+    "[Telegram 路由上下文]",
+    "频道: Telegram 群聊",
+    "身份键: 可用时使用稳定 Telegram user id",
+    "窗口规则: 回复 bot 消息时使用被回复的 bot 窗口；否则使用发送者窗口",
     sessionKey ? `sessionKey: ${clip(sessionKey, 160)}` : "",
     userId ? `senderUserId: ${userId}` : "",
     chatId ? `chatId: ${chatId}` : "",
-    "[/Imagebot interaction context]"
+    "[/Telegram 路由上下文]"
   ].filter(Boolean).join("\n");
 }
 
 export const __testing = {
   CONTROL_COMMANDS,
+  UNSUPPORTED_CONTROL_COMMANDS,
   DEFAULT_TRIGGER_PREFIXES,
   readIdentity,
   parseCommand,
   stripTriggerPrefix,
   evaluateMessage,
+  buildUiPlan,
   sessionRecommendation,
   loadMarsRecords,
   selectMarsRecords,
   forwardFirstMarsMessage,
+  replyFirstMarsMessage,
   marsStatePath,
   marsSqlitePath
 };

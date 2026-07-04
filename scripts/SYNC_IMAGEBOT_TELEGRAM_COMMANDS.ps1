@@ -32,10 +32,10 @@ function Get-FallbackCommands {
   return @(
     @{ command = "amnew"; description = "Start a clean chat window" },
     @{ command = "amhelp"; description = "Show control commands" },
-    @{ command = "amstatus"; description = "Show gateway status" },
+    @{ command = "amstatus"; description = "Show local bot status" },
     @{ command = "ammodel"; description = "Show or switch chat model" },
     @{ command = "ampersona"; description = "Show or switch speaking persona" },
-    @{ command = "amtools"; description = "List or run registered scripts" }
+    @{ command = "amtools"; description = "List safe script controls" }
   )
 }
 

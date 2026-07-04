@@ -41,7 +41,7 @@ function runGitApply(runtimeRoot, patchPath, reverse, options = {}) {
     runtimeRoot,
     "apply",
     ...(reverse ? ["--reverse"] : []),
-    "--check",
+    ...(options.check === false ? [] : ["--check"]),
     "--unsafe-paths",
     "--whitespace=nowarn",
     patchPath,
@@ -57,14 +57,61 @@ function runGitApply(runtimeRoot, patchPath, reverse, options = {}) {
   };
 }
 
-function runGitApplyCompatible(runtimeRoot, patchPath, reverse) {
-  const strict = runGitApply(runtimeRoot, patchPath, reverse, { disableAutocrlf: true });
+function runGitApplyCompatible(runtimeRoot, patchPath, reverse, options = {}) {
+  if (options.preferNative) {
+    const native = runGitApply(runtimeRoot, patchPath, reverse, { ...options, disableAutocrlf: false });
+    if (native.ok) return native;
+
+    const strict = runGitApply(runtimeRoot, patchPath, reverse, { ...options, disableAutocrlf: true });
+    if (strict.ok) return strict;
+
+    return native;
+  }
+
+  const strict = runGitApply(runtimeRoot, patchPath, reverse, { ...options, disableAutocrlf: true });
   if (strict.ok) return strict;
 
-  const native = runGitApply(runtimeRoot, patchPath, reverse, { disableAutocrlf: false });
+  const native = runGitApply(runtimeRoot, patchPath, reverse, { ...options, disableAutocrlf: false });
   if (native.ok) return native;
 
   return strict;
+}
+
+function targetPath(runtimeRoot, target) {
+  return path.join(runtimeRoot, target.replaceAll("/", path.sep));
+}
+
+function runLayeredReverseCheck(runtimeRoot, patchDir, entries, index) {
+  const entry = entries[index];
+  const laterSameTarget = entries.slice(index + 1).filter((candidate) => candidate.target === entry.target);
+  if (laterSameTarget.length === 0) return { ok: false, output: "no later layered patch for target" };
+
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-patch-layer-"));
+  try {
+    const sourceTarget = targetPath(runtimeRoot, entry.target);
+    const tempTarget = targetPath(tempRoot, entry.target);
+    fs.mkdirSync(path.dirname(tempTarget), { recursive: true });
+    fs.copyFileSync(sourceTarget, tempTarget);
+
+    const reversed = [];
+    for (const laterEntry of [...laterSameTarget].reverse()) {
+      const laterPatch = path.join(patchDir, laterEntry.file);
+      const laterCheck = runGitApplyCompatible(tempRoot, laterPatch, true, { preferNative: true });
+      if (!laterCheck.ok) return laterCheck;
+      const laterApply = runGitApplyCompatible(tempRoot, laterPatch, true, { check: false, preferNative: true });
+      if (!laterApply.ok) return laterApply;
+      reversed.push(laterEntry.file);
+    }
+
+    const reverseCheck = runGitApplyCompatible(tempRoot, path.join(patchDir, entry.file), true, { preferNative: true });
+    if (!reverseCheck.ok) return reverseCheck;
+    return {
+      ok: true,
+      output: `patch is already applied before layered patch(es): ${reversed.join(", ")}`,
+    };
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 }
 
 const manifestPath = path.resolve(
@@ -83,11 +130,12 @@ if (!fs.existsSync(runtimeRoot)) {
 
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const patchDir = path.dirname(manifestPath);
+const entries = manifest.patches || [];
 const results = [];
 
-for (const entry of manifest.patches || []) {
+for (const [index, entry] of entries.entries()) {
   const patchPath = path.join(patchDir, entry.file);
-  const targetPath = path.join(runtimeRoot, entry.target.replaceAll("/", path.sep));
+  const resolvedTargetPath = targetPath(runtimeRoot, entry.target);
   const result = {
     id: entry.id,
     file: entry.file,
@@ -101,7 +149,7 @@ for (const entry of manifest.patches || []) {
     results.push(result);
     continue;
   }
-  if (!fs.existsSync(targetPath)) {
+  if (!fs.existsSync(resolvedTargetPath)) {
     result.detail = "target runtime file is missing";
     results.push(result);
     continue;
@@ -111,6 +159,14 @@ for (const entry of manifest.patches || []) {
   if (reverseCheck.ok) {
     result.status = "OK";
     result.detail = "patch is already applied";
+    results.push(result);
+    continue;
+  }
+
+  const layeredReverseCheck = runLayeredReverseCheck(runtimeRoot, patchDir, entries, index);
+  if (layeredReverseCheck.ok) {
+    result.status = "OK";
+    result.detail = layeredReverseCheck.output;
     results.push(result);
     continue;
   }

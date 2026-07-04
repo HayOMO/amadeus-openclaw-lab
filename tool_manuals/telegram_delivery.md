@@ -1,6 +1,6 @@
 ---
 id: telegram_delivery
-tools: image_generate, download_image_url, download_image_urls, telegram_media_spoiler, generated_gallery_recent, generated_gallery_search, generated_gallery_resend, memory_search, persona_search
+tools: image_generate, download_image_url, download_image_urls, telegram_media_spoiler, generated_gallery, generated_gallery_resend, memory_search, persona_search
 keywords: telegram reply, media attach, MEDIA line, SPOILER_MEDIA, native spoiler, album, send photo, resend image, no image sent, reply target, 发图, 发送图片, 附件, 相册, 合并发送, 遮罩, 打码, 剧透, spoiler, 没发图, 重发, 回复谁
 when_to_read: Before a final Telegram reply that sends media, resends media, uses native spoiler, sends an album, or must pick a reply target.
 ---
@@ -37,7 +37,7 @@ Use it for user wording such as: 遮罩发图, 打码发, 剧透图, spoiler, NS
 ## Resend
 
 - If user says image did not arrive / was swallowed / resend / 再发一次 / 上张图没出来:
-  1. `generated_gallery_recent` or `generated_gallery_search`
+  1. `generated_gallery action=recent` or `generated_gallery action=search`
   2. `generated_gallery_resend`
 - Do not call `image_generate` for pure resend.
 

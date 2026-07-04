@@ -11,6 +11,7 @@ const FAILURE_MEMORY_TOOL = "failure_memory";
 const EVIDENCE_PACK_TOOL = "evidence_pack";
 const GITHUB_LOOKUP_TOOL = "github_lookup";
 const DATA_TOOL = "data_tool";
+const BOT_BOARD_TOOL = "bot_board";
 
 const MAX_LOG_READ_BYTES = 4 * 1024 * 1024;
 const MAX_TEXT = 5000;
@@ -23,17 +24,23 @@ const DEFAULT_COUNT = 6;
 const DEFAULT_FAILURE_SLOW_MS = 25_000;
 const GITHUB_TIMEOUT_MS = 15_000;
 const USER_AGENT = "AmaduseImagebot/agent-ops (+https://github.com)";
+const MAX_SKILL_FILE_MEDIA = 6;
+const MAX_SKILL_MEDIA_BYTES = 50 * 1024 * 1024;
+const ALLOWED_SKILL_IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 
 const MODE_DEFS = {
-  casual: "Short, natural group chat. Use tools only when the user clearly needs them.",
-  media: "Prioritize delivered/replied media, visual inspection, transformations, gallery resend, and concise media delivery.",
-  web: "Prioritize public web evidence, sources, webpage screenshots, and artifact notes.",
-  research: "Define terms, search/cite public sources when needed, separate facts from assumptions, and keep evidence traceable.",
-  debug: "Diagnose failures with recent tool events, logs exposed by tools, and minimal reproducible checks.",
-  creative: "Prioritize prompts, image direction, references, variants, and concise creative iteration."
+  casual: "短而自然的群聊。只有用户确实需要时才用工具。",
+  media: "优先处理已发送/回复媒体、视觉检查、变换、相册重发和简洁媒体交付。",
+  web: "优先使用公共网页证据、来源、网页截图和 artifact 笔记。",
+  research: "先定义术语，需要时搜索/引用公共来源，区分事实和假设，保留证据链。",
+  debug: "用最近工具事件、工具暴露的日志和最小可复现检查来诊断失败。",
+  creative: "优先处理提示词、图像方向、参考图、变体和简洁创意迭代。"
 };
 
 const pendingToolCalls = new Map();
+const jsonFileCache = new Map();
+const personaFileCache = new Map();
+const personaFileCacheCounters = { hits: 0, misses: 0 };
 
 function homeDir() {
   return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
@@ -75,12 +82,20 @@ function skillLogPath(config) {
   return path.join(storeRoot(config), "skills.jsonl");
 }
 
+function skillFilesRoot(config) {
+  return path.join(storeRoot(config), "skill-files");
+}
+
 function failureLogPath(config) {
   return path.join(storeRoot(config), "tool-events.jsonl");
 }
 
 function evidenceLogPath(config) {
   return path.join(storeRoot(config), "evidence-packs.jsonl");
+}
+
+function botBoardLogPath(config) {
+  return path.join(storeRoot(config), "bot-board.jsonl");
 }
 
 function personaHookDebugPath(config) {
@@ -93,6 +108,11 @@ function nowIso() {
 
 function hash(value, len = 16) {
   return crypto.createHash("sha256").update(String(value || "")).digest("hex").slice(0, len);
+}
+
+async function sha256File(filePath) {
+  const data = await fs.readFile(filePath);
+  return crypto.createHash("sha256").update(data).digest("hex");
 }
 
 function clip(value, max = 600) {
@@ -140,6 +160,73 @@ function readArrayStrings(params, key) {
   const raw = isRecord(params) ? params[key] : undefined;
   if (!Array.isArray(raw)) return [];
   return raw.map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function readStringList(params, key) {
+  const raw = isRecord(params) ? params[key] : undefined;
+  if (Array.isArray(raw)) return raw.map((item) => String(item || "").trim()).filter(Boolean);
+  if (typeof raw === "string" && raw.trim()) return [raw.trim()];
+  return [];
+}
+
+function safeIdPart(value, fallback = "skill") {
+  const cleaned = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return cleaned || fallback;
+}
+
+function yamlString(value) {
+  return JSON.stringify(String(value || ""));
+}
+
+function isInside(root, target) {
+  const rootNorm = path.resolve(root).toLowerCase();
+  const targetNorm = path.resolve(target).toLowerCase();
+  return targetNorm === rootNorm || targetNorm.startsWith(rootNorm + path.sep);
+}
+
+function allowedSkillMediaRoots(config = {}) {
+  const home = homeDir();
+  const defaults = [
+    path.join(home, ".openclaw", "media", "inbound"),
+    path.join(home, ".openclaw", "media", "tool-image-generation"),
+    path.join(home, ".openclaw", "media", "downloaded"),
+    path.join(home, ".openclaw", "media", "gallery-resend"),
+    path.join(home, ".openclaw", "media", "gacha-archive"),
+    path.join(home, ".openclaw", "media", "practical-tools"),
+    path.join(home, ".openclaw", "media", "archive"),
+    skillFilesRoot(config)
+  ];
+  const extra = Array.isArray(config.allowedMediaRoots) ? config.allowedMediaRoots : [];
+  return [...defaults, ...extra].map((entry) => path.resolve(String(entry))).filter(Boolean);
+}
+
+function readMediaPath(raw) {
+  const value = String(raw || "").trim().replace(/^`+|`+$/g, "");
+  const mediaMatch = value.match(/(?:SPOILER_)?MEDIA:\s*`?([^`\r\n]+)`?/i);
+  const unwrapped = mediaMatch ? mediaMatch[1] : value;
+  if (/^file:\/\//i.test(unwrapped)) return decodeURIComponent(unwrapped.replace(/^file:\/\//i, ""));
+  return unwrapped;
+}
+
+async function resolveAllowedSkillMedia(config, raw) {
+  const input = readMediaPath(raw);
+  if (!input) throw new Error("media path is required");
+  if (/^https?:\/\//i.test(input)) throw new Error("learned_skill media must be bot-local media, not external URLs");
+  const resolved = path.resolve(input);
+  if (!allowedSkillMediaRoots(config).some((root) => isInside(root, resolved))) {
+    throw new Error("media path is outside allowed bot media directories");
+  }
+  const stat = await fs.stat(resolved);
+  if (!stat.isFile()) throw new Error("media path is not a file");
+  if (stat.size > MAX_SKILL_MEDIA_BYTES) throw new Error("media file is larger than 50 MB");
+  const ext = path.extname(resolved).toLowerCase();
+  if (!ALLOWED_SKILL_IMAGE_EXTS.has(ext)) throw new Error(`unsupported skill media type: ${ext || "unknown"}`);
+  return { path: resolved, stat, ext };
 }
 
 async function appendJsonLine(filePath, record) {
@@ -191,18 +278,52 @@ async function readJsonLines(filePath) {
 }
 
 async function readJson(filePath, fallback) {
+  const resolved = path.resolve(filePath);
   try {
-    return JSON.parse(await fs.readFile(filePath, "utf8"));
+    const stat = await fs.stat(resolved);
+    if (!stat.isFile()) return fallback;
+    const signature = `${stat.size}:${Math.trunc(stat.mtimeMs)}`;
+    const cached = jsonFileCache.get(resolved);
+    if (cached?.signature === signature) return cached.value;
+    const value = JSON.parse(await fs.readFile(resolved, "utf8"));
+    jsonFileCache.set(resolved, { signature, value });
+    return value;
   } catch {
     return fallback;
   }
 }
 
+async function readTextCached(filePath, maxBytes, transform = (raw) => raw) {
+  const resolved = path.resolve(filePath);
+  const stat = await fs.stat(resolved);
+  if (!stat.isFile()) return "";
+  const signature = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  const cached = personaFileCache.get(resolved);
+  if (cached?.signature === signature) {
+    personaFileCacheCounters.hits += 1;
+    if (Object.hasOwn(cached, "value")) return cached.value;
+    if (cached.promise) return await cached.promise;
+  }
+  personaFileCacheCounters.misses += 1;
+  const promise = fs.readFile(resolved, "utf8").then((raw) => clip(transform(raw, resolved), maxBytes));
+  personaFileCache.set(resolved, { signature, promise });
+  try {
+    const value = await promise;
+    personaFileCache.set(resolved, { signature, value });
+    return value;
+  } catch (error) {
+    if (personaFileCache.get(resolved)?.promise === promise) personaFileCache.delete(resolved);
+    throw error;
+  }
+}
+
 async function writeJsonAtomic(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.${process.pid}.tmp`;
+  const resolved = path.resolve(filePath);
+  await fs.mkdir(path.dirname(resolved), { recursive: true });
+  const tempPath = `${resolved}.${process.pid}.tmp`;
   await fs.writeFile(tempPath, JSON.stringify(value, null, 2), "utf8");
-  await fs.rename(tempPath, filePath);
+  await fs.rename(tempPath, resolved);
+  jsonFileCache.delete(resolved);
 }
 
 function ok(toolName, lines, details = {}) {
@@ -365,11 +486,11 @@ function formatModePrompt(active) {
   if (!active.length) return "";
   const selected = active[0];
   return [
-    "[Imagebot active mode]",
+    "[Imagebot 活跃模式]",
     `mode: ${selected.mode}`,
-    `guidance: ${MODE_DEFS[selected.mode]}`,
+    `指引: ${MODE_DEFS[selected.mode]}`,
     selected.note ? `note: ${clip(selected.note, 180)}` : "",
-    "[/Imagebot active mode]"
+    "[/Imagebot 活跃模式]"
   ].filter(Boolean).join("\n");
 }
 
@@ -440,8 +561,8 @@ function fallbackPersonaCatalog() {
     personas: [{
       id: "default",
       label: "Amaduse",
-      aliases: ["default", "base", "amaduse", "amadeus"],
-      description: "Use the base Amaduse imagebot speaking persona.",
+      aliases: ["default", "base", "amaduse", "amadesu", "amadeus"],
+      description: "Amaduse 默认说话角色。",
       cardPath: "persona/active_system.md"
     }]
   };
@@ -658,7 +779,7 @@ async function updateWindowPersona(config, windowEntry, persona, source = "perso
     at: iso,
     role: "system",
     sender: source,
-    text: `Switched persona: ${persona.label}.`
+    text: `已切换角色卡：${persona.label}。`
   }]).slice(-20);
   store.windows[windowId] = entry;
   for (const [userKey, active] of Object.entries(store.activeByUser || {})) {
@@ -753,7 +874,7 @@ async function openPersonaWindow(config, params, ctx, persona) {
       at: iso,
       role: "system",
       sender: "persona_config",
-      text: `Opened persona window: ${persona.label}.`
+      text: `已打开角色窗口：${persona.label}。`
     }]
   };
   store.activeByUser[userKey] = entry;
@@ -768,7 +889,7 @@ async function setPersona(config, params, ctx) {
   if (!queries.length) throw new Error("persona/id/name is required for set");
   const catalog = await loadPersonaCatalog(config);
   const persona = queries.map((query) => findPersona(catalog, query)).find(Boolean);
-  if (!persona) throw new Error(`unknown persona: ${queries[0]}`);
+  if (!persona) throw new Error(`未知角色卡：${queries[0]}`);
   const state = await loadPersonaState(config);
   let windowEntry = null;
   const requestedWindowMode = readString(params, "windowMode");
@@ -894,7 +1015,7 @@ async function getActivePersonaForContext(config, event, ctx, options = {}) {
 async function readPersonaCard(config, persona) {
   if (!persona?.cardPath) return "";
   const target = resolveRepoPath(config, persona.cardPath);
-  return clip(await fs.readFile(target, "utf8"), MAX_PERSONA_CARD);
+  return await readTextCached(target, MAX_PERSONA_CARD);
 }
 
 function formatPersonaLorebookJson(value) {
@@ -907,7 +1028,7 @@ function formatPersonaLorebookJson(value) {
     const content = String(entry?.content || "").trim();
     if (!content) continue;
     if (name) lines.push(`### ${name}`);
-    if (keys.length) lines.push(`keys: ${keys.join(", ")}`);
+    if (keys.length) lines.push(`关键词：${keys.join(", ")}`);
     lines.push(content);
     lines.push("");
   }
@@ -917,34 +1038,39 @@ function formatPersonaLorebookJson(value) {
 async function readPersonaSupplement(config, filePath, maxBytes) {
   if (!filePath) return "";
   const target = resolveRepoPath(config, filePath);
-  const raw = await fs.readFile(target, "utf8");
-  if (/\.json$/i.test(target)) {
+  return await readTextCached(target, maxBytes, (raw, resolved) => {
+    if (!/\.json$/i.test(resolved)) return raw;
     try {
       const parsed = JSON.parse(raw);
       const formatted = formatPersonaLorebookJson(parsed);
-      return clip(formatted || raw, maxBytes);
+      return formatted || raw;
     } catch {
-      return clip(raw, maxBytes);
+      return raw;
     }
-  }
-  return clip(raw, maxBytes);
+  });
 }
 
 async function readPersonaProfile(config, persona) {
+  const [card, languageRules, lorebook, examples] = await Promise.all([
+    readPersonaCard(config, persona),
+    readPersonaSupplement(config, persona?.languageRulesPath, MAX_PERSONA_LANGUAGE_RULES),
+    readPersonaSupplement(config, persona?.lorebookPath, MAX_PERSONA_LOREBOOK),
+    readPersonaSupplement(config, persona?.examplePath, MAX_PERSONA_EXAMPLES)
+  ]);
   return {
-    card: await readPersonaCard(config, persona),
-    languageRules: await readPersonaSupplement(config, persona?.languageRulesPath, MAX_PERSONA_LANGUAGE_RULES),
-    lorebook: await readPersonaSupplement(config, persona?.lorebookPath, MAX_PERSONA_LOREBOOK),
-    examples: await readPersonaSupplement(config, persona?.examplePath, MAX_PERSONA_EXAMPLES)
+    card,
+    languageRules,
+    lorebook,
+    examples
   };
 }
 
 function formatPersonaPrompt(active, profile) {
   if (!active || !profile?.card) return "";
   const chunks = [profile.card];
-  if (profile.languageRules) chunks.push(["## Language Rules", profile.languageRules].join("\n\n"));
-  if (profile.lorebook) chunks.push(["## Lorebook", profile.lorebook].join("\n\n"));
-  if (profile.examples) chunks.push(["## Example Style", profile.examples].join("\n\n"));
+  if (profile.languageRules) chunks.push(["## 语言规则", profile.languageRules].join("\n\n"));
+  if (profile.lorebook) chunks.push(["## 设定补充", profile.lorebook].join("\n\n"));
+  if (profile.examples) chunks.push(["## 对话示例", profile.examples].join("\n\n"));
   return chunks.join("\n\n");
 }
 
@@ -978,7 +1104,7 @@ async function recordPersonaHookDebug(config, event, ctx, result) {
 }
 
 function formatPersonaRecord(record, persona) {
-  if (!record || !persona) return "no persona profile active";
+  if (!record || !persona) return "当前未激活角色卡";
   return `${record.key} -> ${persona.id} (${persona.label})${record.note ? ` (${clip(record.note, 100)})` : ""}`;
 }
 
@@ -1015,7 +1141,7 @@ const personaConfigTool = {
           "available:",
           ...catalog.personas.map((persona) => `- ${persona.id}: ${persona.label}${persona.description ? ` — ${clip(persona.description, 140)}` : ""}`),
           "active:",
-          active ? formatPersonaRecord(active.record, active.persona) : "no persona profile active"
+          active ? formatPersonaRecord(active.record, active.persona) : "当前未激活角色卡"
         ];
         return ok(PERSONA_CONFIG_TOOL, lines, { action, personas: catalog.personas.map(publicPersona), active });
       }
@@ -1058,7 +1184,7 @@ const personaConfigTool = {
         }
       }
       const active = await getActivePersonaForContext(config, null, ctx, { allowLatestFallback: true });
-      return ok(PERSONA_CONFIG_TOOL, [active ? formatPersonaRecord(active.record, active.persona) : "no persona profile active"], { action: "status", active });
+      return ok(PERSONA_CONFIG_TOOL, [active ? formatPersonaRecord(active.record, active.persona) : "当前未激活角色卡"], { action: "status", active });
     } catch (error) {
       return fail(PERSONA_CONFIG_TOOL, error);
     }
@@ -1106,12 +1232,115 @@ function normalizeSkillStatus(value) {
   return "approved";
 }
 
+function normalizeSkillFileId(value, title, trigger, instructions) {
+  const explicit = safeIdPart(value);
+  if (value && explicit) return explicit.startsWith("skill_") ? explicit : `skill_${explicit}`;
+  const slug = safeIdPart(title, "learned");
+  return `skill_file_${slug}_${hash(`${title}:${trigger}:${instructions}`, 12)}`;
+}
+
+function deriveSkillTitle(instructions) {
+  const line = String(instructions || "").split(/\r?\n/).map((item) => item.trim()).find(Boolean) || "Learned workflow";
+  return clip(line.replace(/^[-*#\d.\s]+/, ""), 80) || "Learned workflow";
+}
+
+function buildSkillMarkdown(record) {
+  const media = Array.isArray(record.media) ? record.media : [];
+  const lines = [
+    "---",
+    `id: ${record.id}`,
+    `title: ${yamlString(record.title)}`,
+    "type: learned_skill",
+    "status: approved",
+    `created_at: ${yamlString(record.t)}`,
+    `updated_at: ${yamlString(record.updatedAt || record.t)}`,
+    record.trigger ? `trigger: ${yamlString(record.trigger)}` : "",
+    record.tags?.length ? `tags: [${record.tags.map((tag) => yamlString(tag)).join(", ")}]` : "",
+    "---",
+    "",
+    `# ${record.title}`,
+    "",
+    record.trigger ? "## Trigger" : "",
+    record.trigger ? record.trigger : "",
+    record.problem ? "" : "",
+    record.problem ? "## Problem" : "",
+    record.problem ? record.problem : "",
+    "",
+    "## Instructions",
+    "",
+    record.instructions,
+    media.length ? "" : "",
+    media.length ? "## Media" : "",
+    ...media.map((item) => `- ${item.relPath}${item.note ? ` - ${item.note}` : ""}`)
+  ];
+  return `${lines.filter((line, index, all) => line || all[index - 1] !== "").join("\n")}\n`;
+}
+
+async function copySkillMedia(config, skillDir, inputs) {
+  const assetsDir = path.join(skillDir, "assets");
+  const selected = inputs.slice(0, MAX_SKILL_FILE_MEDIA);
+  const media = [];
+  for (const input of selected) {
+    const source = await resolveAllowedSkillMedia(config, input);
+    const digest = await sha256File(source.path);
+    const ext = source.ext === ".jpeg" ? ".jpg" : source.ext;
+    await fs.mkdir(assetsDir, { recursive: true });
+    const target = path.join(assetsDir, `${digest.slice(0, 20)}${ext}`);
+    await fs.copyFile(source.path, target);
+    media.push({
+      relPath: path.relative(skillDir, target).replace(/\\/g, "/"),
+      path: target,
+      sha256: digest,
+      bytes: source.stat.size
+    });
+  }
+  return media;
+}
+
+async function saveSkillFile(config, params) {
+  const rawInstructions = readString(params, "instructions") || readString(params, "content") || readString(params, "note");
+  const instructions = clip(rawInstructions, 2500);
+  if (!instructions) throw new Error("instructions or content is required for save");
+  const title = clip(readString(params, "title") || deriveSkillTitle(instructions), 160);
+  const trigger = clip(readString(params, "trigger"), 500);
+  const id = normalizeSkillFileId(readString(params, "id"), title, trigger, instructions);
+  const root = skillFilesRoot(config);
+  const skillDir = path.join(root, id);
+  if (!isInside(root, skillDir)) throw new Error("skill file path escaped skill store");
+  await fs.mkdir(skillDir, { recursive: true });
+  const mediaInputs = [
+    ...readStringList(params, "media"),
+    ...readStringList(params, "images")
+  ];
+  const media = await copySkillMedia(config, skillDir, mediaInputs);
+  const record = {
+    type: "skill_file",
+    id,
+    t: nowIso(),
+    updatedAt: nowIso(),
+    status: "approved",
+    title,
+    trigger,
+    problem: clip(readString(params, "problem"), 800),
+    instructions,
+    tags: readArrayStrings(params, "tags").map((tag) => clip(tag, 40)).slice(0, 12),
+    file: path.join(skillDir, "SKILL.md"),
+    media
+  };
+  await fs.writeFile(record.file, buildSkillMarkdown(record), "utf8");
+  await appendJsonLine(skillLogPath(config), record);
+  return record;
+}
+
 async function loadSkillState(config) {
   const records = await readJsonLines(skillLogPath(config));
   const byId = new Map();
   for (const record of records) {
     if (record.type === "skill_proposal" && record.id) {
       byId.set(record.id, { ...record, status: record.status || "pending" });
+    }
+    if (record.type === "skill_file" && record.id) {
+      byId.set(record.id, { ...record, status: "approved" });
     }
     if (record.type === "skill_decision" && record.id && byId.has(record.id)) {
       const current = byId.get(record.id);
@@ -1136,7 +1365,13 @@ function publicSkill(record) {
     createdAt: record.t,
     decisionAt: record.decisionAt || "",
     problem: record.problem || "",
-    instructions: record.instructions || ""
+    instructions: record.instructions || "",
+    file: record.file || "",
+    media: Array.isArray(record.media) ? record.media.map((item) => ({
+      relPath: item.relPath || "",
+      path: item.path || "",
+      bytes: item.bytes || 0
+    })) : []
   };
 }
 
@@ -1161,12 +1396,15 @@ function filterSkills(skills, params) {
 
 function formatSkillDetails(record) {
   if (!record) return "LEARNED_SKILL no_match";
+  const media = Array.isArray(record.media) ? record.media : [];
   return [
     `LEARNED_SKILL ok id=${record.id}`,
     `status: ${record.status}`,
     `title: ${clip(record.title, 180)}`,
     record.trigger ? `trigger: ${clip(record.trigger, 240)}` : "",
     record.problem ? `problem: ${clip(record.problem, 500)}` : "",
+    record.file ? `file: ${record.file}` : "",
+    media.length ? `media: ${media.map((item) => item.relPath || item.path).join(", ")}` : "",
     "instructions:",
     clip(record.instructions, 1800),
     record.tags?.length ? `tags: ${record.tags.join(", ")}` : ""
@@ -1190,30 +1428,35 @@ async function relevantApprovedSkills(config, prompt, count = 3) {
 function formatSkillsForPrompt(skills) {
   if (!skills.length) return "";
   const lines = [
-    "[Imagebot approved learned workflows]",
-    "Use these only as local workflow hints; user-visible answers still come first."
+    "[Imagebot 活跃工作流笔记]",
+    "这些只作为本地工作流提示；对用户可见的自然回复仍然优先。"
   ];
   for (const skill of skills) {
     lines.push(`- ${skill.title}: ${clip(skill.instructions, 260)}`);
+    const media = Array.isArray(skill.media) ? skill.media.slice(0, 2).map((item) => item.path).filter(Boolean) : [];
+    if (media.length) lines.push(`  参考媒体: ${media.map((item) => `MEDIA: \`${item}\``).join(" ")}`);
   }
-  lines.push("[/Imagebot approved learned workflows]");
+  lines.push("[/Imagebot 活跃工作流笔记]");
   return lines.join("\n");
 }
 
 const learnedSkillTool = {
   name: LEARNED_SKILL_TOOL,
   label: "Learned Skill",
-  description: "Propose, approve, reject, list, get, or search approval-gated local workflow skills.",
+  description: "Save, propose, approve, reject, list, get, or search local workflow skill notes.",
   parameters: {
     type: "object",
     additionalProperties: false,
     properties: {
-      action: { type: "string", enum: ["propose", "list", "get", "approve", "reject", "search"], description: "Skill operation." },
-      id: { type: "string", description: "Skill id for get/approve/reject." },
-      title: { type: "string", description: "Short skill title for propose." },
+      action: { type: "string", enum: ["save", "propose", "list", "get", "approve", "reject", "search"], description: "Skill operation." },
+      id: { type: "string", description: "Skill id for save/get/approve/reject." },
+      title: { type: "string", description: "Short skill title for save/propose." },
       trigger: { type: "string", description: "When this workflow should be considered." },
       problem: { type: "string", description: "Problem or failure this skill fixes." },
       instructions: { type: "string", description: "Concrete concise workflow instructions." },
+      content: { type: "string", description: "Alias for instructions when saving a text-file skill." },
+      media: { type: "array", items: { type: "string" }, description: "Optional bot-local image media paths to copy into a saved skill." },
+      images: { type: "array", items: { type: "string" }, description: "Alias for media." },
       tags: { type: "array", items: { type: "string" }, description: "Optional tags." },
       status: { type: "string", enum: ["pending", "approved", "rejected", "all"], description: "Filter for list/search. Default approved." },
       query: { type: "string", description: "Search query." },
@@ -1226,6 +1469,15 @@ const learnedSkillTool = {
     try {
       const config = learnedSkillTool.config || {};
       const action = readString(params, "action").toLowerCase();
+      if (action === "save") {
+        const record = await saveSkillFile(config, params);
+        return ok(LEARNED_SKILL_TOOL, [
+          "saved approved text-file skill.",
+          formatSkillLine(record),
+          `file=${record.file}`,
+          record.media.length ? `media=${record.media.length}` : ""
+        ], { action, skill: publicSkill(record) });
+      }
       if (action === "propose") {
         const title = clip(readString(params, "title"), 160);
         const instructions = clip(readString(params, "instructions"), 2500);
@@ -1573,6 +1825,662 @@ const evidencePackTool = {
   }
 };
 
+function boardScopeKey(scope, params, ctx) {
+  if (scope === "global") return "global";
+  if (scope === "group") return `group:${contextGroupKey(params, null, ctx) || "telegram-group"}`;
+  const sessionKey = contextSessionKey(params, ctx);
+  if (!sessionKey) throw new Error("session scope requires sessionKey from runtime or params");
+  return `session:${sessionKey}`;
+}
+
+function normalizeBoardScope(value) {
+  return normalizeScope(value || "group");
+}
+
+function normalizeBoardStatus(kind, value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (kind === "rule") return ["active", "disabled"].includes(text) ? text : "active";
+  if (kind === "ticket") return ["open", "doing", "blocked", "done", "closed"].includes(text) ? text : "open";
+  if (kind === "schedule") return ["draft", "ready", "sent", "cancelled"].includes(text) ? text : "draft";
+  if (kind === "flow") return ["draft", "active", "disabled"].includes(text) ? text : "draft";
+  if (kind === "preset") return ["active", "disabled"].includes(text) ? text : "active";
+  return text || "open";
+}
+
+function normalizePriority(value) {
+  const priority = String(value || "normal").trim().toLowerCase();
+  return ["low", "normal", "high"].includes(priority) ? priority : "normal";
+}
+
+function boardKeywords(params) {
+  const values = [
+    ...readStringList(params, "keyword"),
+    ...readStringList(params, "keywords")
+  ];
+  return [...new Set(values.map((item) => clip(item, 80)).filter(Boolean))].slice(0, 12);
+}
+
+function normalizeDueAt(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const ms = Date.parse(text);
+  if (!Number.isFinite(ms)) throw new Error("dueAt must be an ISO-like date/time");
+  return new Date(ms).toISOString();
+}
+
+function readObjectParam(params, key) {
+  const value = isRecord(params) ? params[key] : undefined;
+  return isRecord(value) ? value : {};
+}
+
+function boardConditions(params) {
+  const raw = readObjectParam(params, "conditions");
+  const conditions = {};
+  const copyString = (sourceKey, targetKey = sourceKey, allowRoot = true) => {
+    const hasRaw = Object.hasOwn(raw, sourceKey);
+    const value = String(hasRaw ? raw[sourceKey] : (allowRoot ? readString(params, sourceKey) : "")).trim();
+    if (value) conditions[targetKey] = clip(value, 120);
+  };
+  copyString("chatId");
+  copyString("groupKey", "groupKey", false);
+  copyString("userId");
+  const hasMediaRaw = raw.hasMedia ?? (isRecord(params) ? params.hasMedia : undefined);
+  if (typeof hasMediaRaw === "boolean") conditions.hasMedia = hasMediaRaw;
+  if (typeof hasMediaRaw === "string" && hasMediaRaw.trim()) conditions.hasMedia = /^(1|true|yes|on)$/i.test(hasMediaRaw.trim());
+  const fromHour = Number(raw.fromHour ?? (isRecord(params) ? params.fromHour : undefined));
+  const toHour = Number(raw.toHour ?? (isRecord(params) ? params.toHour : undefined));
+  if (Number.isInteger(fromHour) && fromHour >= 0 && fromHour <= 23) conditions.fromHour = fromHour;
+  if (Number.isInteger(toHour) && toHour >= 0 && toHour <= 23) conditions.toHour = toHour;
+  return conditions;
+}
+
+function hourInWindow(hour, fromHour, toHour) {
+  if (!Number.isInteger(fromHour) && !Number.isInteger(toHour)) return true;
+  const current = Number.isInteger(hour) ? hour : new Date().getHours();
+  const from = Number.isInteger(fromHour) ? fromHour : 0;
+  const to = Number.isInteger(toHour) ? toHour : 23;
+  if (from <= to) return current >= from && current <= to;
+  return current >= from || current <= to;
+}
+
+function boardConditionMatch(item, params, ctx) {
+  const conditions = isRecord(item.conditions) ? item.conditions : {};
+  const misses = [];
+  const chatId = readString(params, "chatId") || String(ctx?.chatId || ctx?.groupId || "");
+  const groupKey = readString(params, "groupKey") || contextGroupKey(params, null, ctx);
+  const userId = readString(params, "userId") || String(ctx?.senderId || ctx?.userId || "");
+  if (conditions.chatId && String(conditions.chatId) !== String(chatId)) misses.push("chatId");
+  if (conditions.groupKey && String(conditions.groupKey) !== String(groupKey)) misses.push("groupKey");
+  if (conditions.userId && String(conditions.userId) !== String(userId)) misses.push("userId");
+  if (typeof conditions.hasMedia === "boolean") {
+    const hasMedia = readBoolean(params, "hasMedia", Boolean(ctx?.hasMedia));
+    if (conditions.hasMedia !== hasMedia) misses.push("hasMedia");
+  }
+  if (Number.isInteger(conditions.fromHour) || Number.isInteger(conditions.toHour)) {
+    const hour = readNumber(params, "hour", new Date().getHours(), 0, 23);
+    if (!hourInWindow(hour, conditions.fromHour, conditions.toHour)) misses.push("hour");
+  }
+  return { ok: misses.length === 0, misses };
+}
+
+function boardSamples(params) {
+  const values = [
+    ...readStringList(params, "samples"),
+    ...readStringList(params, "sampleUtterances"),
+    ...readStringList(params, "examples")
+  ];
+  return [...new Set(values.map((item) => clip(item, 180)).filter(Boolean))].slice(0, 20);
+}
+
+function boardSlots(params) {
+  const values = [
+    ...readStringList(params, "slots"),
+    ...readStringList(params, "requiredSlots")
+  ];
+  return [...new Set(values.map((item) => safeIdPart(item, "").replace(/^-+|-+$/g, "") || clip(item, 60)).filter(Boolean))].slice(0, 20);
+}
+
+function boardSteps(params) {
+  const raw = isRecord(params) ? params.steps : undefined;
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 20).map((step, index) => {
+    if (typeof step === "string") {
+      return { id: `step_${index + 1}`, text: clip(step, 500) };
+    }
+    if (!isRecord(step)) return null;
+    return {
+      id: safeIdPart(step.id || `step_${index + 1}`, `step_${index + 1}`),
+      title: clip(step.title || "", 120),
+      text: clip(step.text || step.prompt || step.instruction || "", 500),
+      expect: clip(step.expect || step.expected || "", 240)
+    };
+  }).filter((step) => step && (step.text || step.title));
+}
+
+function validateBoardFlow(item) {
+  const issues = [];
+  const warnings = [];
+  if (!item.title) issues.push("title is required");
+  if (!item.intent && !(item.keywords || []).length && !(item.samples || []).length) {
+    warnings.push("add intent, keywords, or sample utterances for routing");
+  }
+  if (!Array.isArray(item.steps) || !item.steps.length) issues.push("at least one step is required");
+  if ((item.steps || []).length > 12) warnings.push("flow has many steps; keep chat flows compact");
+  if ((item.slots || []).length > 8) warnings.push("many required slots can make group chat brittle");
+  return { ok: issues.length === 0, issues, warnings };
+}
+
+async function loadBotBoardState(config) {
+  const records = await readJsonLines(botBoardLogPath(config));
+  const byId = new Map();
+  for (const record of records) {
+    if (record.type === "bot_board_item" && record.id) {
+      byId.set(record.id, { ...record, history: [] });
+      continue;
+    }
+    if (record.type !== "bot_board_update" || !record.id || !byId.has(record.id)) continue;
+    const current = byId.get(record.id);
+    for (const key of ["status", "title", "body", "response", "message", "audience", "owner", "priority", "dueAt", "intent", "trigger", "instructions", "source"]) {
+      if (record[key] !== undefined && record[key] !== "") current[key] = record[key];
+    }
+    if (Array.isArray(record.keywords) && record.keywords.length) current.keywords = record.keywords;
+    if (Array.isArray(record.samples) && record.samples.length) current.samples = record.samples;
+    if (Array.isArray(record.slots) && record.slots.length) current.slots = record.slots;
+    if (Array.isArray(record.steps) && record.steps.length) current.steps = record.steps;
+    if (Array.isArray(record.tags) && record.tags.length) current.tags = record.tags;
+    if (isRecord(record.conditions)) current.conditions = record.conditions;
+    current.updatedAt = record.t;
+    current.history.push({ t: record.t, status: record.status || "", note: record.note || "" });
+    byId.set(record.id, current);
+  }
+  return [...byId.values()].sort((a, b) => String(b.updatedAt || b.t || "").localeCompare(String(a.updatedAt || a.t || "")));
+}
+
+function publicBoardItem(item) {
+  return {
+    id: item.id,
+    kind: item.kind,
+    status: item.status,
+    scope: item.scope,
+    key: item.key,
+    title: item.title || "",
+    body: item.body || "",
+    keywords: item.keywords || [],
+    conditions: isRecord(item.conditions) ? item.conditions : {},
+    intent: item.intent || "",
+    samples: item.samples || [],
+    slots: item.slots || [],
+    steps: item.steps || [],
+    trigger: item.trigger || "",
+    instructions: item.instructions || "",
+    source: item.source || "",
+    response: item.response || "",
+    message: item.message || "",
+    dueAt: item.dueAt || "",
+    audience: item.audience || "",
+    priority: item.priority || "",
+    owner: item.owner || "",
+    note: item.note || "",
+    tags: item.tags || [],
+    createdAt: item.t,
+    updatedAt: item.updatedAt || item.t,
+    history: item.history || []
+  };
+}
+
+function formatBoardLine(item, index = 0) {
+  const prefix = index ? `${index}. ` : "";
+  const label = item.kind === "rule"
+    ? `${(item.keywords || []).join(", ")} -> ${clip(item.response, 90)}`
+    : item.kind === "schedule"
+      ? `${clip(item.title || item.message, 90)} @ ${item.dueAt || "no dueAt"}`
+      : item.kind === "flow"
+        ? `${clip(item.title, 90)} intent=${item.intent || "n/a"} steps=${item.steps?.length || 0}`
+        : item.kind === "preset"
+          ? `${clip(item.title, 90)} trigger=${clip(item.trigger || "n/a", 60)}`
+          : `${clip(item.title, 100)} priority=${item.priority || "normal"}`;
+  return `${prefix}id=${item.id} | ${item.kind} | ${item.status} | ${label}`;
+}
+
+function boardTextScore(item, terms) {
+  return scoreTextRecord({
+    id: item.id,
+    title: item.title || item.kind,
+    trigger: [item.intent, item.trigger, ...(item.keywords || []), ...(item.samples || [])].join(" "),
+    problem: item.body || item.note || item.audience || item.source || "",
+    instructions: [
+      item.response,
+      item.message,
+      item.instructions,
+      item.owner,
+      item.priority,
+      item.status,
+      ...(item.slots || []),
+      ...(item.steps || []).map((step) => `${step.title || ""} ${step.text || ""} ${step.expect || ""}`),
+      ...(item.tags || [])
+    ].join("\n"),
+    tags: item.tags || []
+  }, terms).score;
+}
+
+function filterBoardItems(items, params, ctx, kind) {
+  const status = readString(params, "status").toLowerCase();
+  const query = readString(params, "query");
+  const scopeText = readString(params, "scope");
+  const terms = extractTerms(query);
+  let selected = items.filter((item) => item.kind === kind);
+  if (status) selected = selected.filter((item) => item.status === status);
+  if (scopeText) {
+    const scope = normalizeBoardScope(scopeText);
+    const key = boardScopeKey(scope, params, ctx);
+    selected = selected.filter((item) => item.scope === scope && item.key === key);
+  }
+  if (query) {
+    selected = selected.map((item) => ({ item, score: boardTextScore(item, terms) }))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((entry) => entry.item);
+  }
+  return selected.slice(0, readCount(params, DEFAULT_COUNT, 30));
+}
+
+async function createBoardItem(config, item) {
+  await appendJsonLine(botBoardLogPath(config), item);
+  return item;
+}
+
+async function updateBoardItem(config, item, params) {
+  const patch = {
+    type: "bot_board_update",
+    id: item.id,
+    kind: item.kind,
+    t: nowIso(),
+    note: clip(readString(params, "note"), 500)
+  };
+  if (readString(params, "status")) patch.status = normalizeBoardStatus(item.kind, readString(params, "status"));
+  if (readString(params, "title")) patch.title = clip(readString(params, "title"), 180);
+  if (readString(params, "body")) patch.body = clip(readString(params, "body"), 1800);
+  if (readString(params, "response")) patch.response = clip(readString(params, "response"), 900);
+  if (readString(params, "message")) patch.message = clip(readString(params, "message"), 1200);
+  if (readString(params, "audience")) patch.audience = clip(readString(params, "audience"), 180);
+  if (readString(params, "owner")) patch.owner = clip(readString(params, "owner"), 120);
+  if (readString(params, "intent")) patch.intent = clip(readString(params, "intent"), 120);
+  if (readString(params, "trigger")) patch.trigger = clip(readString(params, "trigger"), 300);
+  if (readString(params, "instructions") || readString(params, "content")) patch.instructions = clip(readString(params, "instructions") || readString(params, "content"), 1800);
+  if (readString(params, "source")) patch.source = clip(readString(params, "source"), 240);
+  if (readString(params, "priority")) patch.priority = normalizePriority(readString(params, "priority"));
+  if (readString(params, "dueAt")) patch.dueAt = normalizeDueAt(readString(params, "dueAt"));
+  const keywords = boardKeywords(params);
+  if (keywords.length) patch.keywords = keywords;
+  const conditions = boardConditions(params);
+  if (Object.keys(conditions).length) patch.conditions = conditions;
+  const samples = boardSamples(params);
+  if (samples.length) patch.samples = samples;
+  const slots = boardSlots(params);
+  if (slots.length) patch.slots = slots;
+  const steps = boardSteps(params);
+  if (steps.length) patch.steps = steps;
+  const tags = normalizeTags(readArrayStrings(params, "tags"));
+  if (tags.length) patch.tags = tags;
+  await appendJsonLine(botBoardLogPath(config), patch);
+  return { ...item, ...patch, updatedAt: patch.t, history: [...(item.history || []), { t: patch.t, status: patch.status || "", note: patch.note || "" }] };
+}
+
+function findBoardItem(items, id, kind = "") {
+  const text = String(id || "").trim();
+  if (!text) return null;
+  return items.find((item) => (!kind || item.kind === kind) && (item.id === text || item.id.startsWith(text))) || null;
+}
+
+const botBoardTool = {
+  name: BOT_BOARD_TOOL,
+  label: "Bot Board",
+  description: "Save and query low-authority bot rules, tickets, and scheduled-message drafts. It never sends messages or runs admin actions.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      action: {
+        type: "string",
+        enum: [
+          "rule_add", "rule_match", "rule_list", "rule_update",
+          "ticket_create", "ticket_update", "ticket_list", "ticket_get",
+          "schedule_create", "schedule_update", "schedule_list", "schedule_due",
+          "flow_create", "flow_update", "flow_get", "flow_list", "flow_validate", "flow_match",
+          "preset_save", "preset_update", "preset_get", "preset_list", "preset_match"
+        ],
+        description: "Board operation."
+      },
+      id: { type: "string", description: "Rule, ticket, schedule, flow, or preset id." },
+      scope: { type: "string", enum: ["session", "group", "global"], description: "Storage scope. Default group." },
+      sessionKey: { type: "string", description: "Session key for session scope." },
+      groupKey: { type: "string", description: "Group key for group scope." },
+      chatId: { type: "string", description: "Optional chat id for conditional rule matching." },
+      userId: { type: "string", description: "Optional user id for conditional rule matching." },
+      hasMedia: { type: "boolean", description: "Whether the current turn has media, for conditional rule matching." },
+      hour: { type: "number", description: "Current local hour 0-23 for conditional rule dry-runs." },
+      keyword: { type: "string", description: "Single keyword for rule_add/update." },
+      keywords: { type: "array", items: { type: "string" }, description: "Keywords for rule matching." },
+      conditions: { type: "object", additionalProperties: true, description: "Optional rule conditions: chatId, groupKey, userId, hasMedia, fromHour, toHour." },
+      text: { type: "string", description: "Text to match against active keyword rules." },
+      response: { type: "string", description: "Suggested reply text for keyword rules." },
+      title: { type: "string", description: "Ticket, schedule, flow, or preset title." },
+      body: { type: "string", description: "Ticket body." },
+      message: { type: "string", description: "Scheduled-message draft body." },
+      dueAt: { type: "string", description: "ISO-like due date/time for schedule records." },
+      before: { type: "string", description: "ISO-like cutoff for schedule_due. Default now." },
+      audience: { type: "string", description: "Human-readable schedule audience/channel." },
+      status: { type: "string", description: "Rule active/disabled, ticket open/doing/blocked/done/closed, schedule draft/ready/sent/cancelled, flow draft/active/disabled, or preset active/disabled." },
+      intent: { type: "string", description: "Flow intent label." },
+      samples: { type: "array", items: { type: "string" }, description: "Flow sample utterances." },
+      sampleUtterances: { type: "array", items: { type: "string" }, description: "Alias for flow samples." },
+      examples: { type: "array", items: { type: "string" }, description: "Alias for flow samples." },
+      slots: { type: "array", items: { type: "string" }, description: "Required flow slots." },
+      requiredSlots: { type: "array", items: { type: "string" }, description: "Alias for slots." },
+      steps: { type: "array", items: { anyOf: [{ type: "string" }, { type: "object", additionalProperties: true }] }, description: "Flow steps with id/title/text/expect, or plain step text." },
+      trigger: { type: "string", description: "Preset trigger or routing cue." },
+      instructions: { type: "string", description: "Preset instructions or flow notes." },
+      content: { type: "string", description: "Alias for instructions." },
+      source: { type: "string", description: "Optional source/reference for a flow or preset." },
+      priority: { type: "string", enum: ["low", "normal", "high"], description: "Ticket priority." },
+      owner: { type: "string", description: "Optional human owner label." },
+      note: { type: "string", description: "Short update note." },
+      tags: { type: "array", items: { type: "string" }, description: "Optional tags." },
+      query: { type: "string", description: "List/search query." },
+      count: { type: "number", description: "Count 1-30. Default 6." }
+    },
+    required: ["action"]
+  },
+  async execute(_toolCallId, params, _signal, _progress, ctx = {}) {
+    try {
+      const config = botBoardTool.config || {};
+      const action = readString(params, "action").toLowerCase();
+      if (action === "rule_add") {
+        const keywords = boardKeywords(params);
+        const response = clip(readString(params, "response"), 900);
+        if (!keywords.length || !response) throw new Error("rule_add requires keywords and response");
+        const scope = normalizeBoardScope(readString(params, "scope", "group"));
+        const item = {
+          type: "bot_board_item",
+          kind: "rule",
+          id: `rule_${hash(`${Date.now()}:${keywords.join("|")}:${response}`, 14)}`,
+          t: nowIso(),
+          updatedAt: nowIso(),
+          scope,
+          key: boardScopeKey(scope, params, ctx),
+          status: normalizeBoardStatus("rule", readString(params, "status")),
+          keywords,
+          conditions: boardConditions(params),
+          response,
+          note: clip(readString(params, "note"), 500),
+          tags: normalizeTags(readArrayStrings(params, "tags"))
+        };
+        await createBoardItem(config, item);
+        return ok(BOT_BOARD_TOOL, ["created keyword rule", formatBoardLine(item)], { action, item: publicBoardItem(item) });
+      }
+      const items = await loadBotBoardState(config);
+      if (action === "rule_match") {
+        const text = readString(params, "text") || readString(params, "query");
+        if (!text) throw new Error("rule_match requires text or query");
+        const lowered = text.toLowerCase();
+        const matched = items.filter((item) => item.kind === "rule" && item.status === "active")
+          .map((item) => ({
+            item,
+            hits: (item.keywords || []).filter((keyword) => lowered.includes(String(keyword).toLowerCase())),
+            conditions: boardConditionMatch(item, params, ctx)
+          }))
+          .filter((entry) => entry.hits.length && entry.conditions.ok)
+          .slice(0, readCount(params, DEFAULT_COUNT, 30));
+        const lines = [`matches=${matched.length}`, ...matched.map((entry, index) => `${index + 1}. ${formatBoardLine(entry.item)} | hits=${entry.hits.join(", ")}`)];
+        if (!matched.length) lines.push("No active keyword rules matched.");
+        return ok(BOT_BOARD_TOOL, lines, { action, matches: matched.map((entry) => ({ ...publicBoardItem(entry.item), hits: entry.hits })) });
+      }
+      if (action === "rule_list") {
+        const selected = filterBoardItems(items, params, ctx, "rule");
+        return ok(BOT_BOARD_TOOL, [`results=${selected.length}`, ...selected.map(formatBoardLine)], { action, results: selected.map(publicBoardItem) });
+      }
+      if (action === "rule_update") {
+        const item = findBoardItem(items, readString(params, "id"), "rule");
+        if (!item) return { content: [{ type: "text", text: `BOT_BOARD no_match id=${readString(params, "id")}` }], details: { status: "no_match", id: readString(params, "id") } };
+        const updated = await updateBoardItem(config, item, params);
+        return ok(BOT_BOARD_TOOL, ["updated rule", formatBoardLine(updated)], { action, item: publicBoardItem(updated) });
+      }
+      if (action === "ticket_create") {
+        const title = clip(readString(params, "title"), 180);
+        if (!title) throw new Error("ticket_create requires title");
+        const scope = normalizeBoardScope(readString(params, "scope", "group"));
+        const item = {
+          type: "bot_board_item",
+          kind: "ticket",
+          id: `ticket_${hash(`${Date.now()}:${title}`, 14)}`,
+          t: nowIso(),
+          updatedAt: nowIso(),
+          scope,
+          key: boardScopeKey(scope, params, ctx),
+          status: normalizeBoardStatus("ticket", readString(params, "status")),
+          title,
+          body: clip(readString(params, "body"), 1800),
+          priority: normalizePriority(readString(params, "priority")),
+          owner: clip(readString(params, "owner"), 120),
+          note: clip(readString(params, "note"), 500),
+          tags: normalizeTags(readArrayStrings(params, "tags"))
+        };
+        await createBoardItem(config, item);
+        return ok(BOT_BOARD_TOOL, ["created ticket", formatBoardLine(item)], { action, item: publicBoardItem(item) });
+      }
+      if (action === "ticket_update") {
+        const item = findBoardItem(items, readString(params, "id"), "ticket");
+        if (!item) return { content: [{ type: "text", text: `BOT_BOARD no_match id=${readString(params, "id")}` }], details: { status: "no_match", id: readString(params, "id") } };
+        const updated = await updateBoardItem(config, item, params);
+        return ok(BOT_BOARD_TOOL, ["updated ticket", formatBoardLine(updated)], { action, item: publicBoardItem(updated) });
+      }
+      if (action === "ticket_get") {
+        const item = findBoardItem(items, readString(params, "id"), "ticket");
+        if (!item) return { content: [{ type: "text", text: `BOT_BOARD no_match id=${readString(params, "id")}` }], details: { status: "no_match", id: readString(params, "id") } };
+        return ok(BOT_BOARD_TOOL, [
+          formatBoardLine(item),
+          item.body ? `body: ${clip(item.body, 800)}` : "",
+          item.note ? `note: ${clip(item.note, 400)}` : ""
+        ], { action, item: publicBoardItem(item) });
+      }
+      if (action === "ticket_list") {
+        const selected = filterBoardItems(items, params, ctx, "ticket");
+        return ok(BOT_BOARD_TOOL, [`results=${selected.length}`, ...selected.map(formatBoardLine)], { action, results: selected.map(publicBoardItem) });
+      }
+      if (action === "schedule_create") {
+        const message = clip(readString(params, "message"), 1200);
+        if (!message) throw new Error("schedule_create requires message");
+        const scope = normalizeBoardScope(readString(params, "scope", "group"));
+        const item = {
+          type: "bot_board_item",
+          kind: "schedule",
+          id: `schedule_${hash(`${Date.now()}:${message}`, 14)}`,
+          t: nowIso(),
+          updatedAt: nowIso(),
+          scope,
+          key: boardScopeKey(scope, params, ctx),
+          status: normalizeBoardStatus("schedule", readString(params, "status")),
+          title: clip(readString(params, "title"), 180),
+          message,
+          dueAt: normalizeDueAt(readString(params, "dueAt")),
+          audience: clip(readString(params, "audience"), 180),
+          note: clip(readString(params, "note"), 500) || "Draft only: bot_board does not send scheduled messages.",
+          tags: normalizeTags(readArrayStrings(params, "tags"))
+        };
+        await createBoardItem(config, item);
+        return ok(BOT_BOARD_TOOL, ["created scheduled-message draft", formatBoardLine(item), "delivery: not scheduled by this tool"], { action, item: publicBoardItem(item) });
+      }
+      if (action === "schedule_update") {
+        const item = findBoardItem(items, readString(params, "id"), "schedule");
+        if (!item) return { content: [{ type: "text", text: `BOT_BOARD no_match id=${readString(params, "id")}` }], details: { status: "no_match", id: readString(params, "id") } };
+        const updated = await updateBoardItem(config, item, params);
+        return ok(BOT_BOARD_TOOL, ["updated schedule", formatBoardLine(updated), "delivery: not scheduled by this tool"], { action, item: publicBoardItem(updated) });
+      }
+      if (action === "schedule_due") {
+        const cutoff = normalizeDueAt(readString(params, "before") || new Date().toISOString());
+        const selected = items.filter((item) => item.kind === "schedule" && item.status === "ready" && item.dueAt && item.dueAt <= cutoff)
+          .slice(0, readCount(params, DEFAULT_COUNT, 30));
+        return ok(BOT_BOARD_TOOL, [`due=${selected.length}`, ...selected.map(formatBoardLine), "delivery: inspect only; no messages were sent"], { action, results: selected.map(publicBoardItem), before: cutoff });
+      }
+      if (action === "schedule_list") {
+        const selected = filterBoardItems(items, params, ctx, "schedule");
+        return ok(BOT_BOARD_TOOL, [`results=${selected.length}`, ...selected.map(formatBoardLine), "delivery: inspect only; no messages were sent"], { action, results: selected.map(publicBoardItem) });
+      }
+      if (action === "flow_create") {
+        const title = clip(readString(params, "title"), 180);
+        const steps = boardSteps(params);
+        const scope = normalizeBoardScope(readString(params, "scope", "group"));
+        const item = {
+          type: "bot_board_item",
+          kind: "flow",
+          id: `flow_${hash(`${Date.now()}:${title}:${readString(params, "intent")}`, 14)}`,
+          t: nowIso(),
+          updatedAt: nowIso(),
+          scope,
+          key: boardScopeKey(scope, params, ctx),
+          status: normalizeBoardStatus("flow", readString(params, "status")),
+          title,
+          intent: clip(readString(params, "intent"), 120),
+          keywords: boardKeywords(params),
+          samples: boardSamples(params),
+          slots: boardSlots(params),
+          steps,
+          instructions: clip(readString(params, "instructions") || readString(params, "content"), 1800),
+          source: clip(readString(params, "source"), 240),
+          note: clip(readString(params, "note"), 500),
+          tags: normalizeTags(readArrayStrings(params, "tags"))
+        };
+        const validation = validateBoardFlow(item);
+        if (!validation.ok) throw new Error(`invalid flow: ${validation.issues.join("; ")}`);
+        await createBoardItem(config, item);
+        return ok(BOT_BOARD_TOOL, ["created flow definition", formatBoardLine(item), validation.warnings.length ? `warnings: ${validation.warnings.join("; ")}` : ""], { action, item: publicBoardItem(item), validation });
+      }
+      if (action === "flow_update") {
+        const item = findBoardItem(items, readString(params, "id"), "flow");
+        if (!item) return { content: [{ type: "text", text: `BOT_BOARD no_match id=${readString(params, "id")}` }], details: { status: "no_match", id: readString(params, "id") } };
+        const updated = await updateBoardItem(config, item, params);
+        const validation = validateBoardFlow(updated);
+        return ok(BOT_BOARD_TOOL, ["updated flow", formatBoardLine(updated), validation.ok ? "validation: ok" : `validation: ${validation.issues.join("; ")}`], { action, item: publicBoardItem(updated), validation });
+      }
+      if (action === "flow_get") {
+        const item = findBoardItem(items, readString(params, "id"), "flow");
+        if (!item) return { content: [{ type: "text", text: `BOT_BOARD no_match id=${readString(params, "id")}` }], details: { status: "no_match", id: readString(params, "id") } };
+        const validation = validateBoardFlow(item);
+        return ok(BOT_BOARD_TOOL, [
+          formatBoardLine(item),
+          item.samples?.length ? `samples: ${item.samples.join(" | ")}` : "",
+          item.slots?.length ? `slots: ${item.slots.join(", ")}` : "",
+          ...(item.steps || []).slice(0, 12).map((step, index) => `${index + 1}. ${clip(step.title || step.id || "", 80)} ${clip(step.text || "", 240)}`),
+          validation.ok ? "validation: ok" : `validation: ${validation.issues.join("; ")}`
+        ], { action, item: publicBoardItem(item), validation });
+      }
+      if (action === "flow_validate") {
+        const existing = findBoardItem(items, readString(params, "id"), "flow");
+        const draft = existing || {
+          kind: "flow",
+          title: clip(readString(params, "title"), 180),
+          intent: clip(readString(params, "intent"), 120),
+          keywords: boardKeywords(params),
+          samples: boardSamples(params),
+          slots: boardSlots(params),
+          steps: boardSteps(params),
+          instructions: clip(readString(params, "instructions") || readString(params, "content"), 1800)
+        };
+        const validation = validateBoardFlow(draft);
+        return ok(BOT_BOARD_TOOL, [
+          validation.ok ? "flow validation ok" : "flow validation has issues",
+          ...validation.issues.map((issue) => `issue: ${issue}`),
+          ...validation.warnings.map((warning) => `warning: ${warning}`)
+        ], { action, validation, item: existing ? publicBoardItem(existing) : draft });
+      }
+      if (action === "flow_list") {
+        const selected = filterBoardItems(items, params, ctx, "flow");
+        return ok(BOT_BOARD_TOOL, [`results=${selected.length}`, ...selected.map(formatBoardLine)], { action, results: selected.map(publicBoardItem) });
+      }
+      if (action === "flow_match") {
+        const text = readString(params, "text") || readString(params, "query");
+        if (!text) throw new Error("flow_match requires text or query");
+        const lowered = text.toLowerCase();
+        const matched = items.filter((item) => item.kind === "flow" && item.status === "active")
+          .map((item) => {
+            const cues = [item.intent, ...(item.keywords || []), ...(item.samples || [])].filter(Boolean);
+            const hits = cues.filter((cue) => lowered.includes(String(cue).toLowerCase()));
+            return { item, hits };
+          })
+          .filter((entry) => entry.hits.length)
+          .slice(0, readCount(params, DEFAULT_COUNT, 30));
+        const lines = [`matches=${matched.length}`, ...matched.map((entry, index) => `${index + 1}. ${formatBoardLine(entry.item)} | hits=${entry.hits.join(", ")}`)];
+        if (!matched.length) lines.push("No active flow definitions matched.");
+        return ok(BOT_BOARD_TOOL, lines, { action, matches: matched.map((entry) => ({ ...publicBoardItem(entry.item), hits: entry.hits })) });
+      }
+      if (action === "preset_save") {
+        const title = clip(readString(params, "title"), 180);
+        const instructions = clip(readString(params, "instructions") || readString(params, "content") || readString(params, "response"), 1800);
+        if (!title || !instructions) throw new Error("preset_save requires title and instructions/content");
+        const scope = normalizeBoardScope(readString(params, "scope", "group"));
+        const item = {
+          type: "bot_board_item",
+          kind: "preset",
+          id: `preset_${hash(`${Date.now()}:${title}:${instructions}`, 14)}`,
+          t: nowIso(),
+          updatedAt: nowIso(),
+          scope,
+          key: boardScopeKey(scope, params, ctx),
+          status: normalizeBoardStatus("preset", readString(params, "status")),
+          title,
+          trigger: clip(readString(params, "trigger"), 300),
+          keywords: boardKeywords(params),
+          instructions,
+          source: clip(readString(params, "source"), 240),
+          note: clip(readString(params, "note"), 500),
+          tags: normalizeTags(readArrayStrings(params, "tags"))
+        };
+        await createBoardItem(config, item);
+        return ok(BOT_BOARD_TOOL, ["saved chat preset", formatBoardLine(item)], { action, item: publicBoardItem(item) });
+      }
+      if (action === "preset_update") {
+        const item = findBoardItem(items, readString(params, "id"), "preset");
+        if (!item) return { content: [{ type: "text", text: `BOT_BOARD no_match id=${readString(params, "id")}` }], details: { status: "no_match", id: readString(params, "id") } };
+        const updated = await updateBoardItem(config, item, params);
+        return ok(BOT_BOARD_TOOL, ["updated preset", formatBoardLine(updated)], { action, item: publicBoardItem(updated) });
+      }
+      if (action === "preset_get") {
+        const item = findBoardItem(items, readString(params, "id"), "preset");
+        if (!item) return { content: [{ type: "text", text: `BOT_BOARD no_match id=${readString(params, "id")}` }], details: { status: "no_match", id: readString(params, "id") } };
+        return ok(BOT_BOARD_TOOL, [
+          formatBoardLine(item),
+          item.trigger ? `trigger: ${clip(item.trigger, 300)}` : "",
+          item.instructions ? `instructions: ${clip(item.instructions, 1000)}` : "",
+          item.source ? `source: ${clip(item.source, 240)}` : ""
+        ], { action, item: publicBoardItem(item) });
+      }
+      if (action === "preset_list") {
+        const selected = filterBoardItems(items, params, ctx, "preset");
+        return ok(BOT_BOARD_TOOL, [`results=${selected.length}`, ...selected.map(formatBoardLine)], { action, results: selected.map(publicBoardItem) });
+      }
+      if (action === "preset_match") {
+        const text = readString(params, "text") || readString(params, "query");
+        if (!text) throw new Error("preset_match requires text or query");
+        const lowered = text.toLowerCase();
+        const matched = items.filter((item) => item.kind === "preset" && item.status === "active")
+          .map((item) => {
+            const cues = [item.title, item.trigger, ...(item.keywords || [])].filter(Boolean);
+            const hits = cues.filter((cue) => lowered.includes(String(cue).toLowerCase()));
+            return { item, hits };
+          })
+          .filter((entry) => entry.hits.length)
+          .slice(0, readCount(params, DEFAULT_COUNT, 30));
+        const lines = [`matches=${matched.length}`, ...matched.map((entry, index) => `${index + 1}. ${formatBoardLine(entry.item)} | hits=${entry.hits.join(", ")}`)];
+        if (!matched.length) lines.push("No active chat presets matched.");
+        return ok(BOT_BOARD_TOOL, lines, { action, matches: matched.map((entry) => ({ ...publicBoardItem(entry.item), hits: entry.hits })) });
+      }
+      throw new Error("unknown action");
+    } catch (error) {
+      return fail(BOT_BOARD_TOOL, error);
+    }
+  }
+};
+
 function parseRepo(value) {
   const text = String(value || "").trim().replace(/^https:\/\/github\.com\//i, "").replace(/\/+$/g, "");
   const parts = text.split("/");
@@ -1913,13 +2821,28 @@ export const __testing = {
   loadSkillState,
   loadToolEvents,
   loadEvidenceState,
-  getActiveModesForContext
+  loadBotBoardState,
+  getActiveModesForContext,
+  skillFilesRoot,
+  allowedSkillMediaRoots,
+  jsonCacheStats: () => ({ entries: jsonFileCache.size }),
+  clearJsonCache: () => jsonFileCache.clear(),
+  personaFileCacheStats: () => ({
+    entries: personaFileCache.size,
+    hits: personaFileCacheCounters.hits,
+    misses: personaFileCacheCounters.misses
+  }),
+  clearPersonaFileCache: () => {
+    personaFileCache.clear();
+    personaFileCacheCounters.hits = 0;
+    personaFileCacheCounters.misses = 0;
+  }
 };
 
 export default {
   id: "imagebot-agent-ops",
   name: "Imagebot Agent Ops",
-  description: "Task modes, persona profile selection, learned workflows, failure memory, evidence packs, public GitHub lookup, and data utilities.",
+  description: "Task modes, persona profile selection, saved learned workflows, failure memory, evidence packs, bot board notes, public GitHub lookup, and data utilities.",
   register(api) {
     const config = api.config || {};
     agentModeTool.config = config;
@@ -1927,6 +2850,7 @@ export default {
     learnedSkillTool.config = config;
     failureMemoryTool.config = config;
     evidencePackTool.config = config;
+    botBoardTool.config = config;
     githubLookupTool.config = config;
     dataTool.config = config;
 
@@ -1935,6 +2859,7 @@ export default {
     api.registerTool(learnedSkillTool, { name: LEARNED_SKILL_TOOL });
     api.registerTool(failureMemoryTool, { name: FAILURE_MEMORY_TOOL });
     api.registerTool(evidencePackTool, { name: EVIDENCE_PACK_TOOL });
+    api.registerTool(botBoardTool, { name: BOT_BOARD_TOOL });
     api.registerTool(githubLookupTool, { name: GITHUB_LOOKUP_TOOL });
     api.registerTool(dataTool, { name: DATA_TOOL });
 
@@ -1942,20 +2867,18 @@ export default {
       if (ctx?.agentId && ctx.agentId !== "imagebot") return;
       const systemChunks = [];
       const contextChunks = [];
-      if (config.appendPersonaContext !== false) {
-        const personaContext = await formatActivePersonaPrompt(config, event, ctx);
-        if (personaContext) systemChunks.push(personaContext);
-      }
-      if (config.appendModeContext !== false) {
-        const modes = await getActiveModesForContext(config, event, ctx);
-        const modeContext = formatModePrompt(modes);
-        if (modeContext) contextChunks.push(modeContext);
-      }
-      if (config.appendRelevantSkills !== false) {
-        const skills = await relevantApprovedSkills(config, String(event?.prompt || ""), 3);
-        const skillContext = formatSkillsForPrompt(skills);
-        if (skillContext) contextChunks.push(skillContext);
-      }
+      const [personaContext, modeContext, skillContext] = await Promise.all([
+        config.appendPersonaContext !== false ? formatActivePersonaPrompt(config, event, ctx) : "",
+        config.appendModeContext !== false
+          ? getActiveModesForContext(config, event, ctx).then((modes) => formatModePrompt(modes))
+          : "",
+        config.appendRelevantSkills !== false
+          ? relevantApprovedSkills(config, String(event?.prompt || ""), 3).then((skills) => formatSkillsForPrompt(skills))
+          : ""
+      ]);
+      if (personaContext) systemChunks.push(personaContext);
+      if (modeContext) contextChunks.push(modeContext);
+      if (skillContext) contextChunks.push(skillContext);
       const result = {
         prependSystemContext: systemChunks.length ? systemChunks.join("\n\n") : undefined,
         prependContext: contextChunks.length ? contextChunks.join("\n\n") : undefined

@@ -1,0 +1,161 @@
+diff --git a/dist/openclaw-tools-B0V1p3La.js b/dist/openclaw-tools-B0V1p3La.js
+index bc5d4a6..66656e4 100644
+--- a/dist/openclaw-tools-B0V1p3La.js
++++ b/dist/openclaw-tools-B0V1p3La.js
+@@ -3175,6 +3175,7 @@ function createHeartbeatResponseTool() {
+ * and reporting the active task back through tool/status metadata.
+ */
+ const DEFAULT_ACTIVE_STATUSES = new Set(["queued", "running"]);
++const RECENT_PROBLEM_STATUSES = new Set(["failed", "timed_out", "cancelled", "lost"]);
+ /** Find the active queued/running task that matches a session and optional filters. */
+ function findActiveSessionTask(params) {
+ 	const normalizedSessionKey = normalizeOptionalString(params.sessionKey);
+@@ -3398,6 +3399,31 @@ function listActiveMediaGenerationTasksForSession(params) {
+ 	});
+ 	return [...matches.filter((task) => task.status === "running"), ...matches.filter((task) => task.status !== "running")];
+ }
++/** Lists recent terminal problem media generation tasks for a session. */
++function listRecentProblemMediaGenerationTasksForSession(params) {
++	const sessionKey = normalizeOptionalString(params.sessionKey);
++	if (!sessionKey) return [];
++	const taskLabel = normalizeOptionalString(params.taskLabel);
++	const sourcePrefix = normalizeOptionalString(params.sourcePrefix);
++	const nowMs = params.nowMs ?? Date.now();
++	const maxAgeMs = resolveNonNegativeIntegerOption(params.maxAgeMs, 0);
++	const activityAt = (task) => task.endedAt ?? task.lastEventAt ?? task.startedAt ?? task.createdAt ?? 0;
++	const matches = listFreshTasksForOwnerKey(sessionKey).filter((task) => {
++		if (task.runtime !== "cli" || task.scopeKind !== "session" || task.taskKind !== params.taskKind || !RECENT_PROBLEM_STATUSES.has(task.status)) return false;
++		if (sourcePrefix && !mediaGenerationSourceMatches(task, sourcePrefix)) return false;
++		if (taskLabel && !mediaGenerationTaskLabelMatches(task, taskLabel)) return false;
++		return isRecentMediaGenerationTaskRecord({
++			task,
++			maxAgeMs,
++			nowMs
++		});
++	});
++	return matches.toSorted((left, right) => activityAt(right) - activityAt(left));
++}
++/** Finds the most recent terminal problem media generation task for a session. */
++function findRecentProblemMediaGenerationTaskForSession(params) {
++	return listRecentProblemMediaGenerationTasksForSession(params)[0];
++}
+ /** Finds a task that should block duplicate media generation for a session. */
+ function findDuplicateGuardMediaGenerationTaskForSession(params) {
+ 	return findRecentStartedMediaGenerationTaskForSession(params) ?? findActiveMediaGenerationTaskForSession({
+@@ -3429,6 +3455,26 @@ function buildMediaGenerationTaskStatusListDetails(params) {
+ 		}))
+ 	};
+ }
++/** Builds structured status details for one recent terminal problem media generation task. */
++function buildMediaGenerationTaskProblemStatusDetails(params) {
++	const provider = getMediaGenerationTaskProviderId(params.task, params.sourcePrefix);
++	return {
++		async: true,
++		active: false,
++		existingTask: true,
++		terminal: true,
++		status: params.task.status,
++		task: {
++			taskId: params.task.taskId,
++			...params.task.runId ? { runId: params.task.runId } : {}
++		},
++		...params.task.taskKind ? { taskKind: params.task.taskKind } : {},
++		...params.task.progressSummary ? { progressSummary: params.task.progressSummary } : {},
++		...params.task.sourceId ? { sourceId: params.task.sourceId } : {},
++		...params.task.error ? { error: params.task.error } : {},
++		...provider ? { provider } : {}
++	};
++}
+ /** Builds user-facing status text for one media generation task. */
+ function buildMediaGenerationTaskStatusText(params) {
+ 	const provider = getMediaGenerationTaskProviderId(params.task, params.sourcePrefix);
+@@ -3439,6 +3485,16 @@ function buildMediaGenerationTaskStatusText(params) {
+ 		params.duplicateGuard ? active ? `Do not call ${params.toolName} again for this request. Wait for the completion event; the completion agent will send the finished ${params.completionLabel} here.` : `Do not call ${params.toolName} again for the same request; this recent ${params.completionLabel} generation already completed.` : `Wait for the completion event; the completion agent will send the finished ${params.completionLabel} here when it's ready.`
+ 	].filter((entry) => Boolean(entry)).join("\n");
+ }
++/** Builds user-facing status text for one recent terminal problem media generation task. */
++function buildMediaGenerationTaskProblemStatusText(params) {
++	const provider = getMediaGenerationTaskProviderId(params.task, params.sourcePrefix);
++	return [
++		`${params.nounLabel} task ${params.task.taskId} is no longer active; it ended as ${params.task.status}${provider ? ` with ${provider}` : ""}.`,
++		params.task.progressSummary ? `Last progress: ${params.task.progressSummary}.` : null,
++		params.task.error ? `Error: ${params.task.error}.` : null,
++		`No completion event is expected for this ${params.completionLabel}. If the user still wants it, start a new ${params.toolName} call with the original request/media.`
++	].filter((entry) => Boolean(entry)).join("\n");
++}
+ /** Builds user-facing status text for multiple active media generation tasks. */
+ function buildMediaGenerationTaskStatusListText(params) {
+ 	const nounLabel = normalizeLowercaseStringOrEmpty(params.nounLabel);
+@@ -3477,6 +3533,7 @@ function buildActiveMediaGenerationTaskPromptContextForSession(params) {
+ const IMAGE_GENERATION_TASK_KIND = "image_generation";
+ const IMAGE_GENERATION_SOURCE_PREFIX = "image_generate";
+ const RECENT_IMAGE_GENERATION_DUPLICATE_GUARD_MS = 2 * 6e4;
++const RECENT_IMAGE_GENERATION_PROBLEM_STATUS_MS = 30 * 6e4;
+ /** Finds the active image generation task for a session and optional prompt. */
+ function findActiveImageGenerationTaskForSession(sessionKey, params) {
+ 	return findActiveMediaGenerationTaskForSession({
+@@ -3494,6 +3551,15 @@ function listActiveImageGenerationTasksForSession(sessionKey) {
+ 		sourcePrefix: IMAGE_GENERATION_SOURCE_PREFIX
+ 	});
+ }
++/** Finds the latest recent failed/lost image generation task for a session. */
++function findRecentProblemImageGenerationTaskForSession(sessionKey) {
++	return findRecentProblemMediaGenerationTaskForSession({
++		sessionKey,
++		taskKind: IMAGE_GENERATION_TASK_KIND,
++		sourcePrefix: IMAGE_GENERATION_SOURCE_PREFIX,
++		maxAgeMs: RECENT_IMAGE_GENERATION_PROBLEM_STATUS_MS
++	});
++}
+ /** Finds an image generation task that should block duplicate generation. */
+ function findDuplicateGuardImageGenerationTaskForSession(sessionKey, params) {
+ 	return findDuplicateGuardMediaGenerationTaskForSession({
+@@ -3519,6 +3585,13 @@ function buildImageGenerationTaskStatusListDetails(tasks) {
+ 		sourcePrefix: IMAGE_GENERATION_SOURCE_PREFIX
+ 	});
+ }
++/** Builds structured status details for one recent failed/lost image generation task. */
++function buildImageGenerationTaskProblemStatusDetails(task) {
++	return buildMediaGenerationTaskProblemStatusDetails({
++		task,
++		sourcePrefix: IMAGE_GENERATION_SOURCE_PREFIX
++	});
++}
+ /** Builds user-facing status text for one image generation task. */
+ function buildImageGenerationTaskStatusText(task, params) {
+ 	return buildMediaGenerationTaskStatusText({
+@@ -3530,6 +3603,16 @@ function buildImageGenerationTaskStatusText(task, params) {
+ 		duplicateGuard: params?.duplicateGuard
+ 	});
+ }
++/** Builds user-facing status text for one recent failed/lost image generation task. */
++function buildImageGenerationTaskProblemStatusText(task) {
++	return buildMediaGenerationTaskProblemStatusText({
++		task,
++		sourcePrefix: IMAGE_GENERATION_SOURCE_PREFIX,
++		nounLabel: "Image generation",
++		toolName: "image_generate",
++		completionLabel: "image"
++	});
++}
+ /** Builds user-facing status text for active image generation tasks. */
+ function buildImageGenerationTaskStatusListText(tasks) {
+ 	return buildMediaGenerationTaskStatusListText({
+@@ -4555,6 +4638,17 @@ function createImageGenerateStatusActionResult(sessionKey) {
+ 			...buildImageGenerationTaskStatusListDetails(activeTasks)
+ 		}
+ 	};
++	const recentProblemTask = findRecentProblemImageGenerationTaskForSession(sessionKey);
++	if (recentProblemTask) return {
++		content: [{
++			type: "text",
++			text: buildImageGenerationTaskProblemStatusText(recentProblemTask)
++		}],
++		details: {
++			action: "status",
++			...buildImageGenerationTaskProblemStatusDetails(recentProblemTask)
++		}
++	};
+ 	return imageGenerateTaskStatusActions.createStatusActionResult(sessionKey);
+ }
+ /** Returns duplicate-guard status output when a matching image task is already active. */

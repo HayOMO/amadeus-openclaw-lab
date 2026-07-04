@@ -1,0 +1,30 @@
+{
+  "id": "imagebot-chat-toolbox",
+  "name": "Imagebot Chat Toolbox",
+  "description": "Local Telegram chat utility toolbox: todos, notes, polls, reminders, birthdays, quotes, randomizers, karma, seen/tell, glossary, snippets, queues, and small group helpers.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "tool"
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "chat_toolbox"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {
+      "storeDir": {
+        "type": "string"
+      },
+      "timezoneOffsetMinutes": {
+        "type": "number"
+      }
+    }
+  }
+}

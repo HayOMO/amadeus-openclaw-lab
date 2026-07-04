@@ -12,6 +12,7 @@
   },
   "contracts": {
     "tools": [
+      "media_artifact",
       "media_artifact_recent",
       "media_artifact_lineage"
     ],

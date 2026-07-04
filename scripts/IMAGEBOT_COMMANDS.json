@@ -61,34 +61,30 @@
   "commands": [
     {
       "command": "amnew",
-      "description": "Start a clean chat window",
+      "description": "打开干净的新聊天窗口",
       "usage": "/amnew [message]",
       "category": "session",
       "kind": "runtime",
       "menu": true,
-      "notes": "Deterministic runtime command handled before normal model context construction."
+      "notes": "固定运行时命令，在进入普通模型上下文前处理。"
     },
     {
       "command": "amhelp",
-      "description": "Show available capabilities and control commands",
-      "usage": "/amhelp [abilities|all|category|command]",
+      "description": "显示能力和控制命令",
+      "usage": "/amhelp [tools|status|model|persona]",
       "category": "ops",
-      "kind": "catalog",
-      "tool": "command_catalog",
-      "toolAction": "list",
+      "kind": "runtime",
       "menu": true,
-      "notes": "Shows a capability overview plus script/control commands. Ordinary model abilities are intent-driven, not slash-command-driven."
+      "notes": "固定运行时命令，在进入普通模型上下文前处理。"
     },
     {
       "command": "amstatus",
-      "description": "Show gateway status",
+      "description": "查看本地 bot 和会话状态",
       "usage": "/amstatus",
       "category": "ops",
-      "kind": "script",
-      "tool": "script_action",
-      "scriptId": "gateway_status",
+      "kind": "runtime",
       "menu": true,
-      "notes": "Safe read-only status script."
+      "notes": "返回模型、人格、窗口和可用 token 使用量元数据；不暴露 token、路径或原始 session key。"
     },
     {
       "command": "amdeepstatus",
@@ -103,31 +99,93 @@
     },
     {
       "command": "ammodel",
-      "description": "Show or switch chat model",
+      "description": "查看或切换聊天模型",
       "usage": "/ammodel [models|model <provider/model>|model <provider/model> think <level>|think <level>]",
       "category": "ops",
       "kind": "runtime",
       "menu": true,
-      "notes": "Runtime-handled before normal model context construction. The Telegram UI first selects a model, then shows that model's raw thinking levels, with a Back button."
+      "notes": "在进入普通模型上下文前处理。Telegram UI 先选模型，再显示该模型的 thinking levels。"
     },
     {
       "command": "ampersona",
-      "description": "Show or switch speaking persona",
+      "description": "查看或切换说话人格",
       "usage": "/ampersona [list|status|set <persona>|default]",
       "category": "session",
       "kind": "runtime",
       "menu": true,
-      "notes": "Runtime-handled before normal model context construction. Opens a fresh imagebot window with the selected persona and remembers the sender's default persona for later new windows."
+      "notes": "在进入普通模型上下文前处理。切换后打开新人格窗口，并记住发送者默认人格。"
     },
     {
       "command": "amtools",
-      "description": "List or run registered scripts",
+      "description": "列出安全脚本式控制",
       "usage": "/amtools [list|route <query>|run <id>]",
       "category": "ops",
-      "kind": "script",
-      "tool": "script_action",
+      "kind": "runtime",
       "menu": true,
-      "notes": "Registered scripts only. Risky scripts require plan and explicit approval code."
+      "notes": "固定运行时列表；不会从 Telegram 直接执行维护脚本。"
+    },
+    {
+      "command": "amroll",
+      "description": "掷骰，不唤醒模型",
+      "usage": "/amroll [NdS]",
+      "category": "play",
+      "kind": "runtime",
+      "menu": true,
+      "notes": "进入模型前处理的小命令。例如 /amroll、/amroll 2d6。"
+    },
+    {
+      "command": "amcoin",
+      "description": "抛硬币，不唤醒模型",
+      "usage": "/amcoin [count]",
+      "category": "play",
+      "kind": "runtime",
+      "menu": true,
+      "notes": "进入模型前处理的小命令；数量有上限。"
+    },
+    {
+      "command": "amchoose",
+      "description": "从短列表里选一个",
+      "usage": "/amchoose A | B | C",
+      "category": "play",
+      "kind": "runtime",
+      "menu": true,
+      "notes": "进入模型前处理的小命令；有空格的项目建议用 | 或逗号分隔。"
+    },
+    {
+      "command": "amshuffle",
+      "description": "随机打乱短列表",
+      "usage": "/amshuffle A | B | C",
+      "category": "play",
+      "kind": "runtime",
+      "menu": true,
+      "notes": "进入模型前处理的小命令；列表长度有上限。"
+    },
+    {
+      "command": "amsplit",
+      "description": "把名字或项目随机分组",
+      "usage": "/amsplit 2 Alice Bob Carol Dave",
+      "category": "play",
+      "kind": "runtime",
+      "menu": true,
+      "notes": "进入模型前处理的小命令；第一个参数是组数。"
+    },
+    {
+      "command": "amstats",
+      "description": "统计文本字数和行数",
+      "usage": "/amstats <text> or reply /amstats",
+      "category": "play",
+      "kind": "runtime",
+      "menu": true,
+      "notes": "进入模型前处理的小命令；只读取命令文本或被回复的消息。"
+    },
+    {
+      "command": "amlinks",
+      "description": "从文本中提取链接",
+      "usage": "/amlinks <text> or reply /amlinks",
+      "category": "play",
+      "kind": "runtime",
+      "menu": true,
+      "notes": "进入模型前处理的小命令；只读取命令文本或被回复的消息。"
     },
     {
       "command": "ambackup",

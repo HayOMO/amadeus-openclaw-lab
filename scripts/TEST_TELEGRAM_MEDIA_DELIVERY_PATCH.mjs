@@ -65,9 +65,236 @@ const embeddedPayloads = await readDistFileAny([
 ]);
 const selection = await readDistFile("selection-", "queuePendingToolMedia");
 const getReply = await readDistFile("get-reply-", "applyMediaUnderstandingIfNeeded");
+const imagebotModelCatalog = JSON.parse(await fs.readFile(path.join(process.cwd(), "scripts", "IMAGEBOT_MODEL_PROFILES.json"), "utf8"));
+
+function extractFunctionSource(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `function not found: ${name}`);
+  const open = source.indexOf("{", start);
+  assert.ok(open >= 0, `function has no body: ${name}`);
+  let depth = 0;
+  for (let index = open; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  throw new Error(`function body did not close: ${name}`);
+}
+
+function extractConstSource(source, name) {
+  const start = source.indexOf(`const ${name} = `);
+  assert.ok(start >= 0, `const not found: ${name}`);
+  const arrow = source.indexOf("=>", start);
+  assert.ok(arrow >= 0, `const is not an arrow function: ${name}`);
+  const bodyStart = source.indexOf("{", arrow);
+  const semicolonBeforeBody = source.indexOf(";", arrow);
+  if (bodyStart < 0 || semicolonBeforeBody < bodyStart) {
+    assert.ok(semicolonBeforeBody >= 0, `const declaration has no semicolon: ${name}`);
+    return source.slice(start, semicolonBeforeBody + 1);
+  }
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        const end = source.indexOf(";", index);
+        assert.ok(end >= 0, `const declaration has no closing semicolon: ${name}`);
+        return source.slice(start, end + 1);
+      }
+    }
+  }
+  throw new Error(`const body did not close: ${name}`);
+}
 
 const payloadsModule = await import(pathToFileURL(payloads.filePath).href);
 const parseReplyDirectives = payloadsModule.d;
+const normalizeCommandModule = await import(pathToFileURL(path.join(distDir, "commands-registry-normalize-IpIeXL3a.js")).href);
+const scriptCommandParserContext = {
+  normalizeCommandBody: normalizeCommandModule.r,
+  normalizeLowercaseStringOrEmpty(value) {
+    return String(value ?? "").trim().toLowerCase();
+  },
+  getTelegramTextParts(msg) {
+    return { text: String(msg?.text ?? msg?.caption ?? "") };
+  },
+};
+vm.createContext(scriptCommandParserContext);
+vm.runInContext(`
+${extractFunctionSource(bot.source, "parseImagebotTextCommandParts")}
+${extractFunctionSource(bot.source, "parseImagebotScriptControlCommand")}
+${extractFunctionSource(bot.source, "parseImagebotUnsupportedControlCommand")}
+${extractFunctionSource(bot.source, "formatTelegramImagebotNumber")}
+${extractFunctionSource(bot.source, "clampTelegramImagebotInteger")}
+${extractFunctionSource(bot.source, "splitTelegramImagebotListArgs")}
+${extractFunctionSource(bot.source, "shuffleTelegramImagebotItems")}
+${extractFunctionSource(bot.source, "buildTelegramImagebotRollText")}
+${extractFunctionSource(bot.source, "buildTelegramImagebotCoinText")}
+${extractFunctionSource(bot.source, "buildTelegramImagebotChooseText")}
+${extractFunctionSource(bot.source, "buildTelegramImagebotShuffleText")}
+${extractFunctionSource(bot.source, "buildTelegramImagebotSplitText")}
+${extractFunctionSource(bot.source, "resolveTelegramImagebotTextPayload")}
+${extractFunctionSource(bot.source, "buildTelegramImagebotStatsText")}
+${extractFunctionSource(bot.source, "buildTelegramImagebotLinksText")}
+${extractFunctionSource(bot.source, "buildTelegramImagebotMicroCommandText")}
+globalThis.parseImagebotScriptControlCommand = parseImagebotScriptControlCommand;
+globalThis.parseImagebotUnsupportedControlCommand = parseImagebotUnsupportedControlCommand;
+globalThis.buildTelegramImagebotMicroCommandText = buildTelegramImagebotMicroCommandText;
+`, scriptCommandParserContext);
+const parseImagebotScriptControlCommandForTest = scriptCommandParserContext.parseImagebotScriptControlCommand;
+const parseImagebotUnsupportedControlCommandForTest = scriptCommandParserContext.parseImagebotUnsupportedControlCommand;
+const buildTelegramImagebotMicroCommandTextForTest = scriptCommandParserContext.buildTelegramImagebotMicroCommandText;
+const plain = (value) => value == null ? value : JSON.parse(JSON.stringify(value));
+assert.deepEqual(
+  plain(parseImagebotScriptControlCommandForTest("/amhelp@YOUR_BOT_USERNAME tools", { channels: { telegram: {} } }, {
+    accountId: "imagebot",
+    botUsername: "amaduse_bot",
+  })),
+  { name: "amhelp", args: "tools" },
+  "script controls must not depend on configured customCommands",
+);
+assert.deepEqual(
+  plain(parseImagebotScriptControlCommandForTest("\uff0famstatus", {}, { accountId: "imagebot" })),
+  { name: "amstatus", args: "" },
+  "full-width slash status command should still short-circuit before model dispatch",
+);
+assert.deepEqual(
+  plain(parseImagebotScriptControlCommandForTest("/amtools run cleanup", {}, { accountId: "imagebot" })),
+  { name: "amtools", args: "run cleanup" },
+  "amtools safety refusal path must be reachable without model dispatch",
+);
+assert.deepEqual(
+  plain(parseImagebotScriptControlCommandForTest("/amroll 2d6", {}, { accountId: "imagebot" })),
+  { name: "amroll", args: "2d6" },
+  "micro script commands must be parsed before model dispatch",
+);
+assert.deepEqual(
+  plain(parseImagebotScriptControlCommandForTest("\uff0famstats", {}, { accountId: "imagebot" })),
+  { name: "amstats", args: "" },
+  "full-width slash micro script commands must also be parsed",
+);
+assert.equal(
+  parseImagebotScriptControlCommandForTest("/amhelp", {}, { accountId: "default" }),
+  null,
+  "script controls stay scoped to the imagebot account",
+);
+assert.deepEqual(
+  plain(parseImagebotUnsupportedControlCommandForTest("/model spark", { accountId: "imagebot" })),
+  { name: "model", args: "spark" },
+  "legacy /model commands must be caught before model dispatch",
+);
+assert.deepEqual(
+  plain(parseImagebotUnsupportedControlCommandForTest("\uff0fmodel spark", { accountId: "imagebot" })),
+  { name: "model", args: "spark" },
+  "full-width slash legacy /model commands must also be caught",
+);
+assert.equal(
+  parseImagebotUnsupportedControlCommandForTest("/model spark", { accountId: "default" }),
+  null,
+  "legacy /model interception stays scoped to the imagebot account",
+);
+assert.match(
+  buildTelegramImagebotMicroCommandTextForTest({ name: "amroll", args: "2d6" }, {}),
+  /^掷骰 2d6：[1-6], [1-6] \| 合计=\d+$/,
+);
+assert.match(
+  buildTelegramImagebotMicroCommandTextForTest({ name: "amchoose", args: "red | blue | green" }, {}),
+  /^选中：(red|blue|green)$/,
+);
+assert.match(
+  buildTelegramImagebotMicroCommandTextForTest({ name: "amstats", args: "" }, { reply_to_message: { text: "hello world\nagain" } }),
+  /词元数=3/,
+);
+assert.match(
+  buildTelegramImagebotMicroCommandTextForTest({ name: "amlinks", args: "see https://example.com/a, and http://example.org" }, {}),
+  /1\. https:\/\/example\.com\/a/,
+);
+
+let repeaterNow = 1_000_000;
+const repeaterContext = {
+  accountId: "imagebot",
+  opts: { botInfo: { id: 9000, username: "YOUR_BOT_USERNAME" } },
+  bot: { botInfo: { id: 9000, username: "YOUR_BOT_USERNAME" } },
+  Date: { now: () => repeaterNow },
+  Math,
+  Number,
+  String,
+  Boolean,
+  Map,
+  getTelegramTextParts(msg) {
+    return { text: String(msg?.text ?? msg?.caption ?? ""), entities: msg?.entities ?? msg?.caption_entities ?? [] };
+  },
+  hasBotMention(msg, botUsername) {
+    return String(msg?.text ?? msg?.caption ?? "").toLowerCase().includes(`@${botUsername}`);
+  },
+};
+vm.createContext(repeaterContext);
+vm.runInContext(`
+const preDropImagebotTextRepeaterState = new Map();
+${extractConstSource(bot.source, "readPreDropImagebotTextRepeaterNumber")}
+${extractConstSource(bot.source, "resolvePreDropImagebotTextRepeaterConfig")}
+${extractConstSource(bot.source, "compactPreDropImagebotTextRepeaterState")}
+${extractConstSource(bot.source, "preDropImagebotRepeaterSenderKey")}
+${extractConstSource(bot.source, "preDropImagebotRepeaterScopeKey")}
+${extractConstSource(bot.source, "resolvePreDropImagebotTextRepeaterText")}
+${extractConstSource(bot.source, "resolvePreDropImagebotRepeatableItem")}
+${extractConstSource(bot.source, "shouldIgnorePreDropImagebotTextRepeaterMessage")}
+${extractConstSource(bot.source, "recordPreDropImagebotTextRepeaterMessage")}
+globalThis.resolvePreDropImagebotTextRepeaterConfig = resolvePreDropImagebotTextRepeaterConfig;
+globalThis.recordPreDropImagebotTextRepeaterMessage = recordPreDropImagebotTextRepeaterMessage;
+`, repeaterContext);
+const repeaterOptions = repeaterContext.resolvePreDropImagebotTextRepeaterConfig({
+  plugins: {
+    entries: {
+      "imagebot-interaction-core": {
+        config: {
+          textRepeater: {
+            enabled: true,
+            groupOnly: true,
+            repeatText: true,
+            repeatStickers: true,
+            requireDifferentSenders: true,
+            maxGapMs: 30000,
+            minCount: 2,
+            cooldownMs: 30000,
+            stateTtlMs: 600000,
+          },
+        },
+      },
+    },
+  },
+});
+const repeatRecord = repeaterContext.recordPreDropImagebotTextRepeaterMessage;
+const repeatMessage = ({ chatId, messageId, senderId, text, stickerFileId, stickerUniqueId }) => ({
+  message_id: messageId,
+  chat: { id: chatId, type: "supergroup" },
+  from: { id: senderId, is_bot: false },
+  ...(text == null ? {} : { text }),
+  ...(stickerFileId ? { sticker: { file_id: stickerFileId, file_unique_id: stickerUniqueId || stickerFileId } } : {}),
+});
+repeaterNow = 1_000_000;
+assert.equal(repeatRecord(repeatMessage({ chatId: -1001, messageId: 1, senderId: 11, text: "复读测试" }), repeaterOptions, "amaduse_bot").shouldRepeat, false);
+repeaterNow += 1000;
+assert.equal(repeatRecord(repeatMessage({ chatId: -1001, messageId: 2, senderId: 22, text: "复读测试" }), repeaterOptions, "amaduse_bot").shouldRepeat, true);
+repeaterNow = 2_000_000;
+assert.equal(repeatRecord(repeatMessage({ chatId: -1002, messageId: 1, senderId: 11, text: "同人连发" }), repeaterOptions, "amaduse_bot").shouldRepeat, false);
+repeaterNow += 1000;
+assert.equal(repeatRecord(repeatMessage({ chatId: -1002, messageId: 2, senderId: 11, text: "同人连发" }), repeaterOptions, "amaduse_bot").shouldRepeat, false);
+repeaterNow = 3_000_000;
+assert.equal(repeatRecord(repeatMessage({ chatId: -1003, messageId: 1, senderId: 11, text: "超时复读" }), repeaterOptions, "amaduse_bot").shouldRepeat, false);
+repeaterNow += 31000;
+assert.equal(repeatRecord(repeatMessage({ chatId: -1003, messageId: 2, senderId: 22, text: "超时复读" }), repeaterOptions, "amaduse_bot").shouldRepeat, false);
+repeaterNow = 4_000_000;
+assert.equal(repeatRecord(repeatMessage({ chatId: -1004, messageId: 1, senderId: 11, stickerFileId: "sticker-file-a", stickerUniqueId: "sticker-unique-a" }), repeaterOptions, "amaduse_bot").shouldRepeat, false);
+repeaterNow += 1000;
+const stickerRepeat = repeatRecord(repeatMessage({ chatId: -1004, messageId: 2, senderId: 22, stickerFileId: "sticker-file-b", stickerUniqueId: "sticker-unique-a" }), repeaterOptions, "amaduse_bot");
+assert.equal(stickerRepeat.shouldRepeat, true);
+assert.equal(stickerRepeat.kind, "sticker");
+
 assert.equal(parseReplyDirectives("found\nMEDIA:C:/tmp/a.jpg").sensitiveMedia, undefined);
 assert.equal(
   parseReplyDirectives("found, NSFW, \u614e\u70b9\nMEDIA:C:/tmp/a.jpg", { inferSensitiveMediaFromText: true }).sensitiveMedia,
@@ -110,10 +337,22 @@ assert.match(bot.source, /maybePruneTelegramMarsForwardStore\(store, config, now
 assert.match(bot.source, /prepareMediaEvidence === true \? await prepareTelegramMarsForwardMediaEvidence/);
 assert.match(bot.source, /marsForwardReviewPrompt/);
 assert.match(bot.source, /scriptReactKinds/);
-assert.match(bot.source, /pathToFileURL/);
+assert.match(bot.source, /const mechanicalDuplicate = detectorConfig\.scriptReactKinds\.has\(result\.fingerprint\.kind\);/);
+assert.doesNotMatch(bot.source, /const replyMessageId = Number\.isFinite\(firstMessageId\) \? firstMessageId : params\.msg\.message_id;/);
+assert.match(bot.source, /const sendScriptMarsReply = async \(text, messageId, threadId\) =>/);
+assert.match(bot.source, /bot\.api\.sendMessage\(params\.chatId, text/);
+assert.match(bot.source, /message_id: messageId/);
+assert.match(bot.source, /\\u706b\\u661f\\uff0c\\u4f46\\u662f\\u9996\\u53d1\\u6d88\\u606f\\u4e0d\\u89c1\\u4e86\\u3002/);
+assert.match(bot.source, /recordSentMessage\(params\.chatId, sentMessage\.message_id, runtimeCfg\)/);
+assert.match(bot.source, /shouldDispatch: !mechanicalDuplicate && detectorConfig\.llmReview/);
+assert.match(bot.source, /scriptReplied: review\.scriptReplied/);
+assert.match(bot.source, /import \{ pathToFileURL \} from "node:url";/);
+assert.match(bot.source, /import\(pathToFileURL\(config\.modulePath\)\.href\)/);
 assert.match(bot.source, /function resolveTelegramLoliNsfwVisionGuardConfig/);
 assert.match(bot.source, /function applyTelegramLoliNsfwVisionGuard/);
 assert.match(bot.source, /function filterTelegramLoliNsfwGuardFailureMedia/);
+assert.match(bot.source, /function formatTelegramLoliNsfwGuardError/);
+assert.match(bot.source, /const errorMessage = formatTelegramLoliNsfwGuardError\(err\);/);
 assert.match(bot.source, /failed_closed/);
 assert.match(bot.source, /loliNsfwVisionGuard/);
 assert.match(bot.source, /SafetyReview/);
@@ -125,16 +364,40 @@ assert.match(bot.source, /isImagebotAllowedTextCommand/);
 assert.match(bot.source, /isImagebotAmnewCommand/);
 assert.match(bot.source, /parseImagebotAmmodelCommand/);
 assert.match(bot.source, /parseImagebotAmpersonaCommand/);
+assert.match(bot.source, /parseImagebotScriptControlCommand/);
+assert.match(bot.source, /parseImagebotUnsupportedControlCommand/);
+assert.match(bot.source, /buildTelegramImagebotHelpText/);
+assert.match(bot.source, /formatTelegramImagebotUsageLine/);
+assert.match(bot.source, /buildTelegramImagebotMicroCommandText/);
+assert.match(bot.source, /buildTelegramImagebotRollText/);
+assert.match(bot.source, /buildTelegramImagebotLinksText/);
+assert.match(bot.source, /handleImagebotUnsupportedControlBeforeModel/);
+assert.match(bot.source, /buildTelegramImagebotScriptControlKeyboard/);
+assert.match(bot.source, /handleImagebotScriptControlBeforeModel/);
 assert.match(bot.source, /handleImagebotAmmodelBeforeModel/);
 assert.match(bot.source, /handleImagebotAmpersonaBeforeModel/);
+assert.match(bot.source, /handleImagebotTextRepeaterBeforeModel/);
+assert.match(bot.source, /resolveImagebotTextRepeaterConfig/);
+assert.match(bot.source, /imagebotTextRepeaterState/);
+assert.match(bot.source, /plugins\?\.entries\?\.\["imagebot-interaction-core"\]\?\.config\?\.textRepeater/);
+assert.match(bot.source, /ignoreExplicitBotMention/);
+assert.match(bot.source, /hasBotMention\(msg, botUsername\)/);
+assert.match(bot.source, /bot\.api\.sendMessage\(msg\.chat\.id, decision\.text/);
 assert.match(bot.source, /applyTelegramImagebotAmmodelSession/);
+assert.match(bot.source, /updateSessionStoreEntry\(\{\s*storePath,\s*sessionKey: params\.sessionKey,/s);
+assert.doesNotMatch(bot.source, /await updateSessionStore\(/, "/ammodel must use the imported session-store runtime helper, not an undefined whole-store helper");
 assert.match(bot.source, /resolveTelegramImagebotAmmodelDefaultStatePath/);
 assert.match(bot.source, /resolveTelegramImagebotAmmodelSeedStatePath/);
 assert.match(bot.source, /OPENCLAW_IMAGEBOT_MODEL_STATE_FILE/);
 assert.match(bot.source, /\.openclaw", "imagebot", "model-state\.json"/);
 assert.match(bot.source, /config", "imagebot", "model-state\.json"/);
 assert.match(bot.source, /writeTelegramImagebotAmmodelDefaultState\(params\.cfg, params\.agentId, defaultState\)/);
+assert.match(bot.source, /const appliedDefaultModel = applyModelOverrideToSessionEntry\(\{/);
+assert.match(bot.source, /let changed = appliedDefaultModel\?\.updated === true;/);
+assert.match(bot.source, /if \(!changed\) return false;/);
+assert.doesNotMatch(bot.source, /entry\.thinkingLevel = state\.reasoningEffort;\s*entry\.liveModelSwitchPending = true;\s*entry\.updatedAt = Date\.now\(\);/);
 assert.match(bot.source, /applyTelegramImagebotAmmodelDefaultToSessionSync\(\{\s*cfg: params\.cfg,\s*agentId: params\.agentId,\s*sessionKey: windowEntry\.sessionKey\s*\}\)/s);
+assert.match(bot.source, /source !== "new-sender-window" && windowEntry\?\.sessionKey && normalizeOptionalString\(windowEntry\.ownerUserKey\)\?\.trim\(\) === senderUserKey/);
 assert.match(bot.source, /applyTelegramImagebotAmmodelDefaultToSessionSync\(\{\s*cfg: params\.cfg,\s*agentId: params\.agentId,\s*sessionKey\s*\}\)/s);
 assert.match(bot.source, /buildTelegramImagebotAmmodelKeyboard/);
 assert.match(bot.source, /buildTelegramImagebotPersonaKeyboard/);
@@ -143,6 +406,22 @@ assert.match(bot.source, /callback_data: `\/ampersona page \$\{Math\.max\(0, cur
 assert.match(bot.source, /loadTelegramImagebotAmmodelCatalog/);
 assert.match(bot.source, /loadTelegramImagebotPersonaCatalog/);
 assert.match(bot.source, /TELEGRAM_IMAGEBOT_AMMODEL_MODELS/);
+assert.match(bot.source, /openai\/gpt-5\.4-mini/);
+assert.equal(
+  imagebotModelCatalog.models.find((model) => model.id === "openai/gpt-5.3-codex-spark")?.enabled,
+  true,
+  "project model catalog should expose Spark for chat-only tests",
+);
+assert.equal(
+  imagebotModelCatalog.models.find((model) => model.id === "openai/gpt-5.3-codex-spark")?.toolPolicy,
+  "chat-only",
+  "project model catalog must keep Spark under chat-only tool policy",
+);
+assert.equal(
+  imagebotModelCatalog.profiles.find((profile) => profile.id === "spark")?.toolPolicy,
+  "chat-only",
+  "project model catalog must expose Spark as a chat-only /ammodel profile",
+);
 assert.match(bot.source, /getTelegramImagebotAmmodelProfilesForModel/);
 assert.match(bot.source, /IMAGEBOT_MODEL_PROFILES\.json/);
 assert.match(bot.source, /callback_data: `\/ammodel model \$\{model\.id\}`/);
@@ -163,6 +442,7 @@ assert.match(bot.source, /recordTelegramImagebotAmmodelMessage/);
 assert.match(bot.source, /isTelegramImagebotAmmodelOwnerAllowed/);
 assert.match(bot.source, /resolveTelegramImagebotLatestBotMessageId/);
 assert.match(bot.source, /model switched to \$\{label\}/);
+assert.match(bot.source, /telegram imagebot \/ammodel: applied \$\{label\} to \$\{target\.sessionKey\}/);
 assert.match(bot.source, /clearImagebotControlKeyboard/);
 assert.match(bot.source, /editMessageReplyMarkup\(callbackEdit\.chatId \?\? msg\.chat\.id, callbackEdit\.messageId/);
 /*
@@ -175,7 +455,8 @@ assert.doesNotMatch(bot.source, /const modelLines = getTelegramImagebotAmmodelMo
 assert.match(bot.source, /untrustedCallback/);
 assert.match(bot.source, /blocked non-owner/);
 assert.match(bot.source, /resolveTelegramImagebotActiveWindowId/);
-assert.match(bot.source, /TELEGRAM_IMAGEBOT_ACTIVE_WINDOW_TRIGGER_MAX_AGE_MS = 30 \* 60 \* 1000/);
+assert.match(bot.source, /TELEGRAM_IMAGEBOT_WINDOW_IDLE_CLOSE_MS = 10 \* 60 \* 1000/);
+assert.match(bot.source, /TELEGRAM_IMAGEBOT_ACTIVE_WINDOW_TRIGGER_MAX_AGE_MS = TELEGRAM_IMAGEBOT_WINDOW_IDLE_CLOSE_MS/);
 assert.match(bot.source, /resolveTelegramImagebotRecentActiveWindowId/);
 assert.match(bot.source, /closedReason = normalizeOptionalString\(params\.closedReason\)\?\.trim\(\) \|\| "replaced-by-amnew"/);
 assert.match(bot.source, /previousWindow\.replacedByWindowId = windowId/);
@@ -183,6 +464,15 @@ assert.match(bot.source, /openTelegramImagebotWindow/);
 assert.match(bot.source, /activeByUser/);
 assert.match(bot.source, /resolveTelegramImagebotUsableWindow/);
 assert.match(bot.source, /candidate\.closedAt/);
+assert.match(bot.source, /function closeTelegramImagebotIdleWindows/);
+assert.match(bot.source, /idle-window-timeout/);
+assert.match(bot.source, /function closeTelegramImagebotInactiveWindows/);
+assert.match(bot.source, /inactive-window-routing-pruned/);
+assert.match(bot.source, /const mappedWindow = mapped\.windowId \? resolveTelegramImagebotStoredActiveWindow\(store, params\.chatId, mapped, now\) : null;/);
+assert.doesNotMatch(
+  bot.source,
+  /const storedWindow = resolveTelegramImagebotUsableWindow\(store, chatId, \{ windowId \}, ownerUserKey\);\s*if \(storedWindow\) return storedWindow;/s,
+);
 assert.match(bot.source, /buildTelegramImagebotWindowTurnPrompt/);
 assert.match(bot.source, /group_thread_rule=treat this window as an ordinary Telegram group chat thread/);
 assert.match(bot.source, /no_owner_rule=the window has no protagonist or privileged owner/);
@@ -216,15 +506,70 @@ assert.match(bot.source, /telegram imagebot \/amnew: opened window/);
 assert.match(bot.source, /telegram imagebot \/ammodel: failed to resolve target/);
 assert.match(bot.source, /telegram imagebot \/ampersona: failed to resolve target/);
 assert.match(bot.source, /telegram imagebot \/ampersona: opened persona window/);
+assert.match(bot.source, /Amadeus 运行状态/);
+assert.match(bot.source, /Token 使用量：暂无/);
+assert.match(bot.source, /\/amtools 不从 Telegram 直接运行脚本/);
+assert.match(bot.source, /\/amroll \[NdS\]：掷骰/);
+assert.match(bot.source, /if \(microCommandText\) \{/);
+assert.match(bot.source, /请用 \/ammodel 查看或切换模型。我没有改动当前模型。/);
 assert.match(bot.source, /resolveTelegramImagebotPersonaForNewWindow/);
 assert.match(bot.source, /userDefaults/);
 assert.match(bot.source, /rememberDefault: true/);
 assert.match(bot.source, /persona: parsed\.persona/);
 assert.match(bot.source, /personaSource: "ampersona"/);
 assert.match(bot.source, /closedReason: "replaced-by-ampersona"/);
+const imagebotOwnerGateCount = (bot.source.match(/if \(!isTelegramImagebotAmmodelOwnerAllowed\(\{ senderId, target \}\)\)/g) || []).length;
+assert.equal(imagebotOwnerGateCount, 2, "/ammodel and /ampersona must both stay owner-gated before mutating session/window state");
+assert.match(bot.source, /telegram imagebot \/ammodel: blocked non-owner/);
+assert.match(bot.source, /telegram imagebot \/ampersona: blocked non-owner/);
 assert.match(bot.source, /if \(await handleImagebotAmmodelBeforeModel\(primaryCtx\)\) return \{ kind: "completed" \};/);
 assert.match(bot.source, /if \(await handleImagebotAmpersonaBeforeModel\(primaryCtx\)\) return \{ kind: "completed" \};/);
 assert.match(bot.source, /if \(await handleImagebotAmnewBeforeModel\(primaryCtx\)\) return \{ kind: "completed" \};/);
+assert.match(bot.source, /if \(await handleImagebotTextRepeaterBeforeModel\(primaryCtx\)\) return \{ kind: "completed" \};/);
+assert.match(bot.source, /if \(await handleImagebotUnsupportedControlBeforeModel\(primaryCtx\)\) return \{ kind: "completed" \};/);
+assert.match(bot.source, /if \(await handleImagebotScriptControlBeforeModel\(primaryCtx\)\) return \{ kind: "completed" \};/);
+assert.match(bot.source, /handleImagebotTextRepeaterBeforeDrop/);
+assert.match(bot.source, /__imagebotTextRepeaterSeen/);
+assert.match(bot.source, /telegram imagebot repeater: repeated text before drop gate/);
+assert.match(bot.source, /repeatStickers: raw\.repeatStickers !== false/);
+assert.match(bot.source, /requireDifferentSenders: raw\.requireDifferentSenders !== false/);
+assert.match(bot.source, /maxGapMs: readPreDropImagebotTextRepeaterNumber\(raw\.maxGapMs, 30_000/);
+assert.match(bot.source, /resolvePreDropImagebotRepeatableItem/);
+assert.match(bot.source, /preDropImagebotRepeaterSenderKey/);
+assert.match(bot.source, /previous\.senderKey === item\.senderKey/);
+assert.match(bot.source, /const clearPreDropImagebotTextRepeaterState = \(\) => \{\s*preDropImagebotTextRepeaterState\.delete\(key\);/);
+assert.match(bot.source, /shouldIgnorePreDropImagebotTextRepeaterMessage\(msg, item, options, botUsername\)\) return clearPreDropImagebotTextRepeaterState\(\);/);
+assert.match(bot.source, /now - previous\.updatedAt > options\.maxGapMs/);
+assert.match(bot.source, /senderKey: item\.senderKey \|\| ""/);
+assert.match(bot.source, /stickerUniqueId \|\| stickerFileId/);
+assert.match(bot.source, /bot\.api\.sendSticker\(msg\.chat\.id, decision\.fileId, threadParams\)/);
+assert.match(bot.source, /telegram imagebot repeater: repeated sticker before drop gate/);
+assert.match(bot.source, /await commitDispatchDedupeKeys\(dispatchDedupeKeys\);\s*dispatchDedupeKeys = \[\];\s*return;/s);
+const preModelDispatchStart = bot.source.indexOf("return async (primaryCtx, allMedia");
+const textRepeaterCall = bot.source.indexOf("handleImagebotTextRepeaterBeforeModel(primaryCtx)", preModelDispatchStart);
+const unsupportedControlCall = bot.source.indexOf("handleImagebotUnsupportedControlBeforeModel(primaryCtx)", preModelDispatchStart);
+const scriptControlCall = bot.source.indexOf("handleImagebotScriptControlBeforeModel(primaryCtx)", preModelDispatchStart);
+const modelContextCall = bot.source.indexOf("buildTelegramMessageContext({", preModelDispatchStart);
+assert.ok(
+  preModelDispatchStart >= 0 && textRepeaterCall > preModelDispatchStart && textRepeaterCall < unsupportedControlCall && textRepeaterCall < modelContextCall,
+  "Telegram text repeater must run as a pre-model script before control commands and context construction",
+);
+assert.ok(
+  preModelDispatchStart >= 0 && unsupportedControlCall > preModelDispatchStart && unsupportedControlCall < modelContextCall,
+  "/model must be rejected before model context construction",
+);
+assert.ok(
+  preModelDispatchStart >= 0 && scriptControlCall > preModelDispatchStart && scriptControlCall < modelContextCall,
+  "/amhelp, /amstatus, and /amtools must be handled before model context construction",
+);
+const inboundMessageLikeStart = bot.source.indexOf("const handleInboundMessageLike = async (event) =>");
+const preDropRepeaterCall = bot.source.indexOf("handleImagebotTextRepeaterBeforeDrop(event.ctx, event.msg)", inboundMessageLikeStart);
+const marsForwardCall = bot.source.indexOf("maybeHandleTelegramMarsForwardCandidate({", inboundMessageLikeStart);
+const unaddressedDropCall = bot.source.indexOf("shouldDropUnaddressedImagebotGroupMessage({", inboundMessageLikeStart);
+assert.ok(
+  inboundMessageLikeStart >= 0 && preDropRepeaterCall > inboundMessageLikeStart && preDropRepeaterCall < marsForwardCall && preDropRepeaterCall < unaddressedDropCall,
+  "Telegram text repeater must run in the inbound pre-drop path before unaddressed group messages can be discarded",
+);
 assert.doesNotMatch(
   bot.source,
   /isImagebotAmnewCommand\(bodyResult\.rawBody/,

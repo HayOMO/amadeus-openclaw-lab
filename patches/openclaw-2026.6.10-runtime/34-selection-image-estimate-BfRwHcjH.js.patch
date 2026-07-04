@@ -1,0 +1,26 @@
+diff --git a/dist/selection-BfRwHcjH.js b/dist/selection-BfRwHcjH.js
+index 795e412..4609c35 100644
+--- a/dist/selection-BfRwHcjH.js
++++ b/dist/selection-BfRwHcjH.js
+@@ -7484,6 +7484,12 @@ function estimateUnknownChars(value) {
+ 		return 256;
+ 	}
+ }
++function estimateImageBlockChars(block) {
++	const data = block?.data;
++	if (typeof data === "string" && data.length > 0) return Math.max(IMAGE_CHAR_ESTIMATE, data.length);
++	if (data && typeof data === "object") return Math.max(IMAGE_CHAR_ESTIMATE, estimateUnknownChars(data));
++	return IMAGE_CHAR_ESTIMATE;
++}
+ function isToolResultMessage(msg) {
+ 	const role = msg.role;
+ 	const type = msg.type;
+@@ -7501,7 +7507,7 @@ function getToolResultContent(msg) {
+ function estimateContentBlockChars(content) {
+ 	let chars = 0;
+ 	for (const block of content) if (isTextBlock(block)) chars += block.text.length;
+-	else if (isImageBlock(block)) chars += IMAGE_CHAR_ESTIMATE;
++	else if (isImageBlock(block)) chars += estimateImageBlockChars(block);
+ 	else chars += estimateUnknownChars(block);
+ 	return chars;
+ }

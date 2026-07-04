@@ -13,12 +13,15 @@ import {
   newMutationPlanId,
   verifyMutationPlanApproval
 } from "../imagebot-shared/mutation-authorization.mjs";
+import { appendFileLocked, withStateFileLock, writeJsonAtomic as writeSharedJsonAtomic } from "../imagebot-shared/state-file.mjs";
 
 const SCRIPT_ACTION_TOOL = "script_action";
 const PROMPT_LIBRARY_TOOL = "prompt_library";
 const IMAGE_FEEDBACK_TOOL = "image_feedback";
 const MODEL_CONFIG_TOOL = "model_config";
 const COMMAND_CATALOG_TOOL = "command_catalog";
+const CHAT_ONLY_TOOL_POLICY = "chat-only";
+const CHAT_ONLY_TOOL_BLOCK_REASON = "Active model is in chat-only mode; OpenClaw tools are disabled for this session. Reply directly, or use provider-native vision/search only if the provider supplies them.";
 
 const MAX_TEXT = 6000;
 const MAX_LOG_READ_BYTES = 4 * 1024 * 1024;
@@ -31,6 +34,7 @@ const pluginDir = path.dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = path.resolve(pluginDir, "..", "..");
 let promptCardsCacheRoot = "";
 let promptCardsCache = null;
+const jsonLinesCache = new Map();
 
 const SCRIPT_REGISTRY = [
   {
@@ -79,6 +83,16 @@ const SCRIPT_REGISTRY = [
     script: "scripts/EXPORT_IMAGEBOT_MEMORY_BACKUP.ps1",
     timeoutMs: 180_000,
     keywords: ["memory", "backup", "export", "记忆", "备份", "导出"]
+  },
+  {
+    id: "scout_github_bot_features",
+    title: "Scout GitHub bot features",
+    description: "Search popular public GitHub bot/chatbot repositories and write a feature-candidate report under docs/bot_feature_scouting.",
+    risk: "read",
+    command: "node",
+    args: ["scripts/SCOUT_GITHUB_BOT_FEATURES.mjs"],
+    timeoutMs: 180_000,
+    keywords: ["github", "bot", "features", "scout", "research", "chatbot", "telegram", "discord", "功能", "收集", "热门"]
   },
   {
     id: "backup_to_github",
@@ -225,8 +239,9 @@ function readArrayStrings(params, key) {
 }
 
 async function appendJsonLine(filePath, record) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.appendFile(filePath, `${JSON.stringify(record)}\n`, "utf8");
+  const resolved = path.resolve(filePath);
+  await appendFileLocked(resolved, `${JSON.stringify(record)}\n`, "utf8");
+  jsonLinesCache.delete(resolved);
 }
 
 async function readTail(filePath, maxBytes = MAX_LOG_READ_BYTES) {
@@ -257,7 +272,19 @@ async function readTail(filePath, maxBytes = MAX_LOG_READ_BYTES) {
 }
 
 async function readJsonLines(filePath) {
-  const raw = await readTail(filePath);
+  const resolved = path.resolve(filePath);
+  let stat;
+  try {
+    stat = await fs.stat(resolved);
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+  if (!stat.isFile() || stat.size <= 0) return [];
+  const signature = `${stat.size}:${Math.trunc(stat.mtimeMs)}`;
+  const cached = jsonLinesCache.get(resolved);
+  if (cached?.signature === signature) return cached.records;
+  const raw = await readTail(resolved);
   if (!raw) return [];
   const records = [];
   for (const line of raw.split(/\r?\n/)) {
@@ -269,6 +296,7 @@ async function readJsonLines(filePath) {
       // Append-only store: skip malformed tail fragments.
     }
   }
+  jsonLinesCache.set(resolved, { signature, records });
   return records;
 }
 
@@ -281,10 +309,7 @@ async function readJson(filePath, fallback) {
 }
 
 async function writeJsonAtomic(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.${process.pid}.tmp`;
-  await fs.writeFile(tempPath, JSON.stringify(value, null, 2), "utf8");
-  await fs.rename(tempPath, filePath);
+  await writeSharedJsonAtomic(filePath, value, { space: 2 });
 }
 
 function ok(toolName, lines, details = {}) {
@@ -405,51 +430,55 @@ function scriptPlanFingerprint(script) {
 }
 
 async function makeScriptPlan(config, script, reason = "", ctx = {}) {
-  const plans = await loadPlans(config);
-  const plan = bindMutationPlanToContext({
-    id: newMutationPlanId("plan"),
-    scriptId: script.id,
-    t: nowIso(),
-    expiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
-    approvalCode: newMutationApprovalCode("APPROVE"),
-    reason: clip(reason, 500),
-    risk: script.risk,
-    fingerprint: scriptPlanFingerprint(script),
-    used: false
-  }, ctx, { label: "script_action plan" });
-  plans.plans[plan.id] = plan;
-  const entries = Object.entries(plans.plans).filter(([, entry]) => Date.parse(entry.expiresAt || 0) > Date.now() && entry.used !== true);
-  plans.plans = Object.fromEntries(entries.slice(-80));
-  await savePlans(config, plans);
-  return plan;
+  return await withStateFileLock(plansPath(config), async () => {
+    const plans = await loadPlans(config);
+    const plan = bindMutationPlanToContext({
+      id: newMutationPlanId("plan"),
+      scriptId: script.id,
+      t: nowIso(),
+      expiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
+      approvalCode: newMutationApprovalCode("APPROVE"),
+      reason: clip(reason, 500),
+      risk: script.risk,
+      fingerprint: scriptPlanFingerprint(script),
+      used: false
+    }, ctx, { label: "script_action plan" });
+    plans.plans[plan.id] = plan;
+    const entries = Object.entries(plans.plans).filter(([, entry]) => Date.parse(entry.expiresAt || 0) > Date.now() && entry.used !== true);
+    plans.plans = Object.fromEntries(entries.slice(-80));
+    await savePlans(config, plans);
+    return plan;
+  });
 }
 
 async function resolveScriptPlan(config, script, params, ctx = {}, options = {}) {
   if (!needsApproval(script)) return { ok: true, plan: null };
   const planId = readString(params, "plan_id") || readString(params, "planId");
   if (!planId) return { ok: false, reason: "This script requires a plan_id from script_action action=plan." };
-  const plans = await loadPlans(config);
-  const plan = plans.plans[planId];
-  if (!plan || plan.scriptId !== script.id) return { ok: false, reason: "No matching active script plan." };
-  if (plan.used === true || Date.parse(plan.expiresAt || 0) <= Date.now()) return { ok: false, reason: "Script plan expired or already used." };
-  if (plan.fingerprint && plan.fingerprint !== scriptPlanFingerprint(script)) return { ok: false, reason: "Script plan does not match the registered script target." };
-  const approval = verifyMutationPlanApproval({ plan, ctx, approvalCode: plan.approvalCode, label: "script_action" });
-  if (!approval.ok) return approval;
-  if (options.consume !== false) {
-    plan.used = true;
-    plan.usedAt = nowIso();
-    plan.usedBy = approval.context ? {
-      accountId: approval.context.accountId,
-      chatId: approval.context.chatId,
-      threadId: approval.context.threadId,
-      sessionKey: approval.context.sessionKey,
-      windowId: approval.context.windowId,
-      senderId: approval.context.senderId,
-      messageId: approval.context.messageId
-    } : undefined;
-    await savePlans(config, plans);
-  }
-  return { ok: true, plan };
+  return await withStateFileLock(plansPath(config), async () => {
+    const plans = await loadPlans(config);
+    const plan = plans.plans[planId];
+    if (!plan || plan.scriptId !== script.id) return { ok: false, reason: "No matching active script plan." };
+    if (plan.used === true || Date.parse(plan.expiresAt || 0) <= Date.now()) return { ok: false, reason: "Script plan expired or already used." };
+    if (plan.fingerprint && plan.fingerprint !== scriptPlanFingerprint(script)) return { ok: false, reason: "Script plan does not match the registered script target." };
+    const approval = verifyMutationPlanApproval({ plan, ctx, approvalCode: plan.approvalCode, label: "script_action" });
+    if (!approval.ok) return approval;
+    if (options.consume !== false) {
+      plan.used = true;
+      plan.usedAt = nowIso();
+      plan.usedBy = approval.context ? {
+        accountId: approval.context.accountId,
+        chatId: approval.context.chatId,
+        threadId: approval.context.threadId,
+        sessionKey: approval.context.sessionKey,
+        windowId: approval.context.windowId,
+        senderId: approval.context.senderId,
+        messageId: approval.context.messageId
+      } : undefined;
+      await savePlans(config, plans);
+    }
+    return { ok: true, plan };
+  });
 }
 
 async function consumeScriptPlan(config, script, params, ctx) {
@@ -474,57 +503,61 @@ function modelPlanFingerprint({ plannedAction = "set", settings = null, restartG
 }
 
 async function makeModelConfigPlan(config, { plannedAction = "set", settings = null, restartGateway = false, reason = "" } = {}, ctx = {}) {
-  const plans = await loadPlans(config);
-  const plan = bindMutationPlanToContext({
-    id: newMutationPlanId("model_plan"),
-    kind: "model_config",
-    plannedAction,
-    t: nowIso(),
-    expiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
-    approvalCode: newMutationApprovalCode("APPROVE-MODEL"),
-    reason: clip(reason, 500),
-    settings: settings ? {
-      mode: settings.mode,
-      model: settings.model,
-      reasoningEffort: settings.reasoningEffort,
-      textVerbosity: settings.textVerbosity
-    } : null,
-    restartGateway: restartGateway === true,
-    fingerprint: modelPlanFingerprint({ plannedAction, settings, restartGateway }),
-    used: false
-  }, ctx, { label: "model_config plan" });
-  plans.plans[plan.id] = plan;
-  const entries = Object.entries(plans.plans).filter(([, entry]) => Date.parse(entry.expiresAt || 0) > Date.now() && entry.used !== true);
-  plans.plans = Object.fromEntries(entries.slice(-80));
-  await savePlans(config, plans);
-  return plan;
+  return await withStateFileLock(plansPath(config), async () => {
+    const plans = await loadPlans(config);
+    const plan = bindMutationPlanToContext({
+      id: newMutationPlanId("model_plan"),
+      kind: "model_config",
+      plannedAction,
+      t: nowIso(),
+      expiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
+      approvalCode: newMutationApprovalCode("APPROVE-MODEL"),
+      reason: clip(reason, 500),
+      settings: settings ? {
+        mode: settings.mode,
+        model: settings.model,
+        reasoningEffort: settings.reasoningEffort,
+        textVerbosity: settings.textVerbosity
+      } : null,
+      restartGateway: restartGateway === true,
+      fingerprint: modelPlanFingerprint({ plannedAction, settings, restartGateway }),
+      used: false
+    }, ctx, { label: "model_config plan" });
+    plans.plans[plan.id] = plan;
+    const entries = Object.entries(plans.plans).filter(([, entry]) => Date.parse(entry.expiresAt || 0) > Date.now() && entry.used !== true);
+    plans.plans = Object.fromEntries(entries.slice(-80));
+    await savePlans(config, plans);
+    return plan;
+  });
 }
 
 async function consumeModelConfigPlan(config, params, expected, ctx = {}) {
   if (config.requireModelConfigApproval === false) return { ok: true, plan: null };
   const planId = readString(params, "plan_id") || readString(params, "planId");
   if (!planId) return { ok: false, reason: "model_config set/restart requires a plan_id from model_config action=plan." };
-  const plans = await loadPlans(config);
-  const plan = plans.plans[planId];
-  if (!plan || plan.kind !== "model_config") return { ok: false, reason: "No matching active model_config plan." };
-  if (plan.used === true || Date.parse(plan.expiresAt || 0) <= Date.now()) return { ok: false, reason: "Model config plan expired or already used." };
-  const expectedFingerprint = modelPlanFingerprint(expected);
-  if (plan.fingerprint !== expectedFingerprint) return { ok: false, reason: "Model config plan does not match the requested set/restart operation." };
-  const approval = verifyMutationPlanApproval({ plan, ctx, approvalCode: plan.approvalCode, label: "model_config" });
-  if (!approval.ok) return approval;
-  plan.used = true;
-  plan.usedAt = nowIso();
-  plan.usedBy = approval.context ? {
-    accountId: approval.context.accountId,
-    chatId: approval.context.chatId,
-    threadId: approval.context.threadId,
-    sessionKey: approval.context.sessionKey,
-    windowId: approval.context.windowId,
-    senderId: approval.context.senderId,
-    messageId: approval.context.messageId
-  } : undefined;
-  await savePlans(config, plans);
-  return { ok: true, plan };
+  return await withStateFileLock(plansPath(config), async () => {
+    const plans = await loadPlans(config);
+    const plan = plans.plans[planId];
+    if (!plan || plan.kind !== "model_config") return { ok: false, reason: "No matching active model_config plan." };
+    if (plan.used === true || Date.parse(plan.expiresAt || 0) <= Date.now()) return { ok: false, reason: "Model config plan expired or already used." };
+    const expectedFingerprint = modelPlanFingerprint(expected);
+    if (plan.fingerprint !== expectedFingerprint) return { ok: false, reason: "Model config plan does not match the requested set/restart operation." };
+    const approval = verifyMutationPlanApproval({ plan, ctx, approvalCode: plan.approvalCode, label: "model_config" });
+    if (!approval.ok) return approval;
+    plan.used = true;
+    plan.usedAt = nowIso();
+    plan.usedBy = approval.context ? {
+      accountId: approval.context.accountId,
+      chatId: approval.context.chatId,
+      threadId: approval.context.threadId,
+      sessionKey: approval.context.sessionKey,
+      windowId: approval.context.windowId,
+      senderId: approval.context.senderId,
+      messageId: approval.context.messageId
+    } : undefined;
+    await savePlans(config, plans);
+    return { ok: true, plan };
+  });
 }
 
 function isInside(root, target) {
@@ -820,9 +853,9 @@ const DEFAULT_COMMAND_CATALOG = {
   ],
   commands: [
     { command: "amnew", description: "Start a clean chat window", usage: "/amnew [message]", category: "session", kind: "runtime", menu: true },
-    { command: "amhelp", description: "Show available capabilities and control commands", usage: "/amhelp [abilities|all|category|command]", category: "ops", kind: "tool", tool: "command_catalog", menu: true },
-    { command: "amstatus", description: "Show gateway status", usage: "/amstatus", category: "ops", kind: "script", tool: "script_action", scriptId: "gateway_status", menu: true },
-    { command: "amtools", description: "List or run registered scripts", usage: "/amtools [list|route <query>|run <id>]", category: "ops", kind: "script", tool: "script_action", menu: true },
+    { command: "amhelp", description: "Show available capabilities and control commands", usage: "/amhelp [tools|status|model|persona]", category: "ops", kind: "runtime", menu: true },
+    { command: "amstatus", description: "Show local bot/session status", usage: "/amstatus", category: "ops", kind: "runtime", menu: true },
+    { command: "amtools", description: "List safe script-style controls", usage: "/amtools [list|route <query>|run <id>]", category: "ops", kind: "runtime", menu: true },
     { command: "ammodel", description: "Show or switch chat model", usage: "/ammodel [models|model <provider/model>|model <provider/model> think <level>|think <level>]", category: "ops", kind: "runtime", menu: true },
     { command: "ampersona", description: "Show or switch speaking persona", usage: "/ampersona [list|status|set <persona>|default]", category: "session", kind: "runtime", menu: true }
   ]
@@ -1033,6 +1066,9 @@ const DEFAULT_MODEL_CATALOG = {
   version: 1,
   models: [
     { id: "openai/gpt-5.5", label: "GPT-5.5", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"] },
+    { id: "openai/gpt-5.4", label: "GPT-5.4", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"] },
+    { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"] },
+    { id: "openai/gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", provider: "openai", enabled: true, reasoningEfforts: ["off"], toolPolicy: CHAT_ONLY_TOOL_POLICY },
     { id: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash", provider: "deepseek", enabled: true, reasoningEfforts: ["off", "high", "max"] },
     { id: "deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro", provider: "deepseek", enabled: true, reasoningEfforts: ["off", "high", "max"] }
   ],
@@ -1043,6 +1079,9 @@ const DEFAULT_MODEL_CATALOG = {
     { id: "balanced", label: "Balanced", model: "openai/gpt-5.5", reasoningEffort: "medium", textVerbosity: "low" },
     { id: "deep", label: "GPT High", model: "openai/gpt-5.5", reasoningEffort: "high", textVerbosity: "low" },
     { id: "research", label: "GPT XHigh", model: "openai/gpt-5.5", reasoningEffort: "xhigh", textVerbosity: "medium" },
+    { id: "gpt54", label: "GPT-5.4 Medium", model: "openai/gpt-5.4", reasoningEffort: "medium", textVerbosity: "low" },
+    { id: "mini", label: "GPT-5.4 Mini", model: "openai/gpt-5.4-mini", reasoningEffort: "low", textVerbosity: "low" },
+    { id: "spark", label: "Spark Chat", model: "openai/gpt-5.3-codex-spark", reasoningEffort: "off", textVerbosity: "low", toolPolicy: CHAT_ONLY_TOOL_POLICY },
     { id: "ds-fast", label: "DS Flash High", model: "deepseek/deepseek-v4-flash", reasoningEffort: "high", textVerbosity: "low" },
     { id: "ds-pro", label: "DS Pro High", model: "deepseek/deepseek-v4-pro", reasoningEffort: "high", textVerbosity: "low" },
     { id: "ds-flash-off", label: "DS Flash Off", model: "deepseek/deepseek-v4-flash", reasoningEffort: "off", textVerbosity: "low" },
@@ -1069,6 +1108,8 @@ function publicModel(model) {
     label: String(model?.label || model?.id || ""),
     provider: String(model?.provider || ""),
     enabled: model?.enabled !== false,
+    toolPolicy: String(model?.toolPolicy || ""),
+    nativeCapabilities: Array.isArray(model?.nativeCapabilities) ? model.nativeCapabilities.map((item) => String(item || "").trim()).filter(Boolean) : [],
     notes: String(model?.notes || "")
   };
 }
@@ -1080,17 +1121,108 @@ function publicModelProfile(profile) {
     model: String(profile?.model || ""),
     reasoningEffort: String(profile?.reasoningEffort || ""),
     textVerbosity: String(profile?.textVerbosity || ""),
+    toolPolicy: String(profile?.toolPolicy || ""),
     description: String(profile?.description || "")
   };
 }
 
+function enabledCatalogModels(catalog) {
+  return catalog.models.filter((model) => model?.enabled !== false);
+}
+
+function enabledCatalogModelIds(catalog) {
+  return new Set(enabledCatalogModels(catalog).map((model) => String(model?.id || "")).filter(Boolean));
+}
+
+function enabledCatalogProfiles(catalog) {
+  const modelIds = enabledCatalogModelIds(catalog);
+  return catalog.profiles.filter((profile) => modelIds.has(String(profile?.model || "")));
+}
+
 function detectModelProfile(current, catalog) {
-  const match = catalog.profiles.find((profile) =>
+  const match = enabledCatalogProfiles(catalog).find((profile) =>
     String(profile.model || "") === current.model &&
     String(profile.reasoningEffort || "") === current.reasoningEffort &&
     String(profile.textVerbosity || "") === current.textVerbosity
   );
   return match ? String(match.id || "") : "custom";
+}
+
+function normalizeModelRef(modelRef) {
+  const raw = String(modelRef || "").trim();
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.:-]+$/.test(raw) ? raw : "";
+}
+
+function parseModelRefSafe(modelRef) {
+  const ref = normalizeModelRef(modelRef);
+  if (!ref) return null;
+  const slash = ref.indexOf("/");
+  return {
+    provider: ref.slice(0, slash),
+    model: ref.slice(slash + 1)
+  };
+}
+
+function isChatOnlyToolPolicy(value) {
+  return String(value || "").trim().toLowerCase() === CHAT_ONLY_TOOL_POLICY;
+}
+
+function chatOnlyModelRefs(catalog) {
+  const refs = new Set();
+  for (const model of catalog?.models || []) {
+    const ref = normalizeModelRef(model?.id);
+    if (ref && isChatOnlyToolPolicy(model?.toolPolicy)) refs.add(ref);
+  }
+  for (const profile of catalog?.profiles || []) {
+    const ref = normalizeModelRef(profile?.model);
+    if (ref && isChatOnlyToolPolicy(profile?.toolPolicy)) refs.add(ref);
+  }
+  return refs;
+}
+
+function isChatOnlyModelRef(modelRef, catalog = DEFAULT_MODEL_CATALOG) {
+  const ref = normalizeModelRef(modelRef);
+  return Boolean(ref && chatOnlyModelRefs(catalog).has(ref));
+}
+
+function modelRefFromSessionEntry(entry, fallbackModelRef) {
+  const fallback = parseModelRefSafe(fallbackModelRef);
+  if (!isRecord(entry)) return normalizeModelRef(fallbackModelRef);
+  const provider = readString(entry, "providerOverride") || readString(entry, "modelProvider") || fallback?.provider || "";
+  const model = readString(entry, "modelOverride") || readString(entry, "model") || fallback?.model || "";
+  return normalizeModelRef(provider && model ? `${provider}/${model}` : fallbackModelRef);
+}
+
+async function readActiveSessionModelRef(config, ctx, catalog = DEFAULT_MODEL_CATALOG) {
+  const direct =
+    normalizeModelRef(ctx?.modelRef) ||
+    normalizeModelRef(ctx?.activeModelRef) ||
+    normalizeModelRef(ctx?.model?.id) ||
+    normalizeModelRef(ctx?.activeModel?.id);
+  if (direct) return direct;
+  const current = await readCurrentModelConfig(config, catalog);
+  const fallbackModelRef = normalizeModelRef(current.model);
+  const sessionKey = String(ctx?.sessionKey || "").trim();
+  if (!sessionKey) return fallbackModelRef;
+  const store = await readJson(sessionStorePath(config, ctx), {});
+  const entry = isRecord(store?.[sessionKey]) ? store[sessionKey] : null;
+  return modelRefFromSessionEntry(entry, fallbackModelRef);
+}
+
+async function resolveChatOnlyModelRef(config, ctx, catalog = null) {
+  if (ctx?.agentId && ctx.agentId !== "imagebot") return "";
+  const resolvedCatalog = catalog || await loadModelCatalog(config);
+  const activeModelRef = await readActiveSessionModelRef(config, ctx || {}, resolvedCatalog);
+  return isChatOnlyModelRef(activeModelRef, resolvedCatalog) ? activeModelRef : "";
+}
+
+function formatChatOnlyModelContext(modelRef) {
+  return [
+    "[Model tool policy]",
+    `Active model: ${modelRef}.`,
+    "This session is chat-only: do not call OpenClaw tools. Answer directly from conversation context; provider-native image understanding or hosted search may be used only if the active provider route exposes them natively.",
+    "[/Model tool policy]"
+  ].join("\n");
 }
 
 async function readCurrentModelConfig(config, catalog = null) {
@@ -1281,7 +1413,7 @@ const modelConfigTool = {
     properties: {
       action: { type: "string", enum: ["get", "status", "profiles", "list", "plan", "set", "restart"], description: "Use get/status to read, profiles/list to show presets, plan before set/restart, set to write a profile, restart only for provider/plugin/auth refresh." },
       targetAction: { type: "string", enum: ["set", "restart"], description: "For action=plan, choose the operation to approve. Default set." },
-      mode: { type: "string", description: "Profile id: fast, balanced, deep, research, ds-fast, ds-pro, ds-flash-off, ds-flash-max, ds-pro-off, ds-pro-max, or custom." },
+      mode: { type: "string", description: "Profile id: fast, balanced, deep, research, spark, ds-fast, ds-pro, ds-flash-off, ds-flash-max, ds-pro-off, ds-pro-max, or custom." },
       profile: { type: "string", description: "Alias for mode." },
       profile_id: { type: "string", description: "Alias for mode." },
       model: { type: "string", description: "Known enabled model id from the profile catalog, e.g. openai/gpt-5.5 or deepseek/deepseek-v4-flash." },
@@ -1304,6 +1436,8 @@ const modelConfigTool = {
       const config = modelConfigTool.config || {};
       const action = readString(params, "action").toLowerCase();
       const catalog = await loadModelCatalog(config);
+      const enabledModels = enabledCatalogModels(catalog);
+      const enabledProfiles = enabledCatalogProfiles(catalog);
       const current = await readCurrentModelConfig(config, catalog);
       if (action === "get" || action === "status") {
         return ok(MODEL_CONFIG_TOOL, [
@@ -1312,13 +1446,13 @@ const modelConfigTool = {
           `reasoning: ${current.reasoningEffort || "unknown"}`,
           `verbosity: ${current.textVerbosity || "unknown"}`,
           "config writes are validated; set also pins the current session when a sessionKey is available."
-        ], { action: "get", current, profiles: catalog.profiles.map(publicModelProfile), models: catalog.models.map(publicModel) });
+        ], { action: "get", current, profiles: enabledProfiles.map(publicModelProfile), models: enabledModels.map(publicModel) });
       }
       if (action === "profiles" || action === "list") {
         return ok(MODEL_CONFIG_TOOL, [
           "available profiles:",
-          ...catalog.profiles.map((profile, index) => `${index + 1}. ${profile.id} | ${profile.model} | reasoning=${profile.reasoningEffort} | verbosity=${profile.textVerbosity}`)
-        ], { action: "profiles", current, profiles: catalog.profiles.map(publicModelProfile), models: catalog.models.map(publicModel) });
+          ...enabledProfiles.map((profile, index) => `${index + 1}. ${profile.id} | ${profile.model} | reasoning=${profile.reasoningEffort} | verbosity=${profile.textVerbosity}`)
+        ], { action: "profiles", current, profiles: enabledProfiles.map(publicModelProfile), models: enabledModels.map(publicModel) });
       }
       if (action === "plan") {
         const plannedAction = (readString(params, "targetAction") || readString(params, "target_action") || "set").toLowerCase();
@@ -1327,7 +1461,7 @@ const modelConfigTool = {
         const restartGateway = plannedAction === "set" && (readBoolean(params, "restartGateway") || readBoolean(params, "restart"));
         if (plannedAction === "set") {
           const mode = readModelMode(params);
-          const profile = mode && mode !== "custom" ? catalog.profiles.find((item) => String(item.id || "").toLowerCase() === mode) : null;
+          const profile = mode && mode !== "custom" ? enabledProfiles.find((item) => String(item.id || "").toLowerCase() === mode) : null;
           if (mode && mode !== "custom" && !profile) throw new Error(`unknown model profile '${mode}'`);
           settings = {
             mode: profile ? String(profile.id || mode) : "custom",
@@ -1367,7 +1501,7 @@ const modelConfigTool = {
       if (action !== "set") throw new Error("unknown action");
 
       const mode = readModelMode(params);
-      const profile = mode && mode !== "custom" ? catalog.profiles.find((item) => String(item.id || "").toLowerCase() === mode) : null;
+      const profile = mode && mode !== "custom" ? enabledProfiles.find((item) => String(item.id || "").toLowerCase() === mode) : null;
       if (mode && mode !== "custom" && !profile) throw new Error(`unknown model profile '${mode}'`);
 
       const settings = {
@@ -1699,20 +1833,20 @@ function relevantFeedback(records, query, count = 3) {
 function formatFeedbackPrompt(records) {
   if (!records.length) return "";
   const lines = [
-    "[Imagebot image feedback hints]",
-    "Use as soft preference memory for image work; do not mention hidden feedback logs."
+    "[Imagebot 图像反馈提示]",
+    "作为图像工作的软偏好记忆使用；不要提隐藏反馈日志。"
   ];
   for (const record of records) {
     const parts = [
       record.rating,
-      record.subject ? `subject=${clip(record.subject, 80)}` : "",
-      record.keep ? `keep=${clip(record.keep, 120)}` : "",
-      record.avoid ? `avoid=${clip(record.avoid, 120)}` : "",
-      record.notes ? `note=${clip(record.notes, 120)}` : ""
+      record.subject ? `主题=${clip(record.subject, 80)}` : "",
+      record.keep ? `保留=${clip(record.keep, 120)}` : "",
+      record.avoid ? `避免=${clip(record.avoid, 120)}` : "",
+      record.notes ? `备注=${clip(record.notes, 120)}` : ""
     ].filter(Boolean);
     lines.push(`- ${parts.join(" | ")}`);
   }
-  lines.push("[/Imagebot image feedback hints]");
+  lines.push("[/Imagebot 图像反馈提示]");
   return lines.join("\n");
 }
 
@@ -1813,12 +1947,17 @@ export const __testing = {
   composePrompt,
   relevantFeedback,
   splitModelRef,
+  isChatOnlyModelRef,
+  resolveChatOnlyModelRef,
+  readActiveSessionModelRef,
   applySessionModelOverrideEntry,
   applySessionModelOverride,
   sanitizeText,
   findScript,
   needsApproval,
-  isMutatingScript
+  isMutatingScript,
+  jsonLinesCacheStats: () => ({ entries: jsonLinesCache.size }),
+  clearJsonLinesCache: () => jsonLinesCache.clear()
 };
 
 export default {
@@ -1840,13 +1979,28 @@ export default {
 
     registerLifecycleHook(api, "before_prompt_build", async (event, ctx) => {
       if (ctx?.agentId && ctx.agentId !== "imagebot") return;
-      if (config.appendFeedbackHints === false) return;
+      const append = [];
+      const chatOnlyModelRef = await resolveChatOnlyModelRef(config, ctx || {}).catch(() => "");
+      if (chatOnlyModelRef) append.push(formatChatOnlyModelContext(chatOnlyModelRef));
+      if (config.appendFeedbackHints === false) return append.length ? { appendContext: append.join("\n\n") } : undefined;
       const prompt = String(event?.prompt || "");
-      if (!promptLooksImageRelated(prompt)) return;
-      const records = await loadFeedback(config);
-      const hints = relevantFeedback(records, prompt, 3);
-      const appendContext = formatFeedbackPrompt(hints);
-      return appendContext ? { appendContext } : undefined;
+      if (promptLooksImageRelated(prompt)) {
+        const records = await loadFeedback(config);
+        const hints = relevantFeedback(records, prompt, 3);
+        const feedbackContext = formatFeedbackPrompt(hints);
+        if (feedbackContext) append.push(feedbackContext);
+      }
+      return append.length ? { appendContext: append.join("\n\n") } : undefined;
     }, { name: "imagebot-creative-ops-before-prompt-build" });
+
+    registerLifecycleHook(api, "before_tool_call", async (event, ctx) => {
+      if (ctx?.agentId && ctx.agentId !== "imagebot") return;
+      const modelRef = await resolveChatOnlyModelRef(config, ctx || {}).catch(() => "");
+      if (!modelRef) return;
+      return {
+        block: true,
+        blockReason: `${CHAT_ONLY_TOOL_BLOCK_REASON} activeModel=${modelRef} tool=${event?.toolName || "unknown"}`
+      };
+    }, { name: "imagebot-creative-ops-chat-only-tool-policy" });
   }
 };

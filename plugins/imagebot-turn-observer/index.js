@@ -62,6 +62,20 @@ function clip(value, max = 500) {
   return `${text.slice(0, Math.max(0, max - 16)).trimEnd()}...`;
 }
 
+function summarizeParams(params) {
+  if (!isRecord(params)) return "";
+  const summary = {};
+  for (const key of Object.keys(params).sort().slice(0, 20)) {
+    const value = params[key];
+    if (typeof value === "string") summary[key] = clip(value, 220);
+    else if (typeof value === "number" || typeof value === "boolean") summary[key] = value;
+    else if (Array.isArray(value)) summary[key] = `[array:${value.length}]`;
+    else if (isRecord(value)) summary[key] = "[object]";
+    else if (value == null) summary[key] = null;
+  }
+  return clip(JSON.stringify(summary), 1200);
+}
+
 function getNestedText(value, depth = 0) {
   if (depth > 2 || value == null) return "";
   if (typeof value === "string") return value;
@@ -84,13 +98,24 @@ function identityFrom(event = {}, ctx = {}) {
   };
 }
 
+function modelInfoFrom(event = {}, ctx = {}) {
+  const model = event.model || ctx.model || event.modelInfo || ctx.modelInfo || {};
+  return {
+    modelProvider: String(event.provider || ctx.provider || model.provider || ""),
+    modelId: String(event.modelId || ctx.modelId || model.modelId || model.id || model.name || ""),
+    modelApi: String(event.modelApi || ctx.modelApi || model.api || "")
+  };
+}
+
 function summarizeEvent(kind, event = {}, ctx = {}) {
   const identity = identityFrom(event, ctx);
+  const modelInfo = modelInfoFrom(event, ctx);
   const toolName = String(event.toolName || "");
   const status = String(event.status || event.result?.details?.status || event.details?.status || "");
   const error = event.error ? (event.error instanceof Error ? event.error.message : String(event.error)) : "";
   const text = getNestedText(event.message ?? event);
   const params = isRecord(event.params) ? Object.keys(event.params).sort().slice(0, 20) : [];
+  const paramsPreview = summarizeParams(event.params);
   const attachments = [];
   for (const item of [event.message, event.result, event.details, event.params]) {
     if (!isRecord(item)) continue;
@@ -102,6 +127,7 @@ function summarizeEvent(kind, event = {}, ctx = {}) {
     t: new Date().toISOString(),
     kind,
     ...identity,
+    ...modelInfo,
     toolName,
     toolCallId: String(event.toolCallId || ctx.toolCallId || ""),
     status,
@@ -109,6 +135,7 @@ function summarizeEvent(kind, event = {}, ctx = {}) {
     textHash: text ? hash(text) : "",
     textPreview: clip(text, 260),
     paramKeys: params,
+    paramsPreview,
     attachmentKeys: [...new Set(attachments)]
   };
 }
@@ -171,8 +198,9 @@ async function recentRecords(config = {}, params = {}) {
       text: [
         `TURN_OBSERVER_RECENT results=${records.length}`,
         ...records.map((item, index) => [
-          `${index + 1}. ${item.t} kind=${item.kind} tool=${item.toolName || "-"} status=${item.status || "-"} session=${clip(item.sessionKey, 80) || "-"}`,
+          `${index + 1}. ${item.t} kind=${item.kind} tool=${item.toolName || "-"} status=${item.status || "-"} model=${item.modelId || "-"} session=${clip(item.sessionKey, 80) || "-"}`,
           item.textPreview ? `text: ${item.textPreview}` : "",
+          item.paramsPreview ? `params: ${clip(item.paramsPreview, 420)}` : "",
           item.error ? `error: ${item.error}` : ""
         ].filter(Boolean).join("\n"))
       ].join("\n").slice(0, MAX_TEXT)
@@ -218,6 +246,7 @@ const recentTool = tool(RECENT_TOOL, "Turn Observer Recent", "Read sanitized rec
 export const __testing = {
   logPath,
   sanitizeText,
+  summarizeParams,
   summarizeEvent,
   recentRecords
 };

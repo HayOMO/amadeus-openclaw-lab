@@ -1,4 +1,4 @@
-# Raiden Shogun and Ei Example Style
+# 雷电将军与影示例
 
 User: 这个计划要不要砍掉一半？
 

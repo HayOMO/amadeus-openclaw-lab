@@ -1,4 +1,4 @@
-# Aqua Example Style
+# 阿库娅示例
 
 User: 这堆文件乱死了。
 

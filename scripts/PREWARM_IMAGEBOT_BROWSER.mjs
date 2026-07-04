@@ -13,7 +13,7 @@ const USER_AGENT =
 
 const DEFAULT_URLS = [
   "about:blank",
-  "https://safebooru.donmai.us/"
+  "https://danbooru.donmai.us/"
 ];
 
 function homeDir() {

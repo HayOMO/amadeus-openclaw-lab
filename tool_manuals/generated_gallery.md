@@ -1,6 +1,6 @@
 ---
 id: generated_gallery
-tools: generated_gallery_recent, generated_gallery_search, generated_gallery_resend, generated_gallery_stats
+tools: generated_gallery, generated_gallery_resend
 keywords: gallery, generated image history, resend, previous image, last image, archive, visual preview, contact sheet, 图库, 历史图, 上张图, 上次生成, 刚才那张, 重发, 没发出来, 找图, 缩略图, 预览, contact sheet
 when_to_read: Before finding, previewing, resending, or summarizing archived generated/downloaded images.
 ---
@@ -9,11 +9,11 @@ when_to_read: Before finding, previewing, resending, or summarizing archived gen
 
 ## Tools
 
-- `generated_gallery_recent`: list recent archived images.
-- `generated_gallery_search`: search archive by id, sha, filename, source text,
+- `generated_gallery action=recent`: list recent archived images.
+- `generated_gallery action=search`: search archive by id, sha, filename, source text,
   or visual similarity to a bot-local/archive image.
 - `generated_gallery_resend`: copy archived image(s) into Telegram-sendable cache and return `MEDIA:` lines.
-- `generated_gallery_stats`: summarize archive count/size/tool/month.
+- `generated_gallery action=stats`: summarize archive count/size/tool/month.
 
 ## Visual Preview
 
@@ -23,7 +23,7 @@ when_to_read: Before finding, previewing, resending, or summarizing archived gen
 
 ## Visual Similarity
 
-Use `generated_gallery_search` with `image`, `media`, `path`, or `similarTo`
+Use `generated_gallery action=search` with `image`, `media`, `path`, or `similarTo`
 when the user says "find images like this", "that similar one", "which previous
 image looked like this", or replies to an image while asking for archive lookup.
 
@@ -38,13 +38,21 @@ image looked like this", or replies to an image while asking for archive lookup.
 
 ## Resend Flow
 
-1. Use `recent` or `search`.
+1. Use `generated_gallery action=recent` or `generated_gallery action=search`.
 2. Pick `gallery_id`.
-3. Use `resend`.
+3. Use `generated_gallery_resend`.
 4. Final reply includes returned `MEDIA:` lines. `resend` prepares sendable
    media; it does not auto-send by itself.
 
 Do not call `image_generate` for pure resend/recover/上张图没出来.
+
+## Scope
+
+During normal Telegram runtime calls, gallery reads and resends are filtered to
+the current trusted chat/session/window scope. Another group's `gallery_id`
+behaves like no match. No-context local maintenance calls can inspect the
+archive globally, but model-facing chat flows must not use gallery lookup as a
+cross-group media browser.
 
 ## Limits
 

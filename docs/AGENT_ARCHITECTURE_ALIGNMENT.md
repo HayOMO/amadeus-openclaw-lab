@@ -42,7 +42,7 @@ accident.
 
 | Pattern | Mature implementation signal | Local mapping |
 | --- | --- | --- |
-| Progressive Disclosure | Skills expose short metadata first, then load full instructions and extra resources only when relevant. | `config/imagebot/prompt/30-tool-index.md` gives a short index. `tool_manual_search` and `tool_manuals/*.md` hold detailed usage. |
+| Progressive Disclosure | Skills expose short metadata first, then load full instructions and extra resources only when relevant. | `config/imagebot/prompt/30-tool-index.md` gives a short index. OpenClaw `tools.toolSearch` runs in `directory` mode so most heavyweight tool schemas are deferred behind `tool_search`, `tool_describe`, and `tool_call`. `tool_manual_search` and `tool_manuals/*.md` hold detailed usage. |
 | Honest Tool Contracts | MCP-style tools expose names, descriptions, schemas, and structured results. The tool does what the contract says. | Plugin manifests, `settings.allowedTools`, schemas, focused manuals, and tests must stay in sync. |
 | Capability Is Not Policy | Guardrails and approvals wrap execution; they do not pretend a tool does not exist. | Do not hide capability to fix model misuse. Fix action names, tool descriptions, manuals, dry-run/approval paths, and tests. |
 | Side Effects Live In Code | Sensitive tool calls need deterministic checks before/after execution. | Permission checks, `dryRun`, `directImportApproved`, owner checks, path bounds, and rate/risk checks belong in plugins/scripts/runtime patches. |
@@ -149,6 +149,8 @@ Already aligned:
   trace/eval assets. `docs/AGENT_ARCHITECTURE_AUDIT.md` records the current
   pass/fail audit matrix and remaining gaps.
 - `tool_manual_search` implements the project-local skill/manual layer.
+- OpenClaw `tools.toolSearch` is enabled in `directory` mode, keeping the full
+  allowed tool surface available while reducing the provider-visible schema set.
 - Tool manuals cover search, browser risk, sticker workbench, memory/persona,
   Telegram delivery, media understanding, and background jobs.
 - `CHECK_IMAGEBOT_FEATURE_HEALTH.mjs` validates plugin/manual/test alignment.

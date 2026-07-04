@@ -72,6 +72,7 @@ for (const name of ["script_action", "prompt_library", "image_feedback", "model_
   assert.ok(tools.has(name), `${name} should be registered`);
 }
 assert.ok(hooks.has("before_prompt_build"), "feedback hook should be registered");
+assert.ok(hooks.has("before_tool_call"), "chat-only model tool policy hook should be registered");
 assert.ok(tools.get("model_config").parameters.properties.action.enum.includes("restart"));
 assert.ok(tools.get("model_config").parameters.properties.action.enum.includes("plan"));
 assert.ok(Object.hasOwn(tools.get("model_config").parameters.properties, "restartGateway"));
@@ -87,6 +88,9 @@ assert.equal(list.details.scripts.find((script) => script.id === "export_memory_
 const commandList = await tools.get("command_catalog").execute("command-list", { action: "list", category: "ops" });
 assert.equal(commandList.details.status, "ok");
 assert.ok(commandList.details.commands.some((command) => command.command === "ammodel"));
+assert.equal(commandList.details.commands.find((command) => command.command === "amhelp")?.kind, "runtime");
+assert.equal(commandList.details.commands.find((command) => command.command === "amstatus")?.kind, "runtime");
+assert.equal(commandList.details.commands.find((command) => command.command === "amtools")?.kind, "runtime");
 
 const commandMenuList = await tools.get("command_catalog").execute("command-menu-list", { action: "list", menuOnly: true });
 assert.equal(commandMenuList.details.status, "ok");
@@ -104,7 +108,8 @@ assert.ok(abilities.details.capabilities.some((capability) => capability.id === 
 const commandRoute = await tools.get("command_catalog").execute("command-route", { action: "route", query: "/amstatus" });
 assert.equal(commandRoute.details.status, "ok");
 assert.equal(commandRoute.details.results[0].command.command, "amstatus");
-assert.equal(commandRoute.details.results[0].command.scriptId, "gateway_status");
+assert.equal(commandRoute.details.results[0].command.kind, "runtime");
+assert.equal(commandRoute.details.results[0].command.scriptId, "");
 
 const routed = await tools.get("script_action").execute("script-route", {
   action: "route",
@@ -112,6 +117,14 @@ const routed = await tools.get("script_action").execute("script-route", {
 });
 assert.equal(routed.details.status, "ok");
 assert.equal(routed.details.results[0].id, "gateway_status");
+
+const featureScoutRoute = await tools.get("script_action").execute("feature-scout-route", {
+  action: "route",
+  query: "collect popular github bot features",
+  count: 3
+});
+assert.equal(featureScoutRoute.details.status, "ok");
+assert.ok(featureScoutRoute.details.results.some((entry) => entry.id === "scout_github_bot_features"));
 
 const riskyRun = await tools.get("script_action").execute("script-risky", {
   action: "run",
@@ -195,6 +208,10 @@ const modelProfiles = await tools.get("model_config").execute("model-profiles", 
 });
 assert.equal(modelProfiles.details.status, "ok");
 assert.ok(modelProfiles.details.profiles.some((profile) => profile.id === "deep"));
+assert.ok(modelProfiles.details.profiles.some((profile) => profile.id === "mini" && profile.model === "openai/gpt-5.4-mini"));
+assert.ok(modelProfiles.details.profiles.some((profile) => profile.id === "spark" && profile.toolPolicy === "chat-only"));
+assert.ok(modelProfiles.details.models.some((model) => model.id === "openai/gpt-5.4" && model.enabled === true));
+assert.ok(modelProfiles.details.models.some((model) => model.id === "openai/gpt-5.3-codex-spark" && model.toolPolicy === "chat-only"));
 
 const modelSetWithoutPlan = await tools.get("model_config").execute("model-set-no-plan", {
   action: "set",
@@ -269,6 +286,35 @@ assert.equal(sessionStore["telegram:test-session"].model, undefined);
 assert.equal(sessionStore["telegram:test-session"].contextTokens, undefined);
 assert.equal(sessionStore["telegram:test-session"].authProfileOverride, undefined);
 
+await fs.writeFile(sessionStorePath, JSON.stringify({
+  "telegram:spark-session": {
+    providerOverride: "openai",
+    modelOverride: "gpt-5.3-codex-spark",
+    thinkingLevel: "off"
+  },
+  "telegram:gpt-session": {
+    providerOverride: "openai",
+    modelOverride: "gpt-5.5",
+    thinkingLevel: "medium"
+  }
+}, null, 2));
+assert.equal(await __testing.resolveChatOnlyModelRef({
+  openClawConfigPath,
+  sessionStorePath,
+  repoRoot
+}, { agentId: "imagebot", sessionKey: "telegram:spark-session" }), "openai/gpt-5.3-codex-spark");
+const chatOnlyToolHook = await hooks.get("before_tool_call")[0]({
+  toolName: "image_generate",
+  params: { prompt: "test" }
+}, { agentId: "imagebot", sessionKey: "telegram:spark-session" });
+assert.equal(chatOnlyToolHook.block, true);
+assert.match(chatOnlyToolHook.blockReason, /chat-only/);
+const normalToolHook = await hooks.get("before_tool_call")[0]({
+  toolName: "image_generate",
+  params: { prompt: "test" }
+}, { agentId: "imagebot", sessionKey: "telegram:gpt-session" });
+assert.equal(normalToolHook, undefined);
+
 assert.throws(() => __testing.validateModelSettings({
   model: "unknown/nope",
   reasoningEffort: "medium",
@@ -289,12 +335,16 @@ assert.ok(cards.details.results.some((card) => card.id === "recipe.official_char
 for (const id of [
   "recipe.academic_figure",
   "recipe.anime_character_scene",
+  "recipe.xiaohongshu_douyin_visual_note"
+]) {
+  assert.ok(cards.details.results.some((card) => card.id === id), `prompt recipe card should be listed: ${id}`);
+}
+for (const id of [
   "recipe.asian_anime_tag_order",
-  "recipe.xiaohongshu_douyin_visual_note",
   "recipe.asian_social_portrait_grid",
   "recipe.guofeng_hanfu_moodboard"
 ]) {
-  assert.ok(cards.details.results.some((card) => card.id === id), `prompt recipe card should be listed: ${id}`);
+  assert.ok(!cards.details.results.some((card) => card.id === id), `retired prompt recipe card should not be listed: ${id}`);
 }
 
 const negativeCards = await tools.get("prompt_library").execute("negative-list", {
@@ -333,27 +383,6 @@ const xhsSearch = await tools.get("prompt_library").execute("xhs-search", {
 assert.equal(xhsSearch.details.status, "ok");
 assert.equal(xhsSearch.details.results[0].id, "recipe.xiaohongshu_douyin_visual_note");
 
-const guofengSearch = await tools.get("prompt_library").execute("guofeng-search", {
-  action: "search",
-  query: "guofeng hanfu chinese moodboard makeup fashion proposal"
-});
-assert.equal(guofengSearch.details.status, "ok");
-assert.equal(guofengSearch.details.results[0].id, "recipe.guofeng_hanfu_moodboard");
-
-const asianAnimeSearch = await tools.get("prompt_library").execute("asian-anime-search", {
-  action: "search",
-  query: "niji novelai japanese anime tag order full body boots background"
-});
-assert.equal(asianAnimeSearch.details.status, "ok");
-assert.equal(asianAnimeSearch.details.results[0].id, "recipe.asian_anime_tag_order");
-
-const asianPortraitSearch = await tools.get("prompt_library").execute("asian-portrait-search", {
-  action: "search",
-  query: "korean japanese xiaohongshu portrait grid jiugongge social photo"
-});
-assert.equal(asianPortraitSearch.details.status, "ok");
-assert.equal(asianPortraitSearch.details.results[0].id, "recipe.asian_social_portrait_grid");
-
 const got = await tools.get("prompt_library").execute("cards-get", {
   action: "get",
   id: "official_character_generation"
@@ -375,7 +404,6 @@ const asianSocialComposed = await tools.get("prompt_library").execute("asian-soc
   request: "Generate a Xiaohongshu cover with Asian social-media visual taste.",
   card_ids: [
     "recipe.xiaohongshu_douyin_visual_note",
-    "recipe.asian_social_portrait_grid",
     "negative.chinese_asian_aesthetic_failures"
   ]
 });
@@ -405,8 +433,14 @@ assert.equal(feedbackSearch.details.results[0].id, feedback.details.feedback.id)
 const promptHook = await hooks.get("before_prompt_build")[0]({
   prompt: "Please draw an official character reference with correct hair color."
 }, { agentId: "imagebot", sessionKey: "test" });
-assert.ok(promptHook?.appendContext.includes("Imagebot image feedback hints"));
+assert.ok(promptHook?.appendContext.includes("Imagebot 图像反馈提示"));
 assert.ok(promptHook.appendContext.includes("wrong hair color"));
+
+const sparkPromptHook = await hooks.get("before_prompt_build")[0]({
+  prompt: "hello"
+}, { agentId: "imagebot", sessionKey: "telegram:spark-session" });
+assert.match(sparkPromptHook?.appendContext || "", /Model tool policy/);
+assert.match(sparkPromptHook?.appendContext || "", /chat-only/);
 
 const manuals = await manualTesting.searchManuals({
   query: "script registry prompt library image feedback",

@@ -5,10 +5,11 @@ import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { screenVisionContextImage, buildSafetyReviewPrompt } from "../imagebot-shared/vision-context-gate.mjs";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
-import { resolveExistingMediaUriToLocalPath, resolveMediaReferencePaths } from "../imagebot-shared/media-uri.mjs";
+import { resolveExistingMediaUriToLocalPath, resolveMediaReferencePaths, stripMediaUriDecorations } from "../imagebot-shared/media-uri.mjs";
 
 const RECENT_TOOL = "media_artifact_recent";
 const LINEAGE_TOOL = "media_artifact_lineage";
+const MEDIA_ARTIFACT_TOOL = "media_artifact";
 
 const MAX_CONTEXT_ITEMS = 16;
 const MAX_LINEAGE_SOURCES = 8;
@@ -29,6 +30,20 @@ const contextsBySession = new Map();
 const pendingByToolCall = new Map();
 const pendingQueuesBySession = new Map();
 const knownArtifactKeys = new Set();
+const HANDLE_RE = /^(?:current|reply)\.(?:image|generated)\.\d+(?:\.source\.\d+)?$/i;
+const TOOL_MEDIA_INPUT_SPECS = new Map([
+  ["media_transform", { fields: ["input", "image"] }],
+  ["meme_transform", { fields: ["input", "image"] }],
+  ["sticker_pack", { fields: ["input", "image", "media", "stickerPath", "prepared", "file"], arrays: ["inputs"], itemArrays: ["items"], itemFields: ["input", "image", "media", "stickerPath", "prepared", "file"] }],
+  ["audio_transcribe", { fields: ["input", "audio", "video", "media"] }],
+  ["telegram_media_spoiler", { fields: ["media", "path"], arrays: ["mediaUrls"] }],
+  ["qr_tool", { fields: ["image", "input"] }],
+  ["pdf_render", { fields: ["pdf", "input", "document"] }],
+  ["av_media", { fields: ["input", "media", "video", "audio"] }],
+  ["video_keyframes", { fields: ["video", "input", "media"] }],
+  ["media_brief", { fields: ["video", "input", "media"] }],
+  ["image_skill_save_reference", { fields: ["media", "image", "path"] }]
+]);
 
 function homeDir() {
   return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
@@ -327,18 +342,18 @@ async function rememberArtifact(config, artifact) {
 function formatContextForPrompt(context) {
   if (!context?.items?.length) return "";
   const lines = [
-    "[Imagebot media handles]",
-    "Use these handles in image_generate.image/images instead of local paths. Older generated images are invalid unless listed here."
+    "[Imagebot 媒体句柄]",
+    "这些句柄可用于 image_generate.image/images，也可用于 media_transform、meme_transform、sticker_pack add、pdf_render、av_media、audio_transcribe、video_keyframes、media_brief、qr_tool decode 等媒体参数；运行时会解析成真实路径。不要编造未列出的句柄。旧生成图只有列在这里时才有效。"
   ];
   for (const item of context.items.slice(0, MAX_CONTEXT_ITEMS)) {
-    const label = item.sourceKind === "generated" ? "bot generated image" :
-      item.sourceKind.includes("reply") ? "replied Telegram image" :
-      item.sourceKind.includes("current") ? "current Telegram image" :
+    const label = item.sourceKind === "generated" ? "bot 生成图" :
+      item.sourceKind.includes("reply") ? "回复中的 Telegram 图像" :
+      item.sourceKind.includes("current") ? "当前 Telegram 图像" :
       item.sourceKind;
     lines.push(`- ${item.handle}: ${label}`);
   }
-  lines.push("For a replied generated image, use reply.generated.N only to edit that exact generated image; use reply.generated.N.source.M to redo from its original source.");
-  lines.push("[/Imagebot media handles]");
+  lines.push("如果回复的是生成图，`reply.generated.N` 只用于编辑那张生成图本身；要从原始来源重做，用 `reply.generated.N.source.M`。");
+  lines.push("[/Imagebot 媒体句柄]");
   return lines.join("\n");
 }
 
@@ -388,9 +403,102 @@ function resolveImageInputs(params, context) {
   return { params: next, resolvedRefs };
 }
 
+function resolveMediaHandleString(value, context) {
+  const raw = String(value || "").trim();
+  const unwrapped = stripMediaUriDecorations(raw);
+  const handle = context?.handleMap?.get(unwrapped) || context?.handleMap?.get(raw);
+  if (handle) {
+    return {
+      value: handle.path,
+      resolved: { value: handle.path, viaHandle: true, handle: unwrapped, sourceKind: handle.sourceKind },
+      changed: true
+    };
+  }
+  return {
+    value,
+    resolved: { value: unwrapped || raw, viaHandle: false, handle: "", sourceKind: classifyPath(unwrapped || raw) },
+    changed: false
+  };
+}
+
+function resolveMediaHandleFields(target, fields, context, resolvedRefs) {
+  if (!isRecord(target)) return { value: target, changed: false };
+  let next = target;
+  let changed = false;
+  const set = (key, value) => {
+    if (!changed) next = { ...target };
+    next[key] = value;
+    changed = true;
+  };
+  for (const key of fields || []) {
+    if (typeof target[key] !== "string" || !target[key].trim()) continue;
+    const resolved = resolveMediaHandleString(target[key], context);
+    resolvedRefs.push(resolved.resolved);
+    if (resolved.changed) set(key, resolved.value);
+  }
+  return { value: next, changed };
+}
+
+function resolveMediaHandleArray(entries, itemFields, context, resolvedRefs) {
+  if (!Array.isArray(entries)) return { value: entries, changed: false };
+  let changed = false;
+  const next = entries.map((entry) => {
+    if (typeof entry === "string") {
+      const resolved = resolveMediaHandleString(entry, context);
+      resolvedRefs.push(resolved.resolved);
+      if (resolved.changed) changed = true;
+      return resolved.value;
+    }
+    if (isRecord(entry)) {
+      const resolved = resolveMediaHandleFields(entry, itemFields, context, resolvedRefs);
+      if (resolved.changed) changed = true;
+      return resolved.value;
+    }
+    return entry;
+  });
+  return { value: changed ? next : entries, changed };
+}
+
+function resolveToolMediaInputs(params, context, spec = {}) {
+  const original = isRecord(params) ? params : {};
+  let next = original;
+  let changed = false;
+  const resolvedRefs = [];
+  const set = (key, value) => {
+    if (!changed) next = { ...original };
+    next[key] = value;
+    changed = true;
+  };
+
+  const topLevel = resolveMediaHandleFields(original, spec.fields || [], context, resolvedRefs);
+  if (topLevel.changed) {
+    next = topLevel.value;
+    changed = true;
+  }
+  for (const key of spec.arrays || []) {
+    const source = changed ? next[key] : original[key];
+    const resolved = resolveMediaHandleArray(source, spec.itemFields || [], context, resolvedRefs);
+    if (resolved.changed) set(key, resolved.value);
+  }
+  for (const key of spec.itemArrays || []) {
+    const source = changed ? next[key] : original[key];
+    const resolved = resolveMediaHandleArray(source, spec.itemFields || [], context, resolvedRefs);
+    if (resolved.changed) set(key, resolved.value);
+  }
+
+  return { params: changed ? next : original, resolvedRefs, changed };
+}
+
 function findBadGeneratedRefs(resolvedRefs, strictGeneratedRefs) {
   if (!strictGeneratedRefs) return [];
   return resolvedRefs.filter((ref) => isGeneratedPath(ref.value) && !ref.viaHandle);
+}
+
+function findUnavailableHandleRefs(resolvedRefs) {
+  return resolvedRefs.filter((ref) => {
+    if (ref.viaHandle) return false;
+    return HANDLE_RE.test(String(ref.value || "").trim());
+  });
 }
 
 function pendingKey(event, ctx) {
@@ -617,6 +725,7 @@ function visionContextGateConfig(config = {}) {
 async function toolResultImageContextMiddleware(event, _ctx, config = {}) {
   const result = event?.result;
   const ctxConfig = toolResultImageContextConfig(config);
+  if (event?.toolName === "tool_call") return { result };
   if (!ctxConfig.enabled || event?.isError || !isRecord(result) || !Array.isArray(result.content)) return { result };
   if (resultHasImageContent(result)) return { result };
   const candidates = collectToolResultImagePaths(result).filter((candidate) => {
@@ -735,7 +844,7 @@ function findArtifact(entries, query) {
 function formatRecent(entries) {
   const lines = [
     `MEDIA_ARTIFACT_RECENT ok results=${entries.length}`,
-    "Use current-turn media handles for image_generate. Use generated_gallery_resend for sending old generated images."
+    "Use current-turn media handles when they are listed in the current context. For older input attachments, pass the selected details.results[n].path to the target media tool. Use generated_gallery_resend for sending old generated images."
   ];
   entries.forEach((entry, index) => {
     lines.push(`${index + 1}. artifact_id=${entry.artifactId} | time=${entry.t} | source=${entry.sourceKind} | lineage=${Array.isArray(entry.lineage) ? entry.lineage.length : 0} | prompt=${clip(entry.promptPreview, 100)}`);
@@ -792,7 +901,7 @@ const mediaArtifactLineageTool = {
     type: "object",
     additionalProperties: false,
     properties: {
-      artifact_id: { type: "string", description: "Artifact id returned by media_artifact_recent." },
+      artifact_id: { type: "string", description: "Artifact id returned by media_artifact action=recent." },
       id: { type: "string", description: "Alias for artifact_id." },
       path: { type: "string", description: "Optional exact media path to inspect." }
     }
@@ -810,11 +919,46 @@ const mediaArtifactLineageTool = {
   }
 };
 
+const mediaArtifactTool = {
+  name: MEDIA_ARTIFACT_TOOL,
+  label: "Media Artifact",
+  description: "Inspect imagebot media artifacts through action=recent or lineage.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      action: {
+        type: "string",
+        enum: ["recent", "lineage"],
+        description: "Artifact action. Default lineage when an id/path is supplied; otherwise recent."
+      },
+      count: { type: "number", description: `For recent, number of entries, 1-${MAX_RECENT}.` },
+      source: { type: "string", enum: ["generated", "input", "all"], description: "For recent, artifact source filter. Default generated." },
+      artifact_id: { type: "string", description: "Artifact id returned by media_artifact action=recent." },
+      id: { type: "string", description: "Alias for artifact_id." },
+      path: { type: "string", description: "Optional exact media path to inspect." }
+    }
+  },
+  async execute(toolCallId, params, signal, onUpdate, ctx) {
+    const requested = readString(params, "action").toLowerCase();
+    const hasLineageQuery = readString(params, "artifact_id") || readString(params, "id") || readString(params, "path");
+    const action = requested || (hasLineageQuery ? "lineage" : "recent");
+    if (action === "recent") return mediaArtifactRecentTool.execute(toolCallId, params, signal, onUpdate, ctx);
+    if (action === "lineage") return mediaArtifactLineageTool.execute(toolCallId, params, signal, onUpdate, ctx);
+    return {
+      content: [{ type: "text", text: "MEDIA_ARTIFACT error: action must be recent or lineage." }],
+      details: { status: "failed", error: "invalid action" }
+    };
+  }
+};
+
 export const __testing = {
   extractMediaPathsFromText,
   buildMediaContext,
   resolveImageInputs,
+  resolveToolMediaInputs,
   findBadGeneratedRefs,
+  findUnavailableHandleRefs,
   collectGeneratedMediaPaths,
   collectToolResultImagePaths,
   buildToolResultImagePreview,
@@ -832,7 +976,9 @@ export default {
     const baseConfig = api.config || {};
     mediaArtifactRecentTool.config = baseConfig;
     mediaArtifactLineageTool.config = baseConfig;
+    mediaArtifactTool.config = baseConfig;
 
+    api.registerTool(mediaArtifactTool, { name: MEDIA_ARTIFACT_TOOL });
     api.registerTool(mediaArtifactRecentTool, { name: RECENT_TOOL });
     api.registerTool(mediaArtifactLineageTool, { name: LINEAGE_TOOL });
 
@@ -852,14 +998,39 @@ export default {
     }, { name: "imagebot-media-artifacts-before-prompt-build" });
 
     registerLifecycleHook(api, "before_tool_call", async (event, ctx) => {
-      if (event.toolName !== "image_generate") return;
       if (ctx?.agentId && ctx.agentId !== "imagebot") return;
 
       const config = toolConfig(event, api);
+      if (event.toolName !== "image_generate") {
+        const spec = TOOL_MEDIA_INPUT_SPECS.get(event.toolName);
+        if (!spec) return;
+        const context = getContext(event, ctx);
+        const { params, resolvedRefs, changed } = resolveToolMediaInputs(event.params, context, spec);
+        const unavailableHandleRefs = findUnavailableHandleRefs(resolvedRefs);
+        if (unavailableHandleRefs.length > 0) {
+          const handles = unavailableHandleRefs.map((ref) => ref.value).join(", ");
+          return {
+            block: true,
+            blockReason:
+              `Unavailable media handle for ${event.toolName}: ${handles}. Use a handle listed in the current media context, call media_artifact action=recent for older media, or ask the user to resend it.`
+          };
+        }
+        return changed ? { params } : undefined;
+      }
+
       const strictGeneratedRefs = config.strictGeneratedRefs !== false;
       const context = getContext(event, ctx);
       const originalRefs = readImageInputs(event.params);
       const { params, resolvedRefs } = resolveImageInputs(event.params, context);
+      const unavailableHandleRefs = findUnavailableHandleRefs(resolvedRefs);
+      if (unavailableHandleRefs.length > 0) {
+        const handles = unavailableHandleRefs.map((ref) => ref.value).join(", ");
+        return {
+          block: true,
+          blockReason:
+            `当前回合不可用的媒体句柄：${handles}。只能使用 [Imagebot 媒体句柄] 里列出的句柄。要处理近期附件，调用 media_artifact action=recent，并把返回的 details.results[n].path 传给 image_generate；或者让用户重发图片。`
+        };
+      }
       const badGeneratedRefs = findBadGeneratedRefs(resolvedRefs, strictGeneratedRefs);
       if (badGeneratedRefs.length > 0) {
         return {

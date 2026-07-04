@@ -29,13 +29,17 @@ plugin.register({
   }
 });
 
-for (const name of ["knowledge_sources", "knowledge_search", "knowledge_recent", "knowledge_ingest"]) {
+for (const name of ["knowledge", "knowledge_sources", "knowledge_search", "knowledge_recent", "knowledge_ingest"]) {
   assert.ok(tools.has(name), `${name} should be registered`);
 }
 
 const sources = await tools.get("knowledge_sources").execute("sources", {});
 assert.equal(sources.details.status, "ok");
 assert.ok(sources.details.sources.some((source) => source.id === "persona"));
+
+const aggregateSources = await tools.get("knowledge").execute("aggregate-sources", { action: "sources" });
+assert.equal(aggregateSources.details.status, "ok");
+assert.ok(aggregateSources.details.sources.some((source) => source.id === "persona"));
 
 const found = await tools.get("knowledge_search").execute("search", {
   query: "official outfit reference images",
@@ -48,6 +52,16 @@ assert.equal(found.details.mode, "keyword");
 assert.ok(found.details.results.some((item) => item.sourceId === "prompt_library"));
 assert.ok(found.details.sources.some((item) => item.sourceId === "prompt_library"));
 assert.ok(found.details.sources.every((item) => !("filePath" in item)));
+
+const aggregateFound = await tools.get("knowledge").execute("aggregate-search", {
+  action: "search",
+  query: "official outfit reference images",
+  sources: "prompt_library,tool_manuals",
+  mode: "keyword",
+  count: 4
+});
+assert.equal(aggregateFound.details.status, "ok");
+assert.ok(aggregateFound.details.results.some((item) => item.sourceId === "prompt_library"));
 
 const ctxA = { agentId: "imagebot", accountId: "imagebot", chatId: "knowledge-chat-a", sessionKey: "knowledge-session-a", senderId: "101", messageId: "10" };
 const ctxB = { agentId: "imagebot", accountId: "imagebot", chatId: "knowledge-chat-b", sessionKey: "knowledge-session-b", senderId: "202", messageId: "20" };
@@ -118,15 +132,46 @@ const recent = await tools.get("knowledge_recent").execute("recent", { sources: 
 assert.equal(recent.details.status, "ok");
 assert.ok(recent.details.results.length >= 2);
 
+const aggregateRecent = await tools.get("knowledge").execute("aggregate-recent", { action: "recent", sources: "user_docs", count: 3 }, null, null, ctxA);
+assert.equal(aggregateRecent.details.status, "ok");
+assert.ok(aggregateRecent.details.results.length >= 2);
+
 const listed = await tools.get("knowledge_ingest").execute("list-ingested", { action: "list", count: 5 }, null, null, ctxA);
 assert.equal(listed.details.status, "ok");
 assert.ok(listed.details.records.some((record) => record.id === ingestedText.details.id));
 
+const crossScopeDelete = await tools.get("knowledge_ingest").execute("delete-cross-scope", {
+  action: "delete",
+  id: ingestedText.details.id,
+  dryRun: false,
+  reason: "wrong scope"
+}, null, null, ctxB);
+assert.equal(crossScopeDelete.details.status, "no_match");
+
 const deleteDryRun = await tools.get("knowledge_ingest").execute("delete-dry-run", { action: "delete", id: ingestedText.details.id }, null, null, ctxA);
 assert.equal(deleteDryRun.details.status, "dry_run");
 
-const deleted = await tools.get("knowledge_ingest").execute("delete-real", { action: "delete", id: ingestedText.details.id, dryRun: false }, null, null, ctxA);
+const deleteMissingContext = await tools.get("knowledge_ingest").execute("delete-missing-context", {
+  action: "delete",
+  id: ingestedText.details.id,
+  dryRun: false,
+  reason: "missing context"
+});
+assert.equal(deleteMissingContext.details.status, "failed");
+assert.match(deleteMissingContext.details.error, /trusted runtime actor context/);
+
+const deleted = await tools.get("knowledge_ingest").execute("delete-real", {
+  action: "delete",
+  id: ingestedText.details.id,
+  dryRun: false,
+  reason: "stale test note"
+}, null, null, ctxA);
 assert.equal(deleted.details.status, "ok");
+const ingestIndexLines = (await fs.readFile(path.join(storeDir, "ingest-index.jsonl"), "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+const deleteEvent = ingestIndexLines.find((event) => event.event === "delete" && event.id === ingestedText.details.id);
+assert.equal(deleteEvent.reason, "stale test note");
+assert.match(deleteEvent.targetFingerprint, /^[a-f0-9]{18}$/);
+assert.equal(deleteEvent.deletedBy.senderId, "101");
 
 assert.equal(__testing.normalizeMode("semantic"), "semantic");
 assert.equal(__testing.normalizeMode("nonsense"), "hybrid");

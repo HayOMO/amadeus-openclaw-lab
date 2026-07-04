@@ -1,0 +1,13 @@
+diff --git a/dist/agent-scope-CESPhp3L.js b/dist/agent-scope-CESPhp3L.js
+index 4a6b6b8..c8d1715 100644
+--- a/dist/agent-scope-CESPhp3L.js
++++ b/dist/agent-scope-CESPhp3L.js
+@@ -267,7 +267,7 @@ function hasConfiguredModelFallbacks(params) {
+ function resolveEffectiveModelFallbacks(params) {
+ 	const agentFallbacksOverride = resolveAgentModelFallbacksOverride(params.cfg, params.agentId);
+ 	if (!params.hasSessionModelOverride) return agentFallbacksOverride;
+-	if (!(params.modelOverrideSource === "auto" || params.modelOverrideSource === void 0 && params.hasAutoFallbackProvenance === true)) return [];
++	if (!(params.modelOverrideSource === "auto" || params.modelOverrideSource === "default" || params.modelOverrideSource === void 0 && params.hasAutoFallbackProvenance === true)) return [];
+ 	const subagentFallbacksOverride = isSubagentSessionKey(params.sessionKey) ? resolveSubagentSpawnModelFallbacksOverride(params.cfg, params.agentId) : void 0;
+ 	if (subagentFallbacksOverride !== void 0) return subagentFallbacksOverride;
+ 	const defaultFallbacks = resolveAgentModelFallbackValues(params.cfg.agents?.defaults?.model);

@@ -1,0 +1,22 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index 59d1d2a..e300fb1 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -2058,7 +2058,7 @@ function applyTelegramImagebotAmmodelDefaultToSessionSync(params) {
+ 			model: ref.model,
+ 			isDefault: ref.provider === defaultModel.provider && ref.model === defaultModel.model
+ 		},
+-		selectionSource: "user",
++		selectionSource: "default",
+ 		preserveAuthProfileOverride: true,
+ 		markLiveSwitchPending: true
+ 	});
+@@ -3270,7 +3270,7 @@ async function applyTelegramImagebotAmmodelSession(params) {
+ 						model: ref.model,
+ 						isDefault: ref.provider === defaultModel.provider && ref.model === defaultModel.model
+ 					},
+-					selectionSource: "user",
++					selectionSource: "default",
+ 					preserveAuthProfileOverride: true,
+ 					markLiveSwitchPending: true
+ 				});

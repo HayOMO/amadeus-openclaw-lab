@@ -25,7 +25,7 @@
         "/amnew opens a new active window and closes the sender's previous active window for later memory consolidation",
         "recent active /amnew windows can continue plain sender messages without waking on every old window forever",
         "per-window Telegram session routing",
-        "reply-to-bot continuation by bot message id rather than current sender",
+        "reply-to-bot continuation by bot message id only while that bot message's window is still active",
         "replied Telegram sticker metadata is preserved as ReplySticker context",
         "imagebot Mars-forward detector records lightweight forwarded-message fingerprints before the unaddressed group drop gate without foreground media download",
         "imagebot Mars-forward detector keeps its persistent source index without age-based retention",
@@ -157,6 +157,17 @@
       ]
     },
     {
+      "id": "image-generate-status-problem-tasks",
+      "file": "25-image-generate-status-problem-tasks-B0V1p3La.js.patch",
+      "target": "dist/openclaw-tools-B0V1p3La.js",
+      "protects": [
+        "image_generate status reports recent failed/lost image generation tasks instead of saying no active task"
+      ],
+      "checks": [
+        "node scripts/TEST_OPENCLAW_TOOLS_MEDIA_REFERENCE_PATCH.mjs"
+      ]
+    },
+    {
       "id": "telegram-outbound-adapter-spoiler",
       "file": "11-outbound-adapter-DcLaKE_u.js.patch",
       "target": "dist/outbound-adapter-DcLaKE_u.js",
@@ -208,11 +219,13 @@
       "protects": [
         "pending tool media retains explicit sensitiveMedia/spoiler flags until final Telegram delivery",
         "final assistant block replies enable the narrow sensitive-media text fallback",
-        "embedded agent retries terminal reasoning-only turns even when earlier tool-use progress text exists"
+        "embedded agent retries terminal reasoning-only turns even when earlier tool-use progress text exists",
+        "imagebot embedded-run prep stages emit lower-threshold timing diagnostics for whole-response latency investigation"
       ],
       "checks": [
         "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
-        "node scripts/TEST_EMBEDDED_AGENT_TERMINAL_REASONING_RETRY.mjs"
+        "node scripts/TEST_EMBEDDED_AGENT_TERMINAL_REASONING_RETRY.mjs",
+        "node scripts/TEST_EMBEDDED_PREP_TRACE_PATCH.mjs"
       ]
     },
     {
@@ -235,6 +248,18 @@
         "reply-to-bot routing can resolve the primary media for prior bot messages"
       ],
       "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-forward-legacy-context",
+      "file": "37-telegram-forward-legacy-context-BooN40ue.js.patch",
+      "target": "dist/sent-message-cache-BooN40ue.js",
+      "protects": [
+        "Telegram forwarded context normalization accepts legacy forward_from_chat fields so Mars-forward detection is not skipped before the group drop gate"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MARS_FORWARD_DETECTOR.mjs",
         "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
       ]
     },
@@ -292,6 +317,300 @@
       ],
       "checks": [
         "node scripts/TEST_OUTBOUND_MIRROR_TRANSCRIPT_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-script-control-commands",
+      "file": "24-telegram-script-controls-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "/amhelp, /amstatus, and /amtools are handled before model context construction",
+        "unsupported legacy /model commands are answered before model context construction and redirected to /ammodel without changing session model state",
+        "/amstatus reports bounded runtime/session status and token usage metadata when available without exposing secrets or local paths",
+        "/amtools lists safe script-style controls and refuses Telegram-side script execution"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_CREATIVE_OPS_PLUGIN.mjs"
+      ]
+    },
+    {
+      "id": "telegram-loli-guard-url-import",
+      "file": "26-telegram-loli-guard-import-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "Telegram local image safety preflight can dynamically import its guard module without failing closed on missing pathToFileURL"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_LOLI_NSFW_VISION_GUARD.mjs"
+      ]
+    },
+    {
+      "id": "telegram-imagebot-text-repeater",
+      "file": "27-telegram-text-repeater-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "imagebot can repeat the second identical short Telegram group text as a pre-model script without waking the model",
+        "the repeater ignores bot messages, slash commands, explicit bot mentions, long texts, and applies a per-chat/topic cooldown"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_IMAGEBOT_CONFIG_SOURCE.mjs"
+      ]
+    },
+    {
+      "id": "telegram-imagebot-text-repeater-pre-drop",
+      "file": "28-telegram-text-repeater-pre-drop-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "imagebot text repeater observes ordinary group text before the unaddressed-message drop gate",
+        "repeat sends commit Telegram dispatch dedupe and do not fall through into model context",
+        "addressed messages observed by the pre-drop repeater are not counted a second time by the pre-model fallback"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_RUNTIME_PATCH_MANIFEST.mjs"
+      ]
+    },
+    {
+      "id": "telegram-imagebot-sticker-repeater",
+      "file": "29-telegram-sticker-repeater-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "imagebot text repeater also repeats the second identical Telegram sticker before the unaddressed-message drop gate",
+        "sticker repeats compare file_unique_id when available and resend the incoming file_id through Telegram sendSticker",
+        "sticker repeats do not download media or wake the model"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_IMAGEBOT_CONFIG_SOURCE.mjs"
+      ]
+    },
+    {
+      "id": "telegram-repeater-different-senders",
+      "file": "30-telegram-repeater-different-senders-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "imagebot repeats only after consecutive identical repeatable messages from different Telegram senders",
+        "non-repeatable user messages clear pending repeat state before later single messages can trigger",
+        "old pending repeat state expires through a short maximum repeat gap"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_IMAGEBOT_CONFIG_SOURCE.mjs"
+      ]
+    },
+    {
+      "id": "telegram-script-micro-commands",
+      "file": "31-telegram-script-micro-commands-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "small /amroll, /amcoin, /amchoose, /amshuffle, /amsplit, /amstats, and /amlinks commands answer before model context construction",
+        "micro commands are bounded, deterministic-runtime helpers and do not write group history or call the agent model"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_IMAGEBOT_CONFIG_SOURCE.mjs"
+      ]
+    },
+    {
+      "id": "telegram-command-chinese-localization",
+      "file": "32-telegram-command-chinese-localization-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "Telegram script-control replies, micro-command replies, and inline control buttons are Chinese-facing",
+        "localized command replies still execute before model context construction"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_IMAGEBOT_CONFIG_SOURCE.mjs"
+      ]
+    },
+    {
+      "id": "tool-result-image-history-prune",
+      "file": "33-tool-result-image-history-CFLypc-Q.js.patch",
+      "target": "dist/tool-result-truncation-CFLypc-Q.js",
+      "protects": [
+        "model-visible image blocks in old tool results are compacted to traceable text placeholders during prompt-history/tool-result truncation",
+        "prompt-history truncation keeps the newest image-bearing tool result available for the immediate visual follow-up while pruning older image bytes"
+      ],
+      "checks": [
+        "node scripts/TEST_TOOL_RESULT_IMAGE_HISTORY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "selection-image-data-estimate",
+      "file": "34-selection-image-estimate-BfRwHcjH.js.patch",
+      "target": "dist/selection-BfRwHcjH.js",
+      "protects": [
+        "mid-turn context guard estimates image tool-result payloads by actual image data size instead of a fixed small constant",
+        "large screenshot/search image results can trigger truncation or compaction before provider submission rather than silently bloating prompt replay"
+      ],
+      "checks": [
+        "node scripts/TEST_TOOL_RESULT_IMAGE_HISTORY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-window-active-route",
+      "file": "35-telegram-window-active-route-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "inactive Telegram imagebot windows are marked closed while session files remain available for memory consolidation",
+        "replying to stale bot messages falls back to the sender's active window instead of reopening old window sessions",
+        "stale /ammodel and /ampersona callbacks cannot mutate inactive window sessions"
+      ],
+      "checks": [
+        "node scripts/TEST_IMAGEBOT_WINDOW_ROUTING.mjs",
+        "node scripts/TEST_WINDOW_STORE_REPAIR.mjs",
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-ammodel-session-sync",
+      "file": "36-telegram-ammodel-session-sync-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "Telegram /ammodel keeps the two-step model then reasoning-level menu intact",
+        "existing sender-owned active windows reapply the /ammodel default state before model context construction so stale per-session overrides cannot keep the old model",
+        "successful Telegram /ammodel switches are logged with the applied model label and target session key for postmortem debugging"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_TELEGRAM_AMMODEL_RUNTIME.mjs",
+        "node scripts/TEST_IMAGEBOT_WINDOW_ROUTING.mjs",
+        "node scripts/TEST_AGENT_PERSONA_CATALOG.mjs"
+      ]
+    },
+    {
+      "id": "telegram-ammodel-default-sync-idempotent",
+      "file": "42-telegram-ammodel-default-sync-idempotent-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "Telegram /ammodel default reapplication writes active-window session state only when the model or reasoning level actually changed",
+        "unchanged /ammodel defaults do not keep re-marking live model switches on every ordinary message"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_TELEGRAM_AMMODEL_RUNTIME.mjs",
+        "node scripts/TEST_IMAGEBOT_WINDOW_ROUTING.mjs"
+      ]
+    },
+    {
+      "id": "telegram-mars-forward-observability",
+      "file": "38-telegram-mars-forward-observability-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "Mars-forward pre-drop detection logs channel-forward skip, record, duplicate, and failure states without dumping message text",
+        "future Telegram forward metadata regressions are visible in ordinary runtime logs before the unaddressed group drop gate"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MARS_FORWARD_DETECTOR.mjs",
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-mars-forward-sqlite-import",
+      "file": "39-telegram-mars-forward-sqlite-import-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "Mars-forward SQLite state can open in the real Telegram adapter runtime instead of throwing DatabaseSync is not defined after channel-forward detection"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MARS_FORWARD_DETECTOR.mjs",
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-mars-forward-script-reply",
+      "file": "40-telegram-mars-forward-script-reply-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "Mechanical Mars-forward duplicates reply with script-level fire/Mars handling and do not wake the model",
+        "Similar visual-hash Mars-forward candidates continue into model review without script-level fire/Mars handling",
+        "Script-level Mars replies are recorded in the Telegram sent-message cache so user replies can wake the model with reply context"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MARS_FORWARD_DETECTOR.mjs",
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-mars-forward-first-reply",
+      "file": "41-telegram-mars-forward-first-reply-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "Mechanical Mars-forward script replies target the first same-group message after reacting to the duplicate and fall back with a missing-first notice",
+        "Similar Mars-forward review prompts tell the model to use mars_forward_lookup action=reply_first for confirmed first-message replies without attaching links"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MARS_FORWARD_DETECTOR.mjs",
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "tool-result-unterminated-image-data-prune",
+      "file": "43-tool-result-unterminated-image-data-CFLypc-Q.js.patch",
+      "target": "dist/tool-result-truncation-CFLypc-Q.js",
+      "protects": [
+        "tool-result text wrappers prune embedded image base64 even when prior truncation removed the JSON closing quote",
+        "under-cap tool results still run image-data compaction before prompt history replay instead of waiting for aggregate overflow"
+      ],
+      "checks": [
+        "node scripts/TEST_TOOL_RESULT_IMAGE_HISTORY_PATCH.mjs",
+        "node scripts/TEST_SESSION_IMAGE_PRUNE.mjs"
+      ]
+    },
+    {
+      "id": "telegram-window-idle-timeout",
+      "file": "44-telegram-window-idle-timeout-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "Telegram imagebot windows idle for more than 10 minutes are closed while their session files remain available for memory consolidation",
+        "the next addressed sender message after an idle close opens a direct new-sender window instead of going through /amnew replacement logic",
+        "reply, callback, and recent-active routing ignore idle-expired windows before resolving the target session"
+      ],
+      "checks": [
+        "node scripts/TEST_IMAGEBOT_WINDOW_ROUTING.mjs",
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-ammodel-fallback-default",
+      "file": "45-telegram-ammodel-fallback-default-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "Telegram /ammodel default selections are stored as fallback-capable session defaults rather than explicit user overrides",
+        "a GPT quota fallback can persist the current window onto the fallback model while later new windows still start from the configured /ammodel default"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_AMMODEL_RUNTIME.mjs",
+        "node scripts/TEST_IMAGEBOT_MODEL_FALLBACK.mjs"
+      ]
+    },
+    {
+      "id": "agent-scope-default-model-fallback",
+      "file": "46-agent-scope-default-model-fallback-CESPhp3L.js.patch",
+      "target": "dist/agent-scope-CESPhp3L.js",
+      "protects": [
+        "session model overrides created from configured defaults keep agent model fallback chains enabled",
+        "explicit user model overrides remain isolated from configured fallback chains"
+      ],
+      "checks": [
+        "node scripts/TEST_IMAGEBOT_MODEL_FALLBACK.mjs",
+        "node scripts/TEST_TELEGRAM_AMMODEL_RUNTIME.mjs"
+      ]
+    },
+    {
+      "id": "agent-runner-fallback-notice-zh",
+      "file": "47-agent-runner-fallback-notice-zh-C8N-o26U.js.patch",
+      "target": "dist/agent-runner.runtime-C8N-o26U.js",
+      "protects": [
+        "model fallback transitions show a short Chinese user-facing notice before the assistant reply",
+        "fallback notices explain that the fallback is current-window local and does not change new-window /ammodel defaults"
+      ],
+      "checks": [
+        "node scripts/TEST_IMAGEBOT_MODEL_FALLBACK.mjs"
       ]
     }
   ]

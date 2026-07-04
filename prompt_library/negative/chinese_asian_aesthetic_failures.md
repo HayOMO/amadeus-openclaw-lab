@@ -2,13 +2,16 @@
 id: negative.chinese_asian_aesthetic_failures
 title: Chinese And Asian Aesthetic Failures
 type: negative
-tags: image, negative, chinese, asian, xiaohongshu, anime, portrait, guofeng
+tags: image, negative, chinese, asian, xiaohongshu, anime
 aliases: asian_negative, chinese_negative, avoid_eurocentric, xhs_failures
 tools: image_generate
 ---
 
-Use when the user wants Chinese/Asian social-media, anime, guofeng, or Asian
-portrait aesthetics and western default styling would be wrong.
+Use only as a secondary negative card when the user explicitly wants a
+Chinese/Asian social-media look, anime identity preservation, or asks to avoid
+westernized / generic-oriental defaults. Do not use as a positive style recipe
+and do not attach it to ordinary portraits, generic anime scenes, or fashion
+moodboards by default.
 
 Avoid:
 

@@ -1,3 +1,3 @@
-Private Telegram group runtime.
-Use the current chat context and available tools to answer the triggering turn.
-The base prompt contains no character persona.
+非活跃旧段落。
+
+当前基础提示词只放工具路由和工作流；角色卡、群聊身份、窗口路由上下文由运行时动态注入。

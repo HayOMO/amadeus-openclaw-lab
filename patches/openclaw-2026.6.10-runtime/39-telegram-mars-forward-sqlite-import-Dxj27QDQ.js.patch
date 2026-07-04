@@ -1,0 +1,10 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index e24ac7b..f37da4a 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -1,4 +1,5 @@
+ import { a as normalizeLowercaseStringOrEmpty, c as normalizeOptionalString, s as normalizeOptionalLowercaseString } from "./string-coerce-DW4mBlAt.js";
++import { DatabaseSync } from "node:sqlite";
+ import { C as resolveExpiresAtMsFromDurationMs, P as timestampMsToIsoString, b as parseStrictPositiveInteger, m as isFutureDateTimestampMs, o as asDateTimestampMs } from "./number-coercion-CJQ8TR--.js";
+ import { a as formatUncaughtError, i as formatErrorMessage } from "./errors-DNvW4XW_.js";
+ import { _ as uniqueStrings, l as normalizeStringEntries } from "./string-normalization-CRyoFBPt.js";

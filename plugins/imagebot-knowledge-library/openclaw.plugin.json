@@ -12,6 +12,7 @@
   },
   "contracts": {
     "tools": [
+      "knowledge",
       "knowledge_sources",
       "knowledge_search",
       "knowledge_recent",

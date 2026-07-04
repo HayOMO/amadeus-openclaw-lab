@@ -1,21 +1,21 @@
 param(
-  [string]$BaseUrl = 'https://safebooru.donmai.us'
+  [string]$BaseUrl = 'https://danbooru.donmai.us'
 )
 
 $ErrorActionPreference = 'Stop'
 
-Write-Host 'Store Danbooru/Safebooru API credentials'
+Write-Host 'Store Danbooru API credentials'
 Write-Host 'This stores credentials in ~/.openclaw/secrets/danbooru-imagebot.json.'
 Write-Host 'It is not written to this repo and should not be committed.'
 Write-Host ''
 
-$login = Read-Host 'Danbooru/Safebooru login name'
+$login = Read-Host 'Danbooru login name'
 if ([string]::IsNullOrWhiteSpace($login)) {
   throw 'Empty login name.'
 }
 $login = $login.Trim()
 
-$secure = Read-Host 'Paste Danbooru/Safebooru API key (input hidden)' -AsSecureString
+$secure = Read-Host 'Paste Danbooru API key (input hidden)' -AsSecureString
 $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 
 try {

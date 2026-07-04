@@ -1,0 +1,4 @@
+# Historical Pixiv mobile OAuth client constants removed from the current tree.
+# Keep these as exact full-history fingerprints rather than broad path/rule allowlists.
+9094b277f1088a62e5efde4a52f9431a763dcff7:scripts/GET_PIXIV_REFRESH_TOKEN.ps1:generic-api-key:12
+6bb36b86d087aae400a9adba1bf7d831da320333:scripts/GET_PIXIV_REFRESH_TOKEN.ps1:generic-api-key:12

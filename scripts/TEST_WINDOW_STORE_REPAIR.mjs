@@ -18,7 +18,8 @@ try {
     }
   },
   "byBotMessage": {
-    "-1001:10": { "windowId": "window-A", "ownerUserKey": "tg:100" }
+    "-1001:10": { "windowId": "window-A", "ownerUserKey": "tg:100" },
+    "-1001:11": { "windowId": "window-B", "ownerUserKey": "tg:200" }
   },
   "users": {
     "tg:100": {
@@ -42,6 +43,18 @@ bad"]
 bad" }
       },
       "recent": []
+    },
+    "window-B": {
+      "windowId": "window-B",
+      "ownerUserKey": "tg:200",
+      "chatId": "-1001",
+      "sessionKey": "agent:imagebot:telegram:group:-1001:sender:200:window:window-B",
+      "openedAt": "2026-06-24T00:00:00.000Z",
+      "lastActivityAt": "2026-06-24T00:00:00.000Z",
+      "participants": {
+        "tg:200": { "id": "200", "name": "Bob" }
+      },
+      "recent": []
     }
   }
 }`;
@@ -52,13 +65,18 @@ bad" }
   assert.equal(repaired.repairedSyntax, true);
   assert.equal(repaired.reset, false);
   assert.equal(repaired.activeUsers, 1);
-  assert.equal(repaired.windows, 1);
+  assert.equal(repaired.windows, 2);
   assert.ok(repaired.backupPath);
 
   const parsed = JSON.parse(await fs.readFile(storePath, "utf8"));
   assert.equal(parsed.version, 3);
   assert.equal(parsed.activeByUser["tg:100"].windowId, "window-A");
+  assert.equal(parsed.windows["window-A"].closedAt, undefined);
   assert.equal(parsed.windows["window-A"].participants["tg:100"].name, "Alice bad");
+  assert.ok(parsed.windows["window-B"].closedAt);
+  assert.equal(parsed.windows["window-B"].closedReason, "inactive-window-routing-pruned");
+  assert.equal(parsed.byBotMessage["-1001:10"].windowId, "window-A");
+  assert.equal(parsed.byBotMessage["-1001:11"], undefined);
 
   const secondRun = await repairWindowStore(storePath);
   assert.equal(secondRun.changed, false);

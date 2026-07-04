@@ -13,11 +13,13 @@ import {
   trustedMutationContext,
   verifyMutationPlanApproval
 } from "../imagebot-shared/mutation-authorization.mjs";
+import { appendFileLocked, withStateFileLock, writeJsonAtomic as writeSharedJsonAtomic } from "../imagebot-shared/state-file.mjs";
 
 const SOURCES_TOOL = "knowledge_sources";
 const SEARCH_TOOL = "knowledge_search";
 const RECENT_TOOL = "knowledge_recent";
 const INGEST_TOOL = "knowledge_ingest";
+const KNOWLEDGE_TOOL = "knowledge";
 
 const MAX_FILE_BYTES = 1_500_000;
 const MAX_TEXT_BYTES = 600_000;
@@ -39,7 +41,6 @@ let cachedSemanticIndex = null;
 let cachedSemanticIndexMtimeMs = 0;
 let semanticBuildPromise = null;
 let lastSemanticBuildError = null;
-const ingestPlanLocks = new Map();
 
 function homeDir() {
   return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
@@ -367,10 +368,7 @@ async function readJson(filePath) {
 }
 
 async function writeJsonAtomic(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.${process.pid}.tmp`;
-  await fs.writeFile(tempPath, JSON.stringify(value), "utf8");
-  await fs.rename(tempPath, filePath);
+  await writeSharedJsonAtomic(filePath, value, { space: 0 });
 }
 
 function isUsableSemanticIndex(index) {
@@ -710,8 +708,7 @@ function safeFileName(value, fallback = "note") {
 }
 
 async function appendJsonLine(filePath, record) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.appendFile(filePath, `${JSON.stringify(record)}\n`, "utf8");
+  await appendFileLocked(filePath, `${JSON.stringify(record)}\n`, "utf8");
 }
 
 async function buildIngestPayload(config = {}, params = {}) {
@@ -760,18 +757,7 @@ async function writeIngestPlans(config = {}, store) {
 }
 
 async function withIngestPlanLock(config = {}, fn) {
-  const key = ingestPlansPath(config);
-  const previous = ingestPlanLocks.get(key) || Promise.resolve();
-  const current = (async () => {
-    await previous.catch(() => {});
-    return await fn();
-  })();
-  ingestPlanLocks.set(key, current);
-  try {
-    return await current;
-  } finally {
-    if (ingestPlanLocks.get(key) === current) ingestPlanLocks.delete(key);
-  }
+  return await withStateFileLock(ingestPlansPath(config), fn);
 }
 
 function pruneIngestPlans(store, now = Date.now()) {
@@ -957,6 +943,7 @@ async function deleteIngestedTool(config = {}, params = {}, ctx = {}) {
   const id = readString(params, "id") || readString(params, "doc_id") || readString(params, "document_id");
   if (!id) throw new Error("id is required for knowledge_ingest delete");
   const dryRun = params.dryRun === undefined ? true : readBoolean(params, "dryRun", true);
+  const reason = clip(readString(params, "reason") || readString(params, "note"), 300);
   const records = await listIngestedRecords(config, ctx);
   const record = records.find((item) => item.id === id);
   if (!record) {
@@ -973,9 +960,26 @@ async function deleteIngestedTool(config = {}, params = {}, ctx = {}) {
     event: "delete",
     id,
     t: new Date().toISOString(),
+    reason,
+    targetFingerprint: mutationTargetFingerprint({
+      id,
+      title: record.title || "",
+      path: record.path || "",
+      scopeHash: record.scopeHash || "",
+      contentHash: record.contentHash || ""
+    }),
     scopeKey: record.scopeKey || "",
     actorKey: context.actorKey,
-    scopeHash: record.scopeHash || ""
+    scopeHash: record.scopeHash || "",
+    deletedBy: {
+      accountId: context.accountId || "",
+      chatId: context.chatId || "",
+      threadId: context.threadId || "",
+      sessionKey: context.sessionKey || "",
+      windowId: context.windowId || "",
+      senderId: context.senderId || "",
+      messageId: context.messageId || ""
+    }
   });
   return { content: [{ type: "text", text: `KNOWLEDGE_INGEST delete ok\nid: ${id}` }], details: { status: "ok", id } };
 }
@@ -1043,6 +1047,7 @@ const ingestTool = tool(INGEST_TOOL, "Knowledge Ingest", "Draft, commit, list, o
     action: { type: "string", enum: ["draft", "commit", "list", "delete"], description: "Default draft; commit persists an approved draft." },
     plan_id: { type: "string", description: "Draft plan id for commit." },
     id: { type: "string", description: "Document id for delete." },
+    reason: { type: "string", description: "Optional model/operator reason for a delete tombstone." },
     title: { type: "string", description: "Document title." },
     text: { type: "string", description: "Text to save." },
     content: { type: "string", description: "Alias for text." },
@@ -1053,6 +1058,31 @@ const ingestTool = tool(INGEST_TOOL, "Knowledge Ingest", "Draft, commit, list, o
     count: { type: "number", description: `For list, max results 1-${MAX_RESULTS}.` }
   }
 }, (params, ctx) => knowledgeIngest(ingestTool.config || {}, params, ctx));
+
+const knowledgeTool = tool(KNOWLEDGE_TOOL, "Knowledge", "Read local knowledge sources through action=sources, search, or recent. Ingest remains knowledge_ingest.", {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    action: {
+      type: "string",
+      enum: ["sources", "search", "recent"],
+      description: "Read action. Default search when query is supplied; otherwise sources."
+    },
+    query: { type: "string", description: "Search query." },
+    sources: { type: "string", description: "Optional comma-separated source ids or kinds." },
+    source: { type: "string", description: "Alias for sources." },
+    count: { type: "number", description: `Max results 1-${MAX_RESULTS}.` },
+    mode: { type: "string", enum: ["hybrid", "semantic", "keyword"], description: "hybrid is default; semantic waits only when explicitly requested." },
+    fresh: { type: "boolean", description: "If true, wait for a fresh semantic index in hybrid mode." }
+  }
+}, async (params, ctx) => {
+  const requested = readString(params, "action").toLowerCase();
+  const action = requested || (readString(params, "query") ? "search" : "sources");
+  if (action === "sources") return knowledgeSources(knowledgeTool.config || {});
+  if (action === "search") return knowledgeSearch(knowledgeTool.config || {}, params, ctx);
+  if (action === "recent") return knowledgeRecent(knowledgeTool.config || {}, params, ctx);
+  throw new Error("action must be sources, search, or recent");
+});
 
 export const __testing = {
   sourceDefinitions,
@@ -1077,7 +1107,8 @@ export default {
   description: "Unified lightweight knowledge source registry and search.",
   register(api) {
     const config = api.config || {};
-    for (const item of [sourcesTool, searchTool, recentTool, ingestTool]) item.config = config;
+    for (const item of [knowledgeTool, sourcesTool, searchTool, recentTool, ingestTool]) item.config = config;
+    api.registerTool(knowledgeTool, { name: KNOWLEDGE_TOOL });
     api.registerTool(sourcesTool, { name: SOURCES_TOOL });
     api.registerTool(searchTool, { name: SEARCH_TOOL });
     api.registerTool(recentTool, { name: RECENT_TOOL });

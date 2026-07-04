@@ -2,7 +2,7 @@ diff --git a/dist/selection-BfRwHcjH.js b/dist/selection-BfRwHcjH.js
 index cf829cc..77d130c 100644
 --- a/dist/selection-BfRwHcjH.js
 +++ b/dist/selection-BfRwHcjH.js
-@@ -1,15627 +1,15645 @@
+@@ -1,15627 +1,15656 @@
 -import { a as normalizeLowercaseStringOrEmpty, c as normalizeOptionalString, p as readStringValue, s as normalizeOptionalLowercaseString } from "./string-coerce-DW4mBlAt.js";
 -import { n as isTruthyEnvValue } from "./env-DpEiW8Oq.js";
 -import { i as redactSecrets } from "./redact-DOrFK54L.js";
@@ -23930,6 +23930,8 @@ index cf829cc..77d130c 100644
 +};
 +const EMBEDDED_RUN_STAGE_WARN_TOTAL_MS = 1e4;
 +const EMBEDDED_RUN_STAGE_WARN_STAGE_MS = 5e3;
++const EMBEDDED_RUN_IMAGEBOT_STAGE_WARN_TOTAL_MS = 1500;
++const EMBEDDED_RUN_IMAGEBOT_STAGE_WARN_STAGE_MS = 750;
 +/**
 +* Creates an append-only stage tracker. `mark` records time since the previous
 +* mark while `snapshot` reports current total elapsed time without mutating the
@@ -23964,6 +23966,15 @@ index cf829cc..77d130c 100644
 +	const totalThresholdMs = options?.totalThresholdMs ?? EMBEDDED_RUN_STAGE_WARN_TOTAL_MS;
 +	const stageThresholdMs = options?.stageThresholdMs ?? EMBEDDED_RUN_STAGE_WARN_STAGE_MS;
 +	return summary.totalMs >= totalThresholdMs || summary.stages.some((stage) => stage.durationMs >= stageThresholdMs);
++}
++function isImagebotEmbeddedRun(params) {
++	return params?.agentAccountId === "imagebot" || params?.agentId === "imagebot" || String(params?.sessionKey ?? "").includes("agent:imagebot:");
++}
++function resolveImagebotPrepStageWarnOptions(params, defaults) {
++	return isImagebotEmbeddedRun(params) ? {
++		totalThresholdMs: EMBEDDED_RUN_IMAGEBOT_STAGE_WARN_TOTAL_MS,
++		stageThresholdMs: EMBEDDED_RUN_IMAGEBOT_STAGE_WARN_STAGE_MS
++	} : defaults;
 +}
 +/** Formats stage timing into compact log text for startup/attempt diagnostics. */
 +function formatEmbeddedRunStageSummary(prefix, summary) {
@@ -27290,20 +27301,20 @@ index cf829cc..77d130c 100644
 +	const prepStages = createEmbeddedRunStageTracker();
 +	const emitPrepStageSummary = (phase) => {
 +		const summary = prepStages.snapshot();
-+		const shouldWarn = shouldWarnEmbeddedRunStageSummary(summary);
++		const shouldWarn = shouldWarnEmbeddedRunStageSummary(summary, resolveImagebotPrepStageWarnOptions(params));
 +		if (!shouldWarn && !log$2.isEnabled("trace")) return;
-+		const message = formatEmbeddedRunStageSummary(`[trace:embedded-run] prep stages: runId=${params.runId} sessionId=${params.sessionId} phase=${phase}`, summary);
++		const message = formatEmbeddedRunStageSummary(`[trace:embedded-run] prep stages: runId=${params.runId} sessionId=${params.sessionId} accountId=${params.agentAccountId ?? ""} phase=${phase}`, summary);
 +		if (shouldWarn) log$2.warn(message);
 +		else log$2.trace(message);
 +	};
 +	const emitCorePluginToolStageSummary = (phase, summary) => {
 +		if (summary.stages.length === 0) return;
-+		const shouldWarn = shouldWarnEmbeddedRunStageSummary(summary, {
++		const shouldWarn = shouldWarnEmbeddedRunStageSummary(summary, resolveImagebotPrepStageWarnOptions(params, {
 +			totalThresholdMs: 5e3,
 +			stageThresholdMs: 2e3
-+		});
++		}));
 +		if (!shouldWarn && !log$2.isEnabled("trace")) return;
-+		const message = formatEmbeddedRunStageSummary(`[trace:embedded-run] core-plugin-tool stages: runId=${params.runId} sessionId=${params.sessionId} phase=${phase}`, summary);
++		const message = formatEmbeddedRunStageSummary(`[trace:embedded-run] core-plugin-tool stages: runId=${params.runId} sessionId=${params.sessionId} accountId=${params.agentAccountId ?? ""} phase=${phase}`, summary);
 +		if (shouldWarn) log$2.warn(message);
 +		else log$2.trace(message);
 +	};

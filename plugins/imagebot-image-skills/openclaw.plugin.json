@@ -12,10 +12,11 @@
   },
   "contracts": {
     "tools": [
+      "image_skill",
       "image_skill_lookup",
+      "image_skill_recent",
       "image_skill_save_reference",
-      "image_skill_note_preference",
-      "image_skill_recent"
+      "image_skill_note_preference"
     ]
   },
   "configSchema": {

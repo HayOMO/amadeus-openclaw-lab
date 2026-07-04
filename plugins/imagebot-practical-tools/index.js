@@ -18,6 +18,8 @@ import {
   installBrowserNetworkGuard,
   isPrivateIp
 } from "../imagebot-shared/public-network-guard.mjs";
+import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
+import { appendFileLocked, withStateFileLock, writeJsonAtomic } from "../imagebot-shared/state-file.mjs";
 
 const WEB_SNAPSHOT_TOOL = "web_snapshot";
 const WEB_CARD_TOOL = "web_card";
@@ -25,6 +27,7 @@ const MEDIA_TRANSFORM_TOOL = "media_transform";
 const ARTIFACT_RECENT_TOOL = "artifact_recent";
 const ARTIFACT_SEARCH_TOOL = "artifact_search";
 const ARTIFACT_GET_TOOL = "artifact_get";
+const ARTIFACT_TOOL = "artifact";
 const QR_TOOL = "qr_tool";
 const PDF_RENDER_TOOL = "pdf_render";
 const AV_MEDIA_TOOL = "av_media";
@@ -39,7 +42,13 @@ const MAX_RECENT = 20;
 const DEFAULT_RECENT = 8;
 const MAX_WEB_TEXT_CHARS = 12_000;
 const MAX_WEB_WAIT_MS = 8_000;
+const MAX_WEB_SCROLL_WAIT_MS = 2_500;
 const DEFAULT_WEB_WAIT_MS = 1_200;
+const MAX_WEB_SCROLL_STEPS = 8;
+const WEB_VERIFICATION_WAIT_MS = 8_000;
+const REDIRECT_PROBE_TIMEOUT_MS = 8_000;
+const REDIRECT_PROBE_CACHE_TTL_MS = 2 * 60 * 1000;
+const REDIRECT_PROBE_CACHE_MAX = 256;
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024;
 const PYTHON_TIMEOUT_MS = 45_000;
 const WEB_TIMEOUT_MS = 30_000;
@@ -166,6 +175,7 @@ const pluginDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(pluginDir, "..", "..");
 const toolTurnCounters = new Map();
 const browserRiskStateLocks = new Map();
+const redirectProbeCache = new Map();
 
 function homeDir() {
   return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
@@ -312,8 +322,7 @@ async function readBrowserRiskState(config) {
 
 async function writeBrowserRiskState(config, state) {
   const filePath = browserRiskStatePath(config);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  await writeJsonAtomic(filePath, state, { space: 2 });
 }
 
 async function withBrowserRiskStateLock(config, fn) {
@@ -335,8 +344,7 @@ async function withBrowserRiskStateLock(config, fn) {
 }
 
 async function appendJsonLine(filePath, record) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.appendFile(filePath, `${JSON.stringify(record)}\n`, "utf8");
+  await appendFileLocked(filePath, `${JSON.stringify(record)}\n`, "utf8");
 }
 
 async function readTail(filePath, maxBytes = MAX_ARTIFACT_READ_BYTES) {
@@ -497,7 +505,7 @@ function browserRiskHistory(platformState = {}, now = Date.now()) {
 function browserRiskBackoff(platformState = {}, policy, now = Date.now()) {
   const events = Array.isArray(platformState.events) ? platformState.events : [];
   const candidates = events
-    .filter((entry) => ["login_redirect", "verification_or_risk_wall"].includes(String(entry?.kind || "")))
+    .filter((entry) => ["login_redirect", "verification_or_risk_wall", "cloudflare_block", "cloudflare_challenge"].includes(String(entry?.kind || "")))
     .map((entry) => ({ ...entry, at: Number(entry?.at || 0) }))
     .filter((entry) => entry.at > 0)
     .sort((a, b) => b.at - a.at);
@@ -584,22 +592,64 @@ async function recordBrowserRiskEvent(config, platform, event) {
   });
 }
 
-function classifyBrowserRiskPage(platform, finalUrl = "", bodyText = "") {
+function classifyBrowserRiskPage(platform, finalUrl = "", bodyText = "", title = "") {
+  const url = String(finalUrl || "");
+  const text = `${String(title || "")}\n${String(bodyText || "")}`;
+  if (/cf-chl-|cdn-cgi\/challenge-platform|Cloudflare Ray ID|Attention Required!\s*\|\s*Cloudflare|Just a moment\.\.\.|checking your browser|verify you are human|Sorry, you have been blocked/i.test(`${url}\n${text}`)) {
+    return /Sorry, you have been blocked|Attention Required!\s*\|\s*Cloudflare|Cloudflare Ray ID/i.test(text)
+      ? "cloudflare_block"
+      : "cloudflare_challenge";
+  }
+  if (/captcha|security check|verification required|access denied|unusual traffic|verify you are human/i.test(text)) {
+    return "verification_or_risk_wall";
+  }
   if (!platform) return "";
   if (platform.loginUrl?.test(String(finalUrl || ""))) return "login_redirect";
-  const text = String(bodyText || "");
   if (platform.riskText?.test(text)) return "verification_or_risk_wall";
   return "";
 }
 
+function redirectProbeCacheStats() {
+  const now = Date.now();
+  for (const [key, entry] of redirectProbeCache.entries()) {
+    if (!entry || entry.expiresAt <= now) redirectProbeCache.delete(key);
+  }
+  return { entries: redirectProbeCache.size };
+}
+
+function readRedirectProbeCache(cacheKey) {
+  const entry = redirectProbeCache.get(cacheKey);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    redirectProbeCache.delete(cacheKey);
+    return null;
+  }
+  return { ...entry.result, chain: [...(entry.result.chain || [])] };
+}
+
+function rememberRedirectProbe(cacheKey, result) {
+  redirectProbeCache.set(cacheKey, {
+    expiresAt: Date.now() + REDIRECT_PROBE_CACHE_TTL_MS,
+    result: { ...result, chain: [...(result.chain || [])] }
+  });
+  while (redirectProbeCache.size > REDIRECT_PROBE_CACHE_MAX) {
+    const oldestKey = redirectProbeCache.keys().next().value;
+    if (!oldestKey) break;
+    redirectProbeCache.delete(oldestKey);
+  }
+}
+
 async function resolveRedirects(startUrl, signal) {
   let current = normalizeUrlInput(startUrl);
+  const cacheKey = current.toString();
+  const cached = readRedirectProbeCache(cacheKey);
+  if (cached) return cached;
   const chain = [];
   for (let i = 0; i < 4; i++) {
     await assertPublicHostname(current.hostname);
     chain.push(current.toString());
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error("redirect probe timed out")), 8_000);
+    const timer = setTimeout(() => controller.abort(new Error("redirect probe timed out")), REDIRECT_PROBE_TIMEOUT_MS);
     const abortParent = () => controller.abort(signal?.reason);
     if (signal) {
       if (signal.aborted) abortParent();
@@ -620,10 +670,22 @@ async function resolveRedirects(startUrl, signal) {
           headers: { "user-agent": USER_AGENT, accept: "text/html,*/*;q=0.8", range: "bytes=0-2048" }
         });
       });
-      if (![301, 302, 303, 307, 308].includes(response.status)) return { finalUrl: current.toString(), chain };
+      if (![301, 302, 303, 307, 308].includes(response.status)) {
+        const result = { finalUrl: current.toString(), chain };
+        rememberRedirectProbe(cacheKey, result);
+        return result;
+      }
       const location = response.headers.get("location");
-      if (!location) return { finalUrl: current.toString(), chain };
+      if (!location) {
+        const result = { finalUrl: current.toString(), chain };
+        rememberRedirectProbe(cacheKey, result);
+        return result;
+      }
       current = new URL(location, current);
+    } catch (error) {
+      const result = { finalUrl: current.toString(), chain, probeError: clip(error?.message || error, 180) };
+      if (!signal?.aborted) rememberRedirectProbe(cacheKey, result);
+      return result;
     } finally {
       clearTimeout(timer);
       if (signal) signal.removeEventListener("abort", abortParent);
@@ -807,6 +869,43 @@ function readWebActions(params) {
   }));
 }
 
+function readOptionalWebNumber(params, key, min, max) {
+  const raw = isRecord(params) ? params[key] : undefined;
+  if (raw === undefined || raw === null || raw === "") return null;
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(value)) return null;
+  return Math.max(min, Math.min(max, Math.trunc(value)));
+}
+
+function readWebScrollPlan(params, viewportHeight) {
+  const rawMode = readString(params, "scrollMode", "none").toLowerCase().replace(/[\s_-]+/g, "");
+  const scrollY = readOptionalWebNumber(params, "scrollY", 0, 250_000);
+  const modeAliases = new Map([
+    ["none", "none"],
+    ["off", "none"],
+    ["false", "none"],
+    ["page", "one_page"],
+    ["onepage", "one_page"],
+    ["pagedown", "one_page"],
+    ["down", "one_page"],
+    ["read", "paged"],
+    ["paged", "paged"],
+    ["scroll", "paged"],
+    ["deep", "bottom"],
+    ["bottom", "bottom"],
+    ["tobottom", "bottom"],
+    ["all", "bottom"]
+  ]);
+  const mode = scrollY !== null && (!rawMode || rawMode === "none")
+    ? "absolute"
+    : (modeAliases.get(rawMode) || "none");
+  const defaultSteps = mode === "one_page" ? 1 : mode === "none" || mode === "absolute" ? 0 : 4;
+  const scrollSteps = readNumber(params, "scrollSteps", defaultSteps, 0, MAX_WEB_SCROLL_STEPS);
+  const scrollWaitMs = readNumber(params, "scrollWaitMs", 600, 0, MAX_WEB_SCROLL_WAIT_MS);
+  const pageDelta = Math.max(240, Math.min(3000, Math.trunc(viewportHeight * 0.85)));
+  return { mode, scrollY, scrollSteps, scrollWaitMs, pageDelta };
+}
+
 async function clickTextOnPage(page, text) {
   const needle = String(text || "").trim().toLowerCase();
   if (!needle) throw new Error("click_text requires text");
@@ -868,6 +967,65 @@ async function applyWebActions(page, actions) {
   return log;
 }
 
+async function pageScrollMetrics(page) {
+  return await page.evaluate(() => {
+    const scrollingElement = document.scrollingElement || document.documentElement || document.body;
+    const scrollTop = Number(window.scrollY || scrollingElement?.scrollTop || 0);
+    const viewportHeight = Number(window.innerHeight || document.documentElement?.clientHeight || 0);
+    const documentHeight = Number(scrollingElement?.scrollHeight || document.documentElement?.scrollHeight || document.body?.scrollHeight || 0);
+    const maxScrollY = Math.max(0, documentHeight - viewportHeight);
+    return {
+      scrollY: Math.max(0, Math.round(scrollTop)),
+      maxScrollY: Math.round(maxScrollY),
+      viewportHeight: Math.round(viewportHeight),
+      documentHeight: Math.round(documentHeight),
+      reachedBottom: scrollTop >= maxScrollY - 8
+    };
+  });
+}
+
+async function applyWebScrollPlan(page, plan) {
+  const log = [];
+  if (!plan || (plan.mode === "none" && plan.scrollY === null)) {
+    return { log, metrics: await pageScrollMetrics(page).catch(() => null) };
+  }
+
+  if (plan.scrollY !== null) {
+    await page.evaluate((targetY) => window.scrollTo(0, targetY), plan.scrollY);
+    await page.waitForTimeout(plan.scrollWaitMs);
+    const metrics = await pageScrollMetrics(page);
+    log.push({ type: "scroll_y", status: "ok", scrollY: metrics.scrollY, maxScrollY: metrics.maxScrollY });
+    if (plan.mode === "absolute" || plan.mode === "none") return { log, metrics };
+  }
+
+  let metrics = await pageScrollMetrics(page);
+  const targetSteps = plan.mode === "one_page" ? 1 : plan.scrollSteps;
+  for (let index = 0; index < targetSteps; index++) {
+    const before = metrics;
+    const delta = plan.mode === "bottom" ? Math.max(plan.pageDelta, before.maxScrollY - before.scrollY) : plan.pageDelta;
+    await page.mouse.wheel(0, delta).catch(() => {});
+    await page.waitForTimeout(plan.scrollWaitMs);
+    metrics = await pageScrollMetrics(page);
+    if (metrics.scrollY <= before.scrollY + 4 && !metrics.reachedBottom) {
+      await page.evaluate((pixels) => window.scrollBy(0, pixels), delta);
+      await page.waitForTimeout(plan.scrollWaitMs);
+      metrics = await pageScrollMetrics(page);
+    }
+    log.push({
+      type: "scroll",
+      status: "ok",
+      mode: plan.mode,
+      step: index + 1,
+      scrollY: metrics.scrollY,
+      maxScrollY: metrics.maxScrollY,
+      reachedBottom: metrics.reachedBottom
+    });
+    if (metrics.reachedBottom) break;
+    if (metrics.scrollY <= before.scrollY + 4 && metrics.documentHeight <= before.documentHeight + 4) break;
+  }
+  return { log, metrics };
+}
+
 async function removeDirQuiet(dir) {
   await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
 }
@@ -882,10 +1040,15 @@ async function runWebSnapshot(config, params, signal, ctx = {}) {
   const maxTextChars = readNumber(params, "maxTextChars", 6_000, 500, MAX_WEB_TEXT_CHARS);
   const filenameHint = safeBaseName(readString(params, "filename", ""), "web-snapshot");
   const actions = readWebActions(params);
-  const { finalUrl, chain } = await resolveRedirects(inputUrl, signal);
+  const scrollPlan = readWebScrollPlan(params, height);
+  const riskActions = [
+    ...actions,
+    ...(scrollPlan.mode !== "none" || scrollPlan.scrollY !== null ? [{ type: "scroll" }] : [])
+  ];
+  const { finalUrl, chain, probeError } = await resolveRedirects(inputUrl, signal);
   await assertPublicHostname(new URL(finalUrl).hostname);
   const accountPlatform = accountBrowserPlatformForUrl(finalUrl) || accountBrowserPlatformForUrl(inputUrl);
-  const risk = await claimBrowserRiskVisit(config, accountPlatform, finalUrl, actions);
+  const risk = await claimBrowserRiskVisit(config, accountPlatform, finalUrl, riskActions);
 
   const chromium = await getChromium();
   const outputDir = path.join(mediaRoot(config), "web-snapshots");
@@ -906,11 +1069,23 @@ async function runWebSnapshot(config, params, signal, ctx = {}) {
     await page.goto(finalUrl, { waitUntil: "domcontentloaded", timeout: WEB_TIMEOUT_MS });
     if (waitMs > 0) await page.waitForTimeout(waitMs);
     const earlyBodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 3000) || "").catch(() => "");
-    let riskStatus = classifyBrowserRiskPage(accountPlatform, page.url(), earlyBodyText);
+    const earlyTitle = await page.title().catch(() => "");
+    let riskStatus = classifyBrowserRiskPage(accountPlatform, page.url(), earlyBodyText, earlyTitle);
+    if (riskStatus === "cloudflare_challenge") {
+      const deadline = Date.now() + Math.max(0, WEB_VERIFICATION_WAIT_MS - waitMs);
+      while (riskStatus === "cloudflare_challenge" && Date.now() < deadline) {
+        await page.waitForTimeout(Math.min(1_000, Math.max(0, deadline - Date.now())));
+        const retryText = await page.evaluate(() => document.body?.innerText?.slice(0, 3000) || "").catch(() => "");
+        const retryTitle = await page.title().catch(() => "");
+        riskStatus = classifyBrowserRiskPage(accountPlatform, page.url(), retryText, retryTitle);
+      }
+    }
     if (riskStatus) {
       await recordBrowserRiskEvent(config, accountPlatform, { kind: riskStatus, url: clip(page.url(), 240) });
     }
     const actionLog = riskStatus ? [{ type: "risk_guard", status: "stopped", error: riskStatus }] : await applyWebActions(page, actions);
+    const scrollResult = riskStatus ? { log: [], metrics: await pageScrollMetrics(page).catch(() => null) } : await applyWebScrollPlan(page, scrollPlan);
+    const combinedActions = [...actionLog, ...scrollResult.log];
     const finalPageUrl = page.url();
     await assertPublicHostname(new URL(finalPageUrl).hostname);
     const title = await page.title().catch(() => "");
@@ -929,7 +1104,7 @@ async function runWebSnapshot(config, params, signal, ctx = {}) {
         links
       };
     }).catch(() => ({ description: "", ogTitle: "", bodyText: "", headings: [], links: [] }));
-    const finalRiskStatus = riskStatus || classifyBrowserRiskPage(accountPlatform, finalPageUrl, metadata.bodyText || "");
+    const finalRiskStatus = riskStatus || classifyBrowserRiskPage(accountPlatform, finalPageUrl, metadata.bodyText || "", title);
     if (finalRiskStatus && !riskStatus) {
       await recordBrowserRiskEvent(config, accountPlatform, { kind: finalRiskStatus, url: clip(finalPageUrl, 240) });
       riskStatus = finalRiskStatus;
@@ -954,16 +1129,17 @@ async function runWebSnapshot(config, params, signal, ctx = {}) {
       url: finalPageUrl,
       originalUrl: inputUrl,
       redirectChain: chain,
+      redirectProbeError: probeError || "",
       screenshotPath: outputPath,
       textPath,
       mediaPath: outputPath,
       mimeType: "image/png",
       sizeBytes: stat.size,
       summary: clip(`${title}\n${metadata.description || ""}\n${bodyText}`, 800),
-      tags: ["web", "snapshot", accountPlatform ? "account-browser" : "public-browser", actions.length ? "interactive" : ""].filter(Boolean),
+      tags: ["web", "snapshot", accountPlatform ? "account-browser" : "public-browser", riskActions.length ? "interactive" : ""].filter(Boolean),
       browserProfile: accountPlatform ? `account:${accountPlatform.id}` : "ephemeral-public"
     }, ctx);
-    return { artifact, title, finalUrl: finalPageUrl, description: metadata.description || "", headings: metadata.headings || [], links: metadata.links || [], bodyText, outputPath, sizeBytes: stat.size, fullPage, width, height, actions: actionLog, risk, riskStatus, browserProfile: artifact.browserProfile, profileDir: browserMeta.profileDir || "" };
+    return { artifact, title, finalUrl: finalPageUrl, description: metadata.description || "", headings: metadata.headings || [], links: metadata.links || [], bodyText, outputPath, sizeBytes: stat.size, fullPage, width, height, actions: combinedActions, scroll: scrollResult.metrics || null, redirectProbeError: probeError || "", risk, riskStatus, browserProfile: artifact.browserProfile, profileDir: browserMeta.profileDir || "" };
   });
 }
 
@@ -988,7 +1164,7 @@ function isInside(root, target) {
 }
 
 async function resolveAllowedMediaInput(config, raw) {
-  const input = readMediaPath(raw);
+  const input = readMediaPath(raw, config);
   if (!input) throw new Error("input image path is required");
   if (/^https?:\/\//i.test(input)) throw new Error("media_transform only accepts Telegram/local bot media paths, not URLs");
   const resolved = path.resolve(input);
@@ -1004,7 +1180,7 @@ async function resolveAllowedMediaInput(config, raw) {
 }
 
 async function resolveAllowedBotFile(config, raw, { label = "file", allowedExts = null, maxBytes = MAX_MEDIA_BYTES } = {}) {
-  const input = readMediaPath(raw);
+  const input = readMediaPath(raw, config);
   if (!input) throw new Error(`${label} path is required`);
   if (/^https?:\/\//i.test(input)) throw new Error(`${label} tools only accept Telegram/bot-local media paths, not URLs`);
   const resolved = path.resolve(input);
@@ -1019,11 +1195,8 @@ async function resolveAllowedBotFile(config, raw, { label = "file", allowedExts 
   return { path: resolved, stat, ext };
 }
 
-function readMediaPath(raw) {
-  const value = String(raw || "").trim().replace(/^`+|`+$/g, "");
-  if (!value) return "";
-  if (/^file:\/\//i.test(value)) return decodeURIComponent(value.replace(/^file:\/\//i, ""));
-  return value;
+function readMediaPath(raw, config = {}) {
+  return mediaReferenceToLocalPath(raw, config);
 }
 
 function normalizeFormat(value, fallback = "jpg") {
@@ -1662,8 +1835,7 @@ async function loadWatches(config) {
 
 async function saveWatches(config, watches) {
   const filePath = watchStorePath(config);
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify({ version: 1, watches }, null, 2), "utf8");
+  await writeJsonAtomic(filePath, { version: 1, watches }, { space: 2 });
 }
 
 function htmlToText(html) {
@@ -1833,8 +2005,8 @@ const webSnapshotTool = {
   name: WEB_SNAPSHOT_TOOL,
   label: "Web Snapshot",
   description:
-    "Open a public http/https webpage in a bot-owned Playwright temporary headless profile, save a screenshot, extract visible text, and record an artifact. " +
-    "Use when the user needs page visuals, UI inspection, product/forum page reading, or a safe preview of a link.",
+    "Open a public http/https page in a bot-owned Playwright profile, save a screenshot, extract visible text, and record an artifact. " +
+    "Supports bounded click/scroll/wait actions for tabs, comments, image grids, load-more controls, and expanded sections.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -1844,12 +2016,16 @@ const webSnapshotTool = {
       width: { type: "number", description: "Viewport width, 360-1920. Default 1365." },
       height: { type: "number", description: "Viewport height, 360-1600. Default 768." },
       waitMs: { type: "number", description: "Extra wait after DOM load, 0-8000 ms. Default 1200." },
+      scrollMode: { type: "string", enum: ["none", "one_page", "paged", "bottom"], description: "Optional bounded scrolling after page load/actions. Use one_page for 'down', paged for reading lower content, bottom for infinite/lazy pages. Default none." },
+      scrollY: { type: "number", description: "Optional absolute vertical scroll offset before screenshot, 0-250000. Useful when continuing below a previous snapshot." },
+      scrollSteps: { type: "number", description: "Bounded scroll steps for paged/bottom modes, 0-8. Default 1 for one_page, 4 for paged/bottom." },
+      scrollWaitMs: { type: "number", description: "Wait after each scroll, 0-2500 ms. Default 600." },
       includeText: { type: "boolean", description: "Extract visible text. Default true." },
       maxTextChars: { type: "number", description: "Max visible text chars returned, 500-12000. Default 6000." },
       filename: { type: "string", description: "Optional short safe filename hint." },
       actions: {
         type: "array",
-        description: "Optional bounded interaction steps before screenshot. Supported types: click_text, click_selector, fill_selector, press, scroll, wait.",
+        description: "Optional bounded reading steps before screenshot. Supported types: click_text, click_selector, fill_selector, press, scroll, wait.",
         items: {
           type: "object",
           additionalProperties: false,
@@ -1878,7 +2054,7 @@ const webSnapshotTool = {
           params,
           ctx,
           label: `web_snapshot ${readString(params, "url")}`,
-          timeoutMs: WEB_TIMEOUT_MS + MAX_WEB_WAIT_MS + 15_000,
+          timeoutMs: WEB_TIMEOUT_MS + MAX_WEB_WAIT_MS + MAX_WEB_SCROLL_STEPS * MAX_WEB_SCROLL_WAIT_MS + 15_000,
           runner: runWebSnapshot,
           formatter: (result) => backgroundResultFromArtifact("WEB_SNAPSHOT", result, {
             finalUrl: result.finalUrl,
@@ -1888,6 +2064,8 @@ const webSnapshotTool = {
             actions: result.actions || [],
             risk: result.risk || null,
             riskStatus: result.riskStatus || "",
+            scroll: result.scroll || null,
+            redirectProbeError: result.redirectProbeError || "",
             browserProfile: result.browserProfile || ""
           })
         });
@@ -1895,11 +2073,13 @@ const webSnapshotTool = {
       const result = await runWebSnapshot(config, params, signal, ctx);
       const image = await fs.readFile(result.outputPath);
       const text = [
-        "WEB_SNAPSHOT ok",
+        result.riskStatus ? "WEB_SNAPSHOT verification_required" : "WEB_SNAPSHOT ok",
         `artifact_id: ${result.artifact.artifactId}`,
         `title: ${result.title || "(untitled)"}`,
         `url: ${result.finalUrl}`,
         `screenshot: ${result.width}x${result.height}${result.fullPage ? " fullPage" : " viewport"}`,
+        result.scroll ? `scroll: y=${result.scroll.scrollY}/${result.scroll.maxScrollY} viewport=${result.scroll.viewportHeight} reachedBottom=${result.scroll.reachedBottom ? "yes" : "no"}` : "",
+        result.redirectProbeError ? `redirect_probe: skipped after ${result.redirectProbeError}` : "",
         result.risk?.platform ? `account_browser: ${result.risk.platform.label} ${result.risk.tier || "interactive"} ${result.risk.hourCount || 0}/${result.risk.limits?.hourlyLimit || "?"}h ${result.risk.dailyCount || 0}/${result.risk.limits?.dailyLimit || "?"}d` : "",
         result.riskStatus ? `risk_status: ${result.riskStatus}` : "",
         result.actions?.length ? `actions: ${result.actions.map((entry) => `${entry.type}:${entry.status}`).join(" | ")}` : "",
@@ -1907,14 +2087,14 @@ const webSnapshotTool = {
         result.headings?.length ? `headings: ${result.headings.slice(0, 8).join(" | ")}` : "",
         result.bodyText ? `visibleText:\n${clip(result.bodyText, 1600)}` : "",
         `MEDIA: \`${result.outputPath}\``,
-        "Use the screenshot and visible text to answer. Include the MEDIA line only if the user asks to receive the screenshot."
+        result.riskStatus ? "Blocked-source state: the target page was not successfully read. Use another source or ask for manual browser verification." : "Use the screenshot, visible text, action results, and scroll metrics as page evidence. Include the MEDIA line only if the user asks to receive the screenshot."
       ].filter(Boolean).join("\n");
       return {
         content: [
           { type: "text", text },
           { type: "image", data: image.toString("base64"), mimeType: "image/png", fileName: path.basename(result.outputPath) }
         ],
-        details: { status: "ok", artifact: result.artifact, url: result.finalUrl, path: result.outputPath, risk: result.risk || null, riskStatus: result.riskStatus || "", browserProfile: result.browserProfile || "", media: { path: result.outputPath, mediaUrl: result.outputPath, mimeType: "image/png", outbound: false } }
+        details: { status: "ok", artifact: result.artifact, url: result.finalUrl, path: result.outputPath, risk: result.risk || null, riskStatus: result.riskStatus || "", scroll: result.scroll || null, redirectProbeError: result.redirectProbeError || "", browserProfile: result.browserProfile || "", media: { path: result.outputPath, mediaUrl: result.outputPath, mimeType: "image/png", outbound: false } }
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1928,7 +2108,7 @@ const webCardTool = {
   label: "Web Card",
   description:
     "Create a compact card for a public webpage: title, final URL, description/headings, short visible-text preview, screenshot, and artifact id. " +
-    "Use for quick URL previews before deeper reading or screenshot delivery.",
+    "Use for quick URL previews before deeper reading, then move to web_snapshot when clicks, scrolling, or fuller page evidence are useful.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -1989,7 +2169,7 @@ const webCardTool = {
         result.actions?.length ? `actions: ${result.actions.map((entry) => `${entry.type}:${entry.status}`).join(" | ")}` : "",
         result.bodyText ? `preview:\n${clip(result.bodyText, 900)}` : "",
         `MEDIA: \`${result.outputPath}\``,
-        "This is a compact preview card. Use web_snapshot for full-page or more detailed visual inspection."
+        "This is a compact preview card. Use web_snapshot for clicks, scrolling, full-page reading, or more detailed visual inspection."
       ].filter(Boolean);
       return {
         content: [
@@ -2015,7 +2195,7 @@ const mediaTransformTool = {
     type: "object",
     additionalProperties: false,
     properties: {
-      input: { type: "string", description: "Telegram/bot-local image path from delivered media, gallery, generated image, or artifact." },
+      input: { type: "string", description: "Telegram/bot-local image path, MEDIA line, media:// URI, or current/reply media handle resolved by runtime." },
       image: { type: "string", description: "Alias for input." },
       action: { type: "string", enum: ["compress", "convert", "resize", "sticker", "strip_exif", "crop", "rotate", "flip", "flop", "normalize", "grayscale", "blur", "sharpen"], description: "Transform action. Default compress." },
       format: { type: "string", enum: ["jpg", "png", "webp"], description: "Output format. Sticker always uses webp." },
@@ -2110,7 +2290,7 @@ const artifactRecentTool = {
       const count = readNumber(params, "count", DEFAULT_RECENT, 1, MAX_RECENT);
       const kind = readString(params, "kind").toLowerCase();
       const records = (await loadArtifacts(config, filter)).filter((record) => !kind || String(record.kind || "").toLowerCase() === kind).slice(0, count);
-      const text = [`ARTIFACT_RECENT ok results=${records.length}`, "Use artifact_get for details or MEDIA resend."];
+      const text = [`ARTIFACT_RECENT ok results=${records.length}`, "Use artifact action=get for details or MEDIA resend."];
       records.forEach((record, index) => text.push(formatArtifactLine(record, index + 1)));
       return { content: [{ type: "text", text: text.join("\n") }], details: { status: "ok", results: records } };
     } catch (error) {
@@ -2147,7 +2327,7 @@ const artifactSearchTool = {
         .filter((entry) => entry.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, count);
-      const text = [`ARTIFACT_SEARCH ok results=${scored.length}`, "Use artifact_get for details or MEDIA resend."];
+      const text = [`ARTIFACT_SEARCH ok results=${scored.length}`, "Use artifact action=get for details or MEDIA resend."];
       scored.forEach((entry, index) => text.push(`${formatArtifactLine(entry.record, index + 1)} | score=${entry.score}`));
       return { content: [{ type: "text", text: text.join("\n") }], details: { status: "ok", results: scored.map((entry) => entry.record) } };
     } catch (error) {
@@ -2183,6 +2363,40 @@ const artifactGetTool = {
   }
 };
 
+const artifactTool = {
+  name: ARTIFACT_TOOL,
+  label: "Artifact",
+  description: "Find stored webpage/media artifacts through action=recent, search, or get.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      action: {
+        type: "string",
+        enum: ["recent", "search", "get"],
+        description: "Artifact action. Default get when id is supplied, search when query is supplied, otherwise recent."
+      },
+      query: { type: "string", description: "Search terms: title, URL, tag, artifact id, filename, summary." },
+      count: { type: "number", description: `Number of artifacts, 1-${MAX_RECENT}. Default ${DEFAULT_RECENT}.` },
+      kind: { type: "string", description: "Optional kind filter, e.g. web_snapshot or media_transform." },
+      id: { type: "string", description: "Artifact id, screenshot path, or media path." },
+      artifact_id: { type: "string", description: "Alias for id." }
+    }
+  },
+  async execute(toolCallId, params, signal, onUpdate, ctx) {
+    const requested = readString(params, "action").toLowerCase();
+    const action = requested
+      || (readString(params, "id") || readString(params, "artifact_id") ? "get" : readString(params, "query") ? "search" : "recent");
+    if (action === "recent") return artifactRecentTool.execute(toolCallId, params, signal, onUpdate, ctx);
+    if (action === "search") return artifactSearchTool.execute(toolCallId, params, signal, onUpdate, ctx);
+    if (action === "get") return artifactGetTool.execute(toolCallId, params, signal, onUpdate, ctx);
+    return {
+      content: [{ type: "text", text: "ARTIFACT error: action must be recent, search, or get." }],
+      details: { status: "failed", error: "invalid action" }
+    };
+  }
+};
+
 const qrTool = {
   name: QR_TOOL,
   label: "QR Tool",
@@ -2194,7 +2408,7 @@ const qrTool = {
       action: { type: "string", enum: ["generate", "decode"], description: "generate creates a QR image; decode reads QR content from an image." },
       text: { type: "string", description: "Text/content for generate." },
       content: { type: "string", description: "Alias for text." },
-      image: { type: "string", description: "Bot-local image path for decode." },
+      image: { type: "string", description: "Bot-local image path, MEDIA line, media:// URI, or current/reply media handle for decode." },
       input: { type: "string", description: "Alias for image." },
       filename: { type: "string", description: "Optional safe filename hint." },
       boxSize: { type: "number", description: "QR module size, 4-24. Default 10." },
@@ -2252,7 +2466,7 @@ const pdfRenderTool = {
     type: "object",
     additionalProperties: false,
     properties: {
-      pdf: { type: "string", description: "Bot-local PDF path." },
+      pdf: { type: "string", description: "Bot-local PDF path, MEDIA line, media:// URI, or current/reply media handle resolved by runtime." },
       input: { type: "string", description: "Alias for pdf." },
       document: { type: "string", description: "Alias for pdf." },
       page: { type: "string", description: "One-based page number, e.g. 1." },
@@ -2315,7 +2529,7 @@ const avMediaTool = {
     type: "object",
     additionalProperties: false,
     properties: {
-      input: { type: "string", description: "Bot-local audio/video path." },
+      input: { type: "string", description: "Bot-local audio/video path, MEDIA line, media:// URI, or current/reply media handle resolved by runtime." },
       media: { type: "string", description: "Alias for input." },
       video: { type: "string", description: "Alias for input." },
       audio: { type: "string", description: "Alias for input." },
@@ -2439,7 +2653,6 @@ const webWatchAddTool = {
     try {
       const config = webWatchAddTool.config || {};
       const snapshot = await fetchWatchSnapshot(readString(params, "url"), signal);
-      const watches = await loadWatches(config);
       const id = `watch_${sha256(snapshot.finalUrl, 14)}`;
       const watch = {
         id,
@@ -2451,9 +2664,12 @@ const webWatchAddTool = {
         title: snapshot.title,
         preview: clip(snapshot.text, 500)
       };
-      const next = watches.filter((entry) => entry.id !== id);
-      next.unshift(watch);
-      await saveWatches(config, next);
+      await withStateFileLock(watchStorePath(config), async () => {
+        const watches = await loadWatches(config);
+        const next = watches.filter((entry) => entry.id !== id);
+        next.unshift(watch);
+        await saveWatches(config, next);
+      });
       return { content: [{ type: "text", text: `WEB_WATCH_ADD ok\nid: ${id}\ntitle: ${watch.title}\nurl: ${watch.url}\ndigest: ${watch.digest}` }], details: { status: "ok", watch } };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2480,7 +2696,7 @@ const webWatchListTool = {
   }
 };
 
-async function runWebWatchCheck(config, params, signal) {
+async function runWebWatchCheckUnlocked(config, params, signal) {
   const id = readString(params, "id");
   const update = readBoolean(params, "update", true);
   const watches = await loadWatches(config);
@@ -2500,6 +2716,11 @@ async function runWebWatchCheck(config, params, signal) {
   }
   if (update) await saveWatches(config, watches);
   return { status: "ok", checked };
+}
+
+async function runWebWatchCheck(config, params, signal) {
+  if (!readBoolean(params, "update", true)) return await runWebWatchCheckUnlocked(config, params, signal);
+  return await withStateFileLock(watchStorePath(config), () => runWebWatchCheckUnlocked(config, params, signal));
 }
 
 const webWatchCheckTool = {
@@ -2537,24 +2758,9 @@ const webWatchCheckTool = {
           })
         });
       }
-      const id = readString(params, "id");
-      const update = readBoolean(params, "update", true);
-      const watches = await loadWatches(config);
-      const selected = id ? watches.filter((watch) => watch.id === id) : watches;
-      if (id && selected.length === 0) return { content: [{ type: "text", text: `WEB_WATCH_CHECK no match id=${id}` }], details: { status: "no_match" } };
-      const checked = [];
-      for (const watch of selected.slice(0, 10)) {
-        const snapshot = await fetchWatchSnapshot(watch.url, signal);
-        const changed = snapshot.digest !== watch.digest;
-        checked.push({ id: watch.id, url: watch.url, title: snapshot.title, changed, oldDigest: watch.digest, newDigest: snapshot.digest, preview: clip(snapshot.text, 500) });
-        if (update) {
-          watch.checkedAt = new Date().toISOString();
-          watch.digest = snapshot.digest;
-          watch.title = snapshot.title;
-          watch.preview = clip(snapshot.text, 500);
-        }
-      }
-      if (update) await saveWatches(config, watches);
+      const result = await runWebWatchCheck(config, params, signal);
+      if (result.status === "no_match") return { content: [{ type: "text", text: `WEB_WATCH_CHECK no match id=${result.id}` }], details: { status: "no_match" } };
+      const checked = result.checked;
       const lines = [`WEB_WATCH_CHECK ok results=${checked.length}`];
       checked.forEach((entry, index) => lines.push(`${index + 1}. id=${entry.id} | changed=${entry.changed} | title=${clip(entry.title, 120)} | url=${entry.url}`));
       return { content: [{ type: "text", text: lines.join("\n") }], details: { status: "ok", checked } };
@@ -2579,10 +2785,13 @@ const webWatchDeleteTool = {
     try {
       const config = webWatchDeleteTool.config || {};
       const id = readString(params, "id");
-      const watches = await loadWatches(config);
-      const next = watches.filter((watch) => watch.id !== id);
-      await saveWatches(config, next);
-      return { content: [{ type: "text", text: `WEB_WATCH_DELETE ok id=${id} deleted=${next.length !== watches.length}` }], details: { status: "ok", deleted: next.length !== watches.length } };
+      const deleted = await withStateFileLock(watchStorePath(config), async () => {
+        const watches = await loadWatches(config);
+        const next = watches.filter((watch) => watch.id !== id);
+        await saveWatches(config, next);
+        return next.length !== watches.length;
+      });
+      return { content: [{ type: "text", text: `WEB_WATCH_DELETE ok id=${id} deleted=${deleted}` }], details: { status: "ok", deleted } };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { content: [{ type: "text", text: `WEB_WATCH_DELETE error: ${message}` }], details: { status: "failed", error: message } };
@@ -2594,6 +2803,8 @@ export const __testing = {
   normalizeUrlInput,
   assertPublicHostname,
   resolveRedirects,
+  redirectProbeCacheStats,
+  clearRedirectProbeCache: () => redirectProbeCache.clear(),
   resolveAllowedMediaInput,
   resolveAllowedBotFile,
   runMediaTransform,
@@ -2606,7 +2817,10 @@ export const __testing = {
   fetchWatchSnapshot,
   runWebWatchCheck,
   readWebActions,
+  readWebScrollPlan,
   applyWebActions,
+  applyWebScrollPlan,
+  pageScrollMetrics,
   accountBrowserPlatformForUrl,
   accountBrowserPolicy,
   accountBrowserActionProfile,
@@ -2637,6 +2851,7 @@ export default {
     artifactRecentTool.config = config;
     artifactSearchTool.config = config;
     artifactGetTool.config = config;
+    artifactTool.config = config;
     qrTool.config = config;
     pdfRenderTool.config = config;
     avMediaTool.config = config;
@@ -2649,6 +2864,7 @@ export default {
     api.registerTool(webSnapshotTool, { name: WEB_SNAPSHOT_TOOL });
     api.registerTool(webCardTool, { name: WEB_CARD_TOOL });
     api.registerTool(mediaTransformTool, { name: MEDIA_TRANSFORM_TOOL });
+    api.registerTool(artifactTool, { name: ARTIFACT_TOOL });
     api.registerTool(artifactRecentTool, { name: ARTIFACT_RECENT_TOOL });
     api.registerTool(artifactSearchTool, { name: ARTIFACT_SEARCH_TOOL });
     api.registerTool(artifactGetTool, { name: ARTIFACT_GET_TOOL });

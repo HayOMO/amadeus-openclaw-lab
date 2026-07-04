@@ -1,0 +1,291 @@
+diff --git a/dist/tool-result-truncation-CFLypc-Q.js b/dist/tool-result-truncation-CFLypc-Q.js
+index 85c5547..4d6027d 100644
+--- a/dist/tool-result-truncation-CFLypc-Q.js
++++ b/dist/tool-result-truncation-CFLypc-Q.js
+@@ -47,6 +47,7 @@ const XL_CONTEXT_TOOL_RESULT_TOKENS = 2e5;
+ */
+ const MIN_KEEP_CHARS = 2e3;
+ const RECOVERY_MIN_KEEP_CHARS = 0;
++const IMAGE_BLOCK_MIN_DATA_CHARS = 1024;
+ const DEFAULT_SUFFIX = (truncatedChars) => formatContextLimitTruncationNotice(truncatedChars);
+ const COMPACT_RECOVERY_SUFFIX = (truncatedChars) => `[... ${Math.max(1, Math.floor(truncatedChars))} chars truncated; narrow args]`;
+ function resolveSuffixFactory(suffix) {
+@@ -167,36 +168,129 @@ function getToolResultTextLength(msg) {
+ 	}
+ 	return totalLength;
+ }
++function isToolResultImageBlock(block) {
++	return Boolean(block) && typeof block === "object" && block.type === "image";
++}
++function getImageBlockDataChars(block) {
++	if (!isToolResultImageBlock(block)) return 0;
++	const data = block.data;
++	if (typeof data === "string") return data.length;
++	if (!data || typeof data !== "object") return 0;
++	try {
++		const serialized = JSON.stringify(data);
++		return typeof serialized === "string" ? serialized.length : 0;
++	} catch {
++		return 0;
++	}
++}
++function getToolResultImageDataLength(msg) {
++	if (!msg || msg.role !== "toolResult") return 0;
++	const content = msg.content;
++	if (!Array.isArray(content)) return 0;
++	let totalLength = 0;
++	for (const block of content) totalLength += getImageBlockDataChars(block);
++	return totalLength;
++}
++function getToolResultPayloadLength(msg) {
++	return getToolResultTextLength(msg) + getToolResultImageDataLength(msg);
++}
++function formatImageBlockPruneNotice(block, dataChars) {
++	const parts = ["[saved image preview pruned from tool result history"];
++	if (typeof block.fileName === "string" && block.fileName) parts.push(`file=${block.fileName}`);
++	if (typeof block.mimeType === "string" && block.mimeType) parts.push(`mime=${block.mimeType}`);
++	parts.push(`base64Chars=${dataChars}]`);
++	return parts.join(" ");
++}
++const EMBEDDED_IMAGE_DATA_RE = /("data"\s*:\s*")([A-Za-z0-9+/=]{1024,})(")/g;
++function formatEmbeddedImageDataPruneNotice(dataChars) {
++	return `[embedded image data pruned from tool result history base64Chars=${dataChars}]`;
++}
++function compactToolResultEmbeddedImageDataText(text, minDataChars = IMAGE_BLOCK_MIN_DATA_CHARS) {
++	if (typeof text !== "string" || !text.includes('"data"')) return {
++		text,
++		changed: false
++	};
++	let changed = false;
++	const nextText = text.replace(EMBEDDED_IMAGE_DATA_RE, (match, prefix, data, suffix) => {
++		if (data.length < minDataChars) return match;
++		changed = true;
++		return `${prefix}${formatEmbeddedImageDataPruneNotice(data.length)}${suffix}`;
++	});
++	return {
++		text: nextText,
++		changed
++	};
++}
++function compactToolResultImageBlocks(msg, minDataChars = IMAGE_BLOCK_MIN_DATA_CHARS, options = {}) {
++	if (!msg || msg.role !== "toolResult") return msg;
++	const content = msg.content;
++	if (!Array.isArray(content)) return msg;
++	const preserveTopLevelImages = options.preserveTopLevelImages === true;
++	let changed = false;
++	const newContent = content.map((block) => {
++		if (block && typeof block === "object" && block.type === "text" && typeof block.text === "string") {
++			const compacted = compactToolResultEmbeddedImageDataText(block.text, minDataChars);
++			if (!compacted.changed) return block;
++			changed = true;
++			return {
++				...block,
++				text: compacted.text
++			};
++		}
++		const dataChars = getImageBlockDataChars(block);
++		if (preserveTopLevelImages || dataChars < minDataChars) return block;
++		changed = true;
++		return {
++			type: "text",
++			text: formatImageBlockPruneNotice(block, dataChars)
++		};
++	});
++	if (!changed) return msg;
++	return {
++		...msg,
++		content: newContent
++	};
++}
+ /**
+ * Truncate a tool result message's text content blocks to fit within maxChars.
+ * Returns a new message (does not mutate the original).
+ */
+ function truncateToolResultMessage(msg, maxChars, options = {}) {
++	const normalizedMsg = compactToolResultImageBlocks(msg, IMAGE_BLOCK_MIN_DATA_CHARS, {
++		preserveTopLevelImages: options.preserveImages === true
++	});
+ 	const suffixFactory = resolveSuffixFactory(options.suffix);
+ 	const minKeepChars = resolveEffectiveMinKeepChars({
+ 		maxChars,
+ 		minKeepChars: options.minKeepChars ?? MIN_KEEP_CHARS,
+ 		suffixFactory
+ 	});
+-	const content = msg.content;
+-	if (!Array.isArray(content)) return msg;
+-	const totalTextChars = getToolResultTextLength(msg);
+-	if (totalTextChars <= maxChars) return msg;
++	const content = normalizedMsg.content;
++	if (!Array.isArray(content)) return normalizedMsg;
++	const totalTextChars = getToolResultTextLength(normalizedMsg);
++	const imageDataChars = getToolResultImageDataLength(normalizedMsg);
++	if (totalTextChars + imageDataChars <= maxChars) return normalizedMsg;
++	if (totalTextChars <= 0) return normalizedMsg;
++	const textMaxChars = Math.max(0, maxChars - imageDataChars);
++	if (textMaxChars <= 0) return {
++		...normalizedMsg,
++		content: content.map((block) => block && typeof block === "object" && block.type === "text" && typeof block.text === "string" ? Object.assign({}, block, { text: suffixFactory(block.text.length) }) : block)
++	};
+ 	const newContent = content.map((block) => {
+ 		if (!block || typeof block !== "object" || block.type !== "text") return block;
+ 		const textBlock = block;
+ 		if (typeof textBlock.text !== "string") return block;
+ 		const blockShare = textBlock.text.length / totalTextChars;
+-		const defaultSuffix = suffixFactory(Math.max(1, textBlock.text.length - Math.floor(maxChars * blockShare)));
+-		const proportionalBudget = Math.floor(maxChars * blockShare);
+-		const blockBudget = Math.max(1, Math.min(maxChars, Math.max(minKeepChars + defaultSuffix.length, proportionalBudget)));
++		const defaultSuffix = suffixFactory(Math.max(1, textBlock.text.length - Math.floor(textMaxChars * blockShare)));
++		const proportionalBudget = Math.floor(textMaxChars * blockShare);
++		const blockBudget = Math.max(1, Math.min(textMaxChars, Math.max(minKeepChars + defaultSuffix.length, proportionalBudget)));
+ 		return Object.assign({}, textBlock, { text: truncateToolResultText(textBlock.text, blockBudget, {
+ 			suffix: suffixFactory,
+ 			minKeepChars
+ 		}) });
+ 	});
+ 	return {
+-		...msg,
++		...normalizedMsg,
+ 		content: newContent
+ 	};
+ }
+@@ -219,7 +281,8 @@ function truncateOversizedToolResultsInMessages(messages, contextWindowTokens, m
+ 		branch,
+ 		maxChars,
+ 		aggregateBudgetChars,
+-		minKeepChars: RECOVERY_MIN_KEEP_CHARS
++		minKeepChars: RECOVERY_MIN_KEEP_CHARS,
++		preserveRecentImageToolResults: 1
+ 	});
+ 	if (plan.replacements.length === 0) return {
+ 		messages,
+@@ -234,8 +297,21 @@ function truncateOversizedToolResultsInMessages(messages, contextWindowTokens, m
+ function calculateRecoveryAggregateToolResultChars(contextWindowTokens, maxCharsOverride, aggregateMaxCharsOverride) {
+ 	return Math.max(1, aggregateMaxCharsOverride ?? maxCharsOverride ?? calculateMaxToolResultChars(contextWindowTokens));
+ }
++function selectRecentImageToolResultEntryIds(branch, count) {
++	const limit = Math.max(0, Math.floor(count || 0));
++	if (limit <= 0) return /* @__PURE__ */ new Set();
++	const selected = /* @__PURE__ */ new Set();
++	for (let index = branch.length - 1; index >= 0 && selected.size < limit; index -= 1) {
++		const entry = branch[index];
++		if (entry.type !== "message" || !entry.message || entry.message.role !== "toolResult") continue;
++		if (getToolResultImageDataLength(entry.message) <= 0) continue;
++		selected.add(entry.id);
++	}
++	return selected;
++}
+ function buildAggregateToolResultReplacements(params) {
+ 	const minKeepChars = params.minKeepChars ?? MIN_KEEP_CHARS;
++	const preserveImageEntryIds = params.preserveImageEntryIds ?? /* @__PURE__ */ new Set();
+ 	const candidates = params.branch.map((entry, index) => ({
+ 		entry,
+ 		index
+@@ -243,30 +319,33 @@ function buildAggregateToolResultReplacements(params) {
+ 		index: item.index,
+ 		entryId: item.entry.id,
+ 		message: item.entry.message,
+-		textLength: getToolResultTextLength(item.entry.message)
+-	})).filter((item) => item.textLength > 0);
++		payloadLength: getToolResultPayloadLength(item.entry.message)
++	})).filter((item) => item.payloadLength > 0);
+ 	if (candidates.length < 2) return [];
+ 	const suffixFactory = minKeepChars === RECOVERY_MIN_KEEP_CHARS && params.aggregateBudgetChars < candidates.length * DEFAULT_SUFFIX(1).length ? COMPACT_RECOVERY_SUFFIX : DEFAULT_SUFFIX;
+ 	const minTruncatedTextChars = minKeepChars + suffixFactory(1).length;
+-	const totalChars = candidates.reduce((sum, item) => sum + item.textLength, 0);
++	const totalChars = candidates.reduce((sum, item) => sum + item.payloadLength, 0);
+ 	if (totalChars <= params.aggregateBudgetChars) return [];
+ 	let remainingReduction = totalChars - params.aggregateBudgetChars;
+ 	const replacements = [];
+ 	for (const candidate of candidates.toSorted((a, b) => {
+ 		if (a.index !== b.index) return a.index - b.index;
+-		return b.textLength - a.textLength;
++		return b.payloadLength - a.payloadLength;
+ 	})) {
+ 		if (remainingReduction <= 0) break;
+-		const reducibleChars = Math.max(0, candidate.textLength - minTruncatedTextChars);
++		const preserveImages = preserveImageEntryIds.has(candidate.entryId);
++		const imageFloor = preserveImages ? getToolResultImageDataLength(candidate.message) : 0;
++		const reducibleChars = Math.max(0, candidate.payloadLength - imageFloor - minTruncatedTextChars);
+ 		if (reducibleChars <= 0) continue;
+ 		const requestedReduction = Math.min(reducibleChars, remainingReduction);
+-		const targetChars = Math.max(minTruncatedTextChars, candidate.textLength - requestedReduction);
++		const targetChars = Math.max(imageFloor + minTruncatedTextChars, candidate.payloadLength - requestedReduction);
+ 		const truncatedMessage = truncateToolResultMessage(candidate.message, targetChars, {
+ 			minKeepChars,
+-			suffix: suffixFactory
++			suffix: suffixFactory,
++			preserveImages
+ 		});
+-		const newLength = getToolResultTextLength(truncatedMessage);
+-		const actualReduction = Math.max(0, candidate.textLength - newLength);
++		const newLength = getToolResultPayloadLength(truncatedMessage);
++		const actualReduction = Math.max(0, candidate.payloadLength - newLength);
+ 		if (actualReduction <= 0) continue;
+ 		replacements.push({
+ 			entryId: candidate.entryId,
+@@ -278,15 +357,22 @@ function buildAggregateToolResultReplacements(params) {
+ }
+ function buildOversizedToolResultReplacements(params) {
+ 	const minKeepChars = params.minKeepChars ?? MIN_KEEP_CHARS;
++	const preserveImageEntryIds = params.preserveImageEntryIds ?? /* @__PURE__ */ new Set();
+ 	const replacements = [];
+ 	for (const entry of params.branch) {
+ 		if (entry.type !== "message" || !entry.message) continue;
+ 		const msg = entry.message;
+ 		if (msg.role !== "toolResult") continue;
+-		if (getToolResultTextLength(msg) <= params.maxChars) continue;
++		const payloadLength = getToolResultPayloadLength(msg);
++		if (payloadLength <= params.maxChars) continue;
++		const replacementMessage = truncateToolResultMessage(msg, params.maxChars, {
++			minKeepChars,
++			preserveImages: preserveImageEntryIds.has(entry.id)
++		});
++		if (getToolResultPayloadLength(replacementMessage) >= payloadLength && replacementMessage === msg) continue;
+ 		replacements.push({
+ 			entryId: entry.id,
+-			message: truncateToolResultMessage(msg, params.maxChars, { minKeepChars })
++			message: replacementMessage
+ 		});
+ 	}
+ 	return replacements;
+@@ -298,7 +384,7 @@ function calculateReplacementReduction(branch, replacements) {
+ 	for (const replacement of replacements) {
+ 		const entry = branchById.get(replacement.entryId);
+ 		if (!entry?.message) continue;
+-		reduction += Math.max(0, getToolResultTextLength(entry.message) - getToolResultTextLength(replacement.message));
++		reduction += Math.max(0, getToolResultPayloadLength(entry.message) - getToolResultPayloadLength(replacement.message));
+ 	}
+ 	return reduction;
+ }
+@@ -316,17 +402,20 @@ function applyToolResultReplacementsToBranch(branch, replacements) {
+ }
+ function buildToolResultReplacementPlan(params) {
+ 	const minKeepChars = params.minKeepChars ?? MIN_KEEP_CHARS;
++	const preserveImageEntryIds = selectRecentImageToolResultEntryIds(params.branch, params.preserveRecentImageToolResults ?? 0);
+ 	const oversizedReplacements = buildOversizedToolResultReplacements({
+ 		branch: params.branch,
+ 		maxChars: params.maxChars,
+-		minKeepChars
++		minKeepChars,
++		preserveImageEntryIds
+ 	});
+ 	const oversizedReducibleChars = calculateReplacementReduction(params.branch, oversizedReplacements);
+ 	const oversizedTrimmedBranch = applyToolResultReplacementsToBranch(params.branch, oversizedReplacements);
+ 	const aggregateReplacements = buildAggregateToolResultReplacements({
+ 		branch: oversizedTrimmedBranch,
+ 		aggregateBudgetChars: params.aggregateBudgetChars,
+-		minKeepChars
++		minKeepChars,
++		preserveImageEntryIds
+ 	});
+ 	const aggregateReducibleChars = calculateReplacementReduction(oversizedTrimmedBranch, aggregateReplacements);
+ 	return {
+@@ -350,7 +439,7 @@ function estimateToolResultReductionPotential(params) {
+ 	let totalToolResultChars = 0;
+ 	for (const msg of messages) {
+ 		if (msg.role !== "toolResult") continue;
+-		const textLength = getToolResultTextLength(msg);
++		const textLength = getToolResultPayloadLength(msg);
+ 		if (textLength <= 0) continue;
+ 		toolResultCount += 1;
+ 		totalToolResultChars += textLength;

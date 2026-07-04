@@ -1,6 +1,6 @@
 ---
 id: account_browser_risk
-tools: web_snapshot, web_card, artifact_recent, artifact_search, download_image_url, download_image_urls
+tools: web_snapshot, web_card, artifact, download_image_url, download_image_urls
 keywords: account browser risk, logged in browser, account-backed browsing, website risk, cooldown, verification, CAPTCHA, login session, Weibo, Bilibili, Tieba, Xiaohongshu, Zhihu, Pixiv, 账号浏览, 登录态, 风控, 验证码, 微博, 哔哩哔哩, 贴吧, 小红书, 知乎
 when_to_read: Before using logged-in browser sessions, account-backed Chinese platforms, comments, feeds, search pages, or image-heavy pages.
 ---
@@ -40,13 +40,12 @@ The guard protects accounts from mechanical loops. It is not a bypass system.
 
 ## Operating Rules
 
-- Use search/API/public snippets before opening many logged-in pages.
+- Use search/API/public snippets to pick good account-backed pages.
 - Open a small number of high-value pages, inspect, then decide whether another
   round is needed.
-- Prefer no-action reads first. Use bounded `scroll` only when the visible
-  first viewport is not enough.
-- Use visible text actions such as `click_text` only when the target page is
-  already selected and the action is necessary for source review.
+- No-action reads are the cheapest tier. `scroll`, `wait`, and visible-text
+  clicks are normal source-review moves when they reveal the requested public
+  content, but they move the read into a stricter account-risk tier.
 - Do not loop through feeds, endless pages, follow lists, notifications, private
   messages, or personal account areas.
 - Do not interact with CAPTCHA, security verification, phone binding, payment,

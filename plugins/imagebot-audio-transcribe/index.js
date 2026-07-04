@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
+import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
 
 const TOOL_NAME = "audio_transcribe";
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024;
@@ -113,16 +114,12 @@ function isInside(root, target) {
   return targetNorm === rootNorm || targetNorm.startsWith(rootNorm + path.sep);
 }
 
-function readMediaPath(raw) {
-  const value = String(raw || "").trim().replace(/^`+|`+$/g, "");
-  const mediaMatch = value.match(/(?:SPOILER_)?MEDIA:\s*`?([^`\r\n]+)`?/i);
-  const unwrapped = mediaMatch ? mediaMatch[1] : value;
-  if (/^file:\/\//i.test(unwrapped)) return decodeURIComponent(unwrapped.replace(/^file:\/\//i, ""));
-  return unwrapped;
+function readMediaPath(raw, config = {}) {
+  return mediaReferenceToLocalPath(raw, config);
 }
 
 async function resolveAllowedInput(config, raw) {
-  const input = readMediaPath(raw);
+  const input = readMediaPath(raw, config);
   if (!input) throw new Error("input audio/video path is required");
   if (/^https?:\/\//i.test(input)) throw new Error("audio_transcribe accepts bot-local media paths, not URLs");
   const resolved = path.resolve(input);
@@ -412,7 +409,7 @@ const audioTranscribeTool = {
     type: "object",
     additionalProperties: false,
     properties: {
-      input: { type: "string", description: "Bot-local audio/video path or MEDIA line." },
+      input: { type: "string", description: "Bot-local audio/video path, MEDIA line, media:// URI, or current/reply media handle resolved by runtime." },
       audio: { type: "string", description: "Alias for input." },
       video: { type: "string", description: "Alias for input." },
       media: { type: "string", description: "Alias for input." },

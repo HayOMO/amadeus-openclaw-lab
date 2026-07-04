@@ -229,51 +229,49 @@ function buildPrompt({ windowEntry, sessionFile, transcript, existingMemory }) {
   }).join("\n\n");
   const groupMemory = existingMemory.group || "(empty)";
   const prompt = `
-You are a neutral memory curator for a Telegram image/chat bot named Amadeus.
-This is a curation job, not a persona roleplay. Do not imitate Amadeus or any
-active speaking persona.
+你是 Telegram 图像/聊天 bot Amadeus 的中性记忆整理器。
+这是整理任务，不是角色扮演；不要模仿 Amadeus 或任何当前说话角色。
 
-Task:
-Merge the existing shared social memory with the bot-visible transcript of one
-active conversation window. Memory is shared across speaking personas.
-Output valid JSON only. Do not include markdown fences or commentary outside JSON.
+任务：
+把已有共享社交记忆，与一个活跃会话窗口里 bot 可见的聊天记录合并。记忆在不同说话角色之间共享。
+只输出合法 JSON。不要在 JSON 外写 markdown 代码块或解释。
 
-Memory rules:
-- Only record things that are useful for future conversation: stable preferences, recurring jokes, creative tastes, ongoing projects, durable relationships between ideas, and unresolved follow-ups.
-- Do not store Telegram tokens, local paths, hostnames, IP addresses, account details, private files, one-off probes, or anything that feels like machine/owner secrets.
-- Stable Telegram ids shown in the participant list are allowed only as attribution anchors. Keep them in identity headers when useful, but do not treat them as real-world private identity facts.
-- Do not invent facts. If a point is uncertain, mark it as uncertain or omit it.
-- Keep memory human-readable and lightly warm, but concise. It should feel like someone attentive took notes, not a database dump.
-- Personal notes must stay attached to the correct telegramId/userKey. Shared group memory should only contain public group lore or context visible in this bot window.
+记忆规则：
+- 只记录对未来对话有用的内容：稳定偏好、反复出现的梗、创作口味、进行中的项目、概念之间的持久关系、未解决后续。
+- 不记录 Telegram token、本地路径、主机名、IP、账号细节、私有文件、一次性试探，或任何像机器/拥有者秘密的内容。
+- 参与者列表里的稳定 Telegram id 只作为归属锚点；必要时保留在身份标题里，但不要当成现实世界私密身份事实。
+- 不编造事实。不确定的点标成不确定，或直接省略。
+- 记忆要人能读，简洁、中性，不写人格色彩；像认真做的笔记，不像数据库倾倒。
+- 个人笔记必须贴到正确的 telegramId/userKey。共享群记忆只包含这个 bot 窗口里公开可见的群梗或上下文。
 
-Participants:
+参与者：
 ${participantLines}
 
-Existing user memory:
+已有用户记忆：
 ${existingLines}
 
-Existing shared group memory:
+已有共享群记忆：
 ${groupMemory}
 
-Window metadata:
+窗口元数据：
 - windowId: ${windowEntry.windowId}
 - ownerUserKey: ${windowEntry.ownerUserKey}
 - openedAt: ${windowEntry.openedAt || ""}
 - sessionFile: ${sanitizeText(sessionFile || "")}
 
-Bot-visible transcript:
+bot 可见聊天记录：
 ${transcript}
 
-Return exactly this JSON shape:
+严格返回这个 JSON 形状：
 {
   "users": [
     {
-      "userKey": "one of the participant userKeys",
-      "memoryMarkdown": "complete revised memory for that user, 3-10 compact bullets or short paragraphs"
+      "userKey": "参与者 userKey 之一",
+      "memoryMarkdown": "这个用户的完整修订记忆，3-10 条紧凑 bullet 或短段落"
     }
   ],
-  "groupMemoryMarkdown": "complete revised shared group memory, or empty string if nothing durable is shared",
-  "windowNoteMarkdown": "short audit note of what changed and what was intentionally not remembered"
+  "groupMemoryMarkdown": "完整修订后的共享群记忆；如果没有稳定共享内容则为空字符串",
+  "windowNoteMarkdown": "简短审计说明：改了什么，以及哪些内容有意没有记"
 }
 `.trim();
   return clip(prompt, maxPromptChars);
@@ -285,7 +283,7 @@ function runOpenClaw(prompt, windowId) {
   const attempts = [{ prompt, clipped: false }];
   if (prompt.length > fallbackPromptChars) {
     attempts.push({
-      prompt: `${clip(prompt, fallbackPromptChars)}\n\n[Curator note: prompt was clipped further after a Windows command-line invocation failure.]`,
+      prompt: `${clip(prompt, fallbackPromptChars)}\n\n[整理器备注：Windows 命令行调用失败后，提示词被进一步截断。]`,
       clipped: true
     });
   }

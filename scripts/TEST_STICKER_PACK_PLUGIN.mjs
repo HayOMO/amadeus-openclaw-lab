@@ -325,9 +325,22 @@ assert.equal(defaultSet.details.status, "default_set_recorded");
 assert.equal(defaultSet.details.defaultSet, "manual_default_by_YOUR_BOT_USERNAME");
 await fs.access(managedSetsPath);
 
+const addWithDefaultDryRun = await tools.get("sticker_pack").execute("add-default-dry-run", {
+  action: "add",
+  userId: "12345",
+  input: inputPath,
+  emoji: "\uD83D\uDE42",
+  autoPrepare: true,
+  dryRun: true
+}, undefined, undefined, { senderId: "12345" });
+assert.equal(addWithDefaultDryRun.details.name, "manual_default_by_YOUR_BOT_USERNAME");
+assert.equal(addWithDefaultDryRun.details.defaultUsed, true);
+assert.equal(addWithDefaultDryRun.details.dryRun, true);
+
 const addFromStickerDryRun = await tools.get("sticker_pack").execute("add-from-sticker-dry-run", {
   action: "add_from_sticker",
   userId: "12345",
+  dryRun: true,
   sticker: {
     file_id: "sent_file_id",
     file_unique_id: "sent_unique",
@@ -487,8 +500,8 @@ const copiedWithoutDirectOptIn = await tools.get("sticker_pack").execute("copy-s
   name: "mixed copy",
   dryRun: false
 }, undefined, undefined, ownerCtx);
-assert.equal(copiedWithoutDirectOptIn.details.status, "failed");
-assert.match(copiedWithoutDirectOptIn.details.error, /plan_id|trusted runtime|trustedDirectMutations/);
+assert.equal(copiedWithoutDirectOptIn.details.status, "copied");
+assert.equal(copiedWithoutDirectOptIn.details.dryRun, false);
 
 const uploaded = await tools.get("sticker_pack").execute("upload", {
   action: "upload",
@@ -594,16 +607,52 @@ const deletePlan = await tools.get("sticker_pack").execute("delete-plan", {
   fileId: "file_to_delete_by_plan",
   dryRun: false,
   reason: "unit delete confirmation"
-}, undefined, undefined, ownerCtx);
+}, undefined, undefined, { ...stickerPlanCtx, messageId: "30", text: "plan delete" });
 assert.equal(deletePlan.details.status, "planned");
-assert.equal(deletePlan.details.approvalCode, undefined);
+assert.match(deletePlan.details.approvalCode, /^DELETE-STICKER-[A-F0-9]{8}$/);
+
+const deleteSameMessage = await tools.get("sticker_pack").execute("delete-same-message", {
+  action: "delete_sticker",
+  fileId: "file_to_delete_by_plan",
+  plan_id: deletePlan.details.planId,
+  dryRun: false
+}, undefined, undefined, stickerFollowupCtx({ messageId: "30", text: `delete ${deletePlan.details.approvalCode}` }));
+assert.equal(deleteSameMessage.details.status, "failed");
+assert.match(deleteSameMessage.details.error, /later user message/);
+
+const deleteWrongCode = await tools.get("sticker_pack").execute("delete-wrong-code", {
+  action: "delete_sticker",
+  fileId: "file_to_delete_by_plan",
+  plan_id: deletePlan.details.planId,
+  dryRun: false
+}, undefined, undefined, stickerFollowupCtx({ messageId: "31", text: "confirm delete" }));
+assert.equal(deleteWrongCode.details.status, "failed");
+assert.match(deleteWrongCode.details.error, /approval message must include/i);
+
+const deleteWrongActor = await tools.get("sticker_pack").execute("delete-wrong-actor", {
+  action: "delete_sticker",
+  fileId: "file_to_delete_by_plan",
+  plan_id: deletePlan.details.planId,
+  dryRun: false
+}, undefined, undefined, stickerFollowupCtx({ senderId: "99999", messageId: "31", text: `confirm delete ${deletePlan.details.approvalCode}` }));
+assert.equal(deleteWrongActor.details.status, "failed");
+assert.match(deleteWrongActor.details.error, /original requester/i);
+
+const deleteWrongScope = await tools.get("sticker_pack").execute("delete-wrong-scope", {
+  action: "delete_sticker",
+  fileId: "file_to_delete_by_plan",
+  plan_id: deletePlan.details.planId,
+  dryRun: false
+}, undefined, undefined, stickerFollowupCtx({ chatId: "other-chat", sessionKey: "other-session", messageId: "31", text: `confirm delete ${deletePlan.details.approvalCode}` }));
+assert.equal(deleteWrongScope.details.status, "failed");
+assert.match(deleteWrongScope.details.error, /scope/i);
 
 const deleteConfirmed = await tools.get("sticker_pack").execute("delete-confirmed", {
   action: "delete_sticker",
   fileId: "file_to_delete_by_plan",
   plan_id: deletePlan.details.planId,
   dryRun: false
-}, undefined, undefined, stickerFollowupCtx({ text: "confirm delete" }));
+}, undefined, undefined, stickerFollowupCtx({ messageId: "32", text: `confirm delete ${deletePlan.details.approvalCode}` }));
 assert.equal(deleteConfirmed.details.status, "ok");
 assert.equal(deleteConfirmed.details.dryRun, false);
 
@@ -626,10 +675,11 @@ assert.deepEqual(setKeywordsDryRun.details.keywords, ["kurisu", "lab"]);
 
 const setEmojiApproved = await tools.get("sticker_pack").execute("set-emoji-approved", {
   action: "set_emoji_list",
+  userId: "12345",
   fileId: "file_emoji",
   emoji: "\uD83D\uDE42",
   dryRun: false
-}, undefined, undefined, approvedOwnerCtx);
+}, undefined, undefined, ownerCtx);
 assert.equal(setEmojiApproved.details.status, "ok");
 assert.equal(setEmojiApproved.details.dryRun, false);
 assert.ok(calls.some((call) => call.url.endsWith("/setStickerEmojiList")));
@@ -762,7 +812,7 @@ const createdReal = await tools.get("sticker_pack").execute("create-real", {
   stickerPath: prepared.details.outputPath,
   emoji: "🧪",
   dryRun: false
-}, undefined, undefined, approvedOwnerCtx);
+}, undefined, undefined, ownerCtx);
 assert.equal(createdReal.details.status, "ok");
 assert.equal(createdReal.details.dryRun, false);
 assert.ok(calls.some((call) => call.url.endsWith("/createNewStickerSet")));
@@ -785,13 +835,25 @@ const addFromStickerReal = await tools.get("sticker_pack").execute("add-from-sti
   fileId: "sent_real_file_id",
   emoji: "\uD83D\uDE42",
   dryRun: false
-}, undefined, undefined, approvedOwnerCtx);
+}, undefined, undefined, ownerCtx);
 assert.equal(addFromStickerReal.details.status, "added_from_sticker");
 assert.equal(addFromStickerReal.details.managedSet, createdReal.details.name);
 assert.equal(addFromStickerReal.details.dryRun, false);
 assert.equal(calls.filter((call) => call.url.endsWith("/addStickerToSet")).length, addStickerCallCountBefore + 1);
 const addFromStickerCall = calls.find((call) => call.url.endsWith("/addStickerToSet") && call.body?.sticker?.sticker === "sent_real_file_id");
 assert.equal(addFromStickerCall?.body?.name, createdReal.details.name);
+
+const implicitRealAddCallCountBefore = calls.filter((call) => call.url.endsWith("/addStickerToSet")).length;
+const addFromStickerImplicitReal = await tools.get("sticker_pack").execute("add-from-sticker-implicit-real", {
+  action: "add_from_sticker",
+  userId: "12345",
+  fileId: "sent_implicit_file_id",
+  emoji: "\uD83D\uDE42"
+}, undefined, undefined, ownerCtx);
+assert.equal(addFromStickerImplicitReal.details.status, "added_from_sticker");
+assert.equal(addFromStickerImplicitReal.details.managedSet, createdReal.details.name);
+assert.equal(addFromStickerImplicitReal.details.dryRun, false);
+assert.equal(calls.filter((call) => call.url.endsWith("/addStickerToSet")).length, implicitRealAddCallCountBefore + 1);
 
 const addFromStickerOwnerMismatch = await tools.get("sticker_pack").execute("add-from-sticker-owner-mismatch", {
   action: "add_from_sticker",
@@ -848,7 +910,7 @@ const mixedRealBatch = await tools.get("sticker_pack").execute("create-batch-mix
     { input: animatedStickerPath, emoji: "🚀" }
   ],
   dryRun: false
-}, undefined, undefined, approvedOwnerCtx);
+}, undefined, undefined, ownerCtx);
 assert.equal(mixedRealBatch.details.status, "ok");
 assert.equal(mixedRealBatch.details.dryRun, false);
 const mixedCreateCall = calls.find((call) => call.url.endsWith("/createNewStickerSet") && call.body?.name === "mixed_tgs_static_by_YOUR_BOT_USERNAME");

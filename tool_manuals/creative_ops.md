@@ -2,32 +2,32 @@
 id: creative_ops
 tools: command_catalog, script_action, background_job, prompt_library, image_feedback, model_config
 keywords: script registry, natural language command, maintenance script, prompt library, character card, style card, image recipe, image feedback, rating, prompt learning, image prompt, character card, style card, script, feedback learning
-when_to_read: Before routing Telegram /am* control/script commands, natural-language maintenance commands, registered scripts, image prompt/style/character cards, generation feedback, or /ammodel chat-side model profile commands.
+when_to_read: Before offline command catalog inspection, natural-language maintenance commands, registered scripts, image prompt/style/character cards, generation feedback, or /ammodel chat-side model profile commands.
 ---
 
 # Creative Ops Manual
 
 ## Script Registry
 
-Use `command_catalog` for `/amhelp`, ability discovery, command discovery, and
+Telegram `/amhelp`, `/amstatus`, and `/amtools` are deterministic runtime
+script-control commands handled before model context is built. Do not call a
+tool for those commands in a live Telegram turn.
+
+Use `command_catalog` for offline ability discovery, command discovery, and
 unfamiliar fixed control/script `/am*` commands. It is the source of truth for
 the human-facing capability overview plus Telegram-visible control commands,
-usage, target tool/script, and approval notes. Ordinary model abilities are
-intent-driven inside delivered trigger/reply/mention turns; do not invent slash
-commands for them.
+usage, and approval notes. Ordinary model abilities are intent-driven inside
+delivered trigger/reply/mention turns; do not invent slash commands for them.
 
 Common routing:
 
-- `/amhelp`: call `command_catalog` with `action=list`, `menuOnly=true`,
-  `includeCapabilities=true`.
-- `/amhelp abilities` or "what can you do": call `command_catalog` with
-  `action=abilities`.
-- `/amhelp media` or `/amhelp ops`: call `command_catalog` with `action=list`
-  and the requested `category`, `menuOnly=true`.
-- `/amhelp all` or `/amhelp hidden`: call `command_catalog` with `action=list`,
-  `menuOnly=false`.
-- `/amhelp amstatus`: call `command_catalog` with `action=get`,
-  `command=amstatus`.
+- Live `/amhelp`: no tool call; runtime replies directly.
+- Live `/amstatus`: no tool call; runtime replies directly with local
+  model/persona/window/token-usage metadata when available.
+- Live `/amtools`: no tool call; runtime lists safe script-style controls and
+  refuses direct Telegram script execution.
+- Offline "what commands exist": call `command_catalog` with `action=list`.
+- Offline "what can you do": call `command_catalog` with `action=abilities`.
 - Unfamiliar `/am*`: call `command_catalog` with `action=route` or `get`.
 
 Use `script_action` for natural-language maintenance requests that map to a
@@ -74,8 +74,8 @@ Good uses:
 - Official-reference workflows.
 - Academic figures, scientific diagrams, and infographics.
 - Anime character scenes and reference-led illustrations.
-- Chinese/Asian social-media visuals: 小红书/抖音 covers, Asian portrait grids,
-  国风/汉服 moodboards, and Japanese/Niji/NovelAI-style anime tag ordering.
+- Chinese social-media visuals: 小红书/抖音 covers and structured creator-note
+  layouts, only when the user explicitly asks for that format.
 - Product mockups, template-like layouts, and marketing assets.
 - Meme/sticker prompts.
 - Wallpaper/poster prompts.

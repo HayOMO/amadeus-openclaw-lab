@@ -5,6 +5,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
+import { appendFileLocked, withStateFileLock, writeJsonAtomic as writeSharedJsonAtomic } from "../imagebot-shared/state-file.mjs";
 
 const FEATURE_CATALOG_TOOL = "feature_catalog";
 const FEATURE_ACTION_TOOL = "feature_action";
@@ -12,8 +13,8 @@ const GACHA_ARCHIVE_TOOL = "gacha_archive";
 const DEFAULT_COUNT = 8;
 const MAX_COUNT = 20;
 const MAX_TEXT = 5000;
-const DANBOORU_ENDPOINT = "https://safebooru.donmai.us/posts.json";
-const DANBOORU_POST_BASE = "https://safebooru.donmai.us/posts";
+const DANBOORU_ENDPOINT = "https://danbooru.donmai.us/posts.json";
+const DANBOORU_POST_BASE = "https://danbooru.donmai.us/posts";
 const DANBOORU_TIMEOUT_MS = 20000;
 const DANBOORU_RETRIES = 1;
 const DANBOORU_USER_AGENT = "AmaduseImagebot/0.1 (+private Telegram bot)";
@@ -348,28 +349,11 @@ async function readJson(filePath, fallback) {
 }
 
 async function writeJsonAtomic(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.${process.pid}.${Date.now()}.${randomSeed().slice(0, 8)}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(value, null, 2), "utf8");
-  let lastError = null;
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    try {
-      await fs.rename(tmp, filePath);
-      return;
-    } catch (error) {
-      lastError = error;
-      if (!["EPERM", "EBUSY", "EEXIST"].includes(error?.code)) break;
-      if (attempt >= 2) await fs.rm(filePath, { force: true }).catch(() => {});
-      await wait(20 * (attempt + 1));
-    }
-  }
-  await fs.unlink(tmp).catch(() => {});
-  throw lastError;
+  await writeSharedJsonAtomic(filePath, value, { space: 2 });
 }
 
 async function appendJsonLine(filePath, record) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.appendFile(filePath, `${JSON.stringify(record)}\n`, "utf8");
+  await appendFileLocked(filePath, `${JSON.stringify(record)}\n`, "utf8");
 }
 
 async function listFeatureFiles(root) {
@@ -482,22 +466,24 @@ async function checkCooldown(config, feature, action, identity) {
   const seconds = Number(action?.cooldown?.seconds || 0);
   if (!Number.isFinite(seconds) || seconds <= 0) return { ok: true };
   const key = cooldownKey(feature, action, identity);
-  const state = await readJson(cooldownPath(config), { version: 1, entries: {} });
-  const previous = Number(state.entries?.[key] || 0);
-  const now = Date.now();
-  const waitMs = previous + seconds * 1000 - now;
-  if (waitMs > 0) {
-    return { ok: false, waitSeconds: Math.ceil(waitMs / 1000) };
-  }
-  state.version = 1;
-  state.entries = isRecord(state.entries) ? state.entries : {};
-  state.entries[key] = now;
-  const cutoff = now - 24 * 60 * 60 * 1000;
-  for (const [entryKey, t] of Object.entries(state.entries)) {
-    if (Number(t) < cutoff) delete state.entries[entryKey];
-  }
-  await writeJsonAtomic(cooldownPath(config), state);
-  return { ok: true };
+  return await withStateFileLock(cooldownPath(config), async () => {
+    const state = await readJson(cooldownPath(config), { version: 1, entries: {} });
+    const previous = Number(state.entries?.[key] || 0);
+    const now = Date.now();
+    const waitMs = previous + seconds * 1000 - now;
+    if (waitMs > 0) {
+      return { ok: false, waitSeconds: Math.ceil(waitMs / 1000) };
+    }
+    state.version = 1;
+    state.entries = isRecord(state.entries) ? state.entries : {};
+    state.entries[key] = now;
+    const cutoff = now - 24 * 60 * 60 * 1000;
+    for (const [entryKey, t] of Object.entries(state.entries)) {
+      if (Number(t) < cutoff) delete state.entries[entryKey];
+    }
+    await writeJsonAtomic(cooldownPath(config), state);
+    return { ok: true };
+  });
 }
 
 function dateKey(config, date = new Date()) {
@@ -1176,7 +1162,7 @@ function postHasTags(post, tags) {
   return tags.every((tag) => tagSet.has(tag));
 }
 
-function isSafeDanbooruPost(post, configOrBlockedTags = []) {
+function isGachaEligibleDanbooruPost(post, configOrBlockedTags = []) {
   if (!isRecord(post)) return false;
   if (post.rating !== "g") return false;
   if (post.is_deleted || post.is_banned || post.is_flagged) return false;
@@ -1339,7 +1325,7 @@ function chooseDanbooruPost(posts, seed) {
 }
 
 function chooseDanbooruPostFromBand(posts, seed, config) {
-  const safePosts = Array.isArray(posts) ? posts.filter((post) => isSafeDanbooruPost(post, config)) : [];
+  const safePosts = Array.isArray(posts) ? posts.filter((post) => isGachaEligibleDanbooruPost(post, config)) : [];
   const preferred = safePosts.filter((post) => postHasTags(post, config.preferTags || []));
   const pool = preferred.length ? preferred : safePosts;
   if (!pool.length) return null;
@@ -1468,7 +1454,7 @@ async function fetchDanbooruImage(feature, card, seed, options = {}) {
         const posts = await fetchDanbooruPosts(url, config);
         const safePosts = Array.isArray(posts)
           ? posts
-            .filter((post) => isSafeDanbooruPost(post, config))
+            .filter((post) => isGachaEligibleDanbooruPost(post, config))
             .filter((post) => danbooruPopularityScore(post) >= minPopularity)
           : [];
         if (!safePosts.length) continue;
@@ -3299,7 +3285,7 @@ const gachaArchiveTool = {
       path: { type: "string", description: "Alias for media." },
       image: { type: "string", description: "Alias for media." },
       batchId: { type: "string", description: "Gacha batch id." },
-      postId: { type: "string", description: "Danbooru/Safebooru post id if available." },
+      postId: { type: "string", description: "Danbooru post id if available." },
       name: { type: "string", description: "Card/display name." },
       rarity: { type: "string", description: "N/R/SR/SSR/UR." },
       score: { type: "number", description: "Source post score." },
@@ -3394,7 +3380,7 @@ export const __testing = {
   danbooruPopularityScore,
   fetchDanbooruImageForRarity,
   rarityFromPopularity,
-  isSafeDanbooruPost,
+  isGachaEligibleDanbooruPost,
   pickDanbooruImage,
   danbooruImageToCard,
   isRarityAtLeast,

@@ -173,6 +173,19 @@ assert.equal(__testing.hasBlockedSafetyTag(__testing.publicItem({
   rating: "R-18",
   x_restrict: 1
 }), {}, { url: "https://www.pixiv.net/artworks/334" }), true);
+assert.equal(__testing.readMinBookmarkCount({ minBookmarkCount: 500 }), 500);
+assert.equal(__testing.readMinBookmarkCount({ minBookmarks: 200 }), 200);
+assert.deepEqual(
+  __testing.filterPopularityItems([
+    __testing.publicItem(sampleMeta, 1),
+    __testing.publicItem(secondMeta, 2)
+  ], { minBookmarkCount: 9000 }),
+  {
+    allowed: [__testing.publicItem(sampleMeta, 1)],
+    skippedPopularity: 1,
+    minBookmarkCount: 9000
+  }
+);
 
 const ranking = await pixiv.execute("ranking", {
   action: "ranking",
@@ -200,6 +213,18 @@ assert.match(ranking.content[0].text, /^SPOILER_MEDIA:/m);
 assert.doesNotMatch(ranking.content[0].text, /^MEDIA:/m);
 assert.match(ranking.content[0].text, /safety_filter: skipped=1/);
 assert.equal(ranking.content[0].text.includes("Blocked Fixture"), false);
+
+const qualityRanking = await pixiv.execute("ranking-quality", {
+  action: "ranking",
+  mode: "daily",
+  count: 5,
+  minBookmarkCount: 9000
+});
+assert.equal(qualityRanking.details.status, "ok");
+assert.equal(qualityRanking.details.result.items.length, 1);
+assert.equal(qualityRanking.details.result.items[0].id, 123456789);
+assert.equal(qualityRanking.details.result.skippedPopularity, 1);
+assert.match(qualityRanking.content[0].text, /quality_filter: minBookmarkCount=9000 skipped=1/);
 
 const detail = await pixiv.execute("detail", {
   action: "detail",

@@ -20,25 +20,45 @@ for (const groupId of settings.groupIds) {
   assert.ok(["production", "test"].includes(settings.groupRoles?.[groupId]), `group must have a known role: ${groupId}`);
 }
 
-assert.ok(prompt.includes("Private Telegram group runtime."));
-assert.ok(prompt.includes("The base prompt contains no character persona."));
+assert.deepEqual(settings.promptSegments, [
+  "config/imagebot/prompt/20-default-behavior.md",
+  "config/imagebot/prompt/30-tool-index.md",
+  "config/imagebot/prompt/40-workflows.md"
+], "base prompt must stay tool/workflow-focused; persona and Telegram routing are dynamic context");
+assert.ok(prompt.includes("工具路由与回复形态："));
+assert.ok(!prompt.includes("运行身份："));
+assert.ok(!prompt.includes("群聊上下文："));
+assert.ok(!prompt.includes("隐私与交付："));
+assert.ok(!prompt.includes("active_persona"));
+assert.ok(!prompt.includes("persona_profile"));
 assert.ok(!prompt.includes("You are YOUR_BOT_USERNAME in a private Telegram group chat."));
-assert.ok(prompt.includes("Tool index:"));
-assert.ok(prompt.includes("Workflow hints:"));
+assert.ok(prompt.includes("工具索引："));
+assert.ok(prompt.includes("当前可见工具和延迟工具目录就是当前动作空间"));
+assert.ok(prompt.includes("延迟工具"));
+assert.ok(prompt.includes("`tool_search`"));
+assert.ok(prompt.includes("`tool_describe`"));
+assert.ok(prompt.includes("`tool_call`"));
+assert.ok(prompt.includes("工作流提示："));
+assert.ok(prompt.includes("`/ammodel`"));
 assert.ok(prompt.includes("internet_image_collection"));
 assert.ok(prompt.includes("account_browser_risk"));
 assert.ok(prompt.includes("telegram_media_spoiler"));
-assert.ok(prompt.includes("delivery flag"));
-assert.ok(prompt.includes("Provider-native hosted search"));
-assert.ok(prompt.includes("A visible `web_search` tool is not required"));
-assert.ok(prompt.includes("source-site hints"));
+assert.ok(prompt.includes("只负责交付标记"));
+assert.ok(prompt.includes("提供方原生托管搜索"));
+assert.ok(prompt.includes("没有可见的 `web_search` 不代表原生搜索不可用"));
+assert.ok(prompt.includes("外部当前事实"));
+assert.ok(prompt.includes("外部/当前证据"));
 assert.ok(prompt.includes("memory_search"));
-assert.ok(prompt.includes("strong recall/group-lore triggers"));
+assert.ok(prompt.includes("有效形态是 `query`"));
+assert.ok(prompt.includes("强召回/群聊旧梗触发"));
 assert.ok(!prompt.includes("{{PERSONA_CARD}}"));
 assert.ok(!prompt.includes("# Active Persona Card"));
+assert.ok(!prompt.includes("# 活跃角色卡"));
+assert.ok(!prompt.includes("# 角色卡"));
 assert.ok(!prompt.includes("active speaking-persona overlays"));
 assert.ok(!prompt.includes("speaking-persona overlays"));
 assert.ok(!prompt.includes("## Kurisu Core"));
+assert.ok(!prompt.includes("## 红莉栖"));
 assert.ok(!prompt.includes("## Memory Posture"));
 assert.ok(!prompt.includes("Tools are senses and hands, not personality"));
 assert.ok(!prompt.includes("final-answer script"));
@@ -47,9 +67,15 @@ assert.ok(!prompt.includes("Do not reduce successful media/search/download turns
 for (const term of settings.promptLint.forbiddenSubstrings) {
   assert.ok(!prompt.toLowerCase().includes(term.toLowerCase()), `forbidden prompt term survived: ${term}`);
 }
+for (const term of settings.promptLint.requiredSubstrings) {
+  assert.ok(prompt.includes(term), `required prompt term missing: ${term}`);
+}
 
-for (const tool of ["telegram_media_spoiler", "download_image_url", "download_image_urls", "web_snapshot", "web_card", "generated_gallery_stats", "group_adventure", "background_job", "turn_observer_recent", "image_skill_lookup", "meme_transform", "knowledge_search", "media_brief", "audio_transcribe", "public_video", "pixiv_resource", "sticker_pack", "desktop_media_control", "mars_forward_lookup", "persona_config", "message"]) {
+for (const tool of ["telegram_media_spoiler", "download_image_url", "download_image_urls", "danbooru_resource", "web_snapshot", "web_card", "generated_gallery", "generated_gallery_resend", "media_artifact", "artifact", "zhihu", "group_adventure", "background_job", "turn_observer_recent", "image_skill", "image_skill_save_reference", "image_skill_note_preference", "meme_transform", "knowledge", "knowledge_ingest", "media_brief", "audio_transcribe", "public_video", "pixiv_resource", "sticker_pack", "desktop_media_control", "mars_forward_lookup", "persona_config", "message"]) {
   assert.ok(settings.allowedTools.includes(tool), `missing allowed tool ${tool}`);
+}
+for (const tool of ["generated_gallery_recent", "generated_gallery_search", "generated_gallery_stats", "media_artifact_recent", "media_artifact_lineage", "artifact_recent", "artifact_search", "artifact_get", "image_skill_lookup", "image_skill_recent", "knowledge_sources", "knowledge_search", "knowledge_recent", "zhihu_search", "zhihu_global_search", "zhihu_hot_list"]) {
+  assert.ok(!settings.allowedTools.includes(tool), `legacy split tool should not be directly exposed: ${tool}`);
 }
 assert.ok(!settings.allowedTools.includes("browser"), "OpenClaw built-in browser must not be exposed; use Playwright web_snapshot/download tools");
 assert.ok(!settings.allowedTools.includes("web_search"), "provider-native search must not be exposed as a fake callable tool");
@@ -60,7 +86,7 @@ assert.ok(settings.toolAccess?.operatorOnlyTools?.includes("knowledge_ingest"), 
 assert.ok(settings.toolAccess?.operatorOnlyTools?.includes("script_action"), "script_action must be operator-only");
 assert.ok(settings.toolAccess?.operatorOnlyTools?.includes("model_config"), "model_config must be operator-only");
 assert.ok(settings.toolAccess?.operatorOnlyTools?.includes("desktop_media_control"), "desktop_media_control must be operator-only");
-assert.ok(settings.toolAccess?.operatorOnlyTools?.includes("sticker_pack"), "sticker_pack must be operator-only");
+assert.ok(!settings.toolAccess?.operatorOnlyTools?.includes("sticker_pack"), "sticker_pack should stay available to normal chat senders; risky sticker actions are gated in tool code");
 assert.ok(!settings.toolAccess?.operatorOnlyTools?.includes("feature_action"), "ordinary feature execution should remain a normal chat capability");
 assert.ok(!settings.toolAccess?.operatorOnlyTools?.includes("message"), "message send must not be blocked by default sender policy");
 for (const tool of settings.toolAccess?.operatorOnlyTools || []) {
@@ -94,12 +120,67 @@ assert.equal(Object.hasOwn(webSearchOp.value, "provider"), false, "web_search mu
 assert.equal(webSearchOp.value.openaiCodex?.enabled, true, "OpenAI/Codex native web search should stay enabled for eligible models");
 assert.ok(webSearchOp.value.maxResults <= 6, "web_search should stay bounded for group-chat latency");
 
-const defaultModelOp = configOps.find((item) => item.path === "agents.defaults.model.primary");
+const toolSearchOp = configOps.find((item) => item.path === "tools.toolSearch");
+assert.ok(toolSearchOp, "missing tools.toolSearch config");
+assert.deepEqual(toolSearchOp.value, {
+  enabled: true,
+  mode: "directory",
+  searchDefaultLimit: 6,
+  maxSearchLimit: 12
+});
+assert.equal(
+  configOps.some((item) => item.path === "agents.list[0].tools.toolSearch"),
+  false,
+  "toolSearch is a runtime-global OpenClaw setting; do not add an inert agent-local mirror"
+);
+
+const interactionCoreOp = configOps.find((item) => item.path === "plugins.entries.imagebot-interaction-core.config");
+assert.ok(interactionCoreOp, "missing interaction-core plugin config");
+const textRepeater = interactionCoreOp.value.textRepeater;
+assert.ok(textRepeater, "missing Telegram text repeater config");
+assert.equal(textRepeater.enabled, true);
+assert.equal(textRepeater.groupOnly, true);
+assert.equal(textRepeater.repeatText, true);
+assert.equal(textRepeater.repeatStickers, true);
+assert.equal(textRepeater.requireDifferentSenders, true);
+assert.equal(textRepeater.maxGapMs, 30000);
+assert.equal(textRepeater.minCount, 2);
+assert.equal(textRepeater.ignoreCommands, true);
+assert.equal(textRepeater.ignoreBotMessages, true);
+assert.equal(textRepeater.ignoreExplicitBotMention, true);
+
+const expectedChatFallbacks = ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"];
+assert.deepEqual(settings.modelFallbacks, expectedChatFallbacks, "settings must define the chat model fallback chain");
+const defaultModelOp = configOps.find((item) => item.path === "agents.defaults.model");
 assert.ok(defaultModelOp, "missing default chat model config");
-assert.equal(defaultModelOp.value, "openai/gpt-5.5");
+assert.deepEqual(defaultModelOp.value, {
+  primary: "openai/gpt-5.5",
+  fallbacks: expectedChatFallbacks,
+});
 const agentModelOp = configOps.find((item) => item.path === "agents.list[0].model");
 assert.ok(agentModelOp, "missing imagebot agent model config");
-assert.equal(agentModelOp.value, "openai/gpt-5.5");
+assert.deepEqual(agentModelOp.value, {
+  primary: "openai/gpt-5.5",
+  fallbacks: expectedChatFallbacks,
+});
+const setModelScript = await fs.readFile(path.join(repoRoot, "scripts", "SET_IMAGEBOT_MODEL_MODE.ps1"), "utf8");
+assert.match(setModelScript, /\$chatModelConfig = @\{\s+primary = \$effectiveModel\s+fallbacks = \$effectiveFallbacks\s+\}/s);
+assert.doesNotMatch(setModelScript, /agents\.defaults\.model\.primary/);
+for (const [modelId, alias] of [
+  ["openai/gpt-5.5", ""],
+  ["openai/gpt-5.4", "gpt54"],
+  ["openai/gpt-5.4-mini", "mini"],
+  ["openai/gpt-5.3-codex-spark", "spark"],
+  ["deepseek/deepseek-v4-flash", ""],
+  ["deepseek/deepseek-v4-pro", ""]
+]) {
+  for (const prefix of ["agents.defaults.models", "agents.list[0].models"]) {
+    const pathName = `${prefix}["${modelId}"]`;
+    const op = configOps.find((item) => item.path === pathName);
+    assert.ok(op, `missing model allowlist op ${pathName}`);
+    assert.deepEqual(op.value, alias ? { alias } : {}, `${pathName} should have the expected alias metadata`);
+  }
+}
 const reasoningOp = configOps.find((item) => item.path === "agents.list[0].params.reasoningEffort");
 assert.ok(reasoningOp, "missing reasoning effort config");
 assert.equal(reasoningOp.value, "medium");
@@ -123,14 +204,40 @@ for (const pathName of ["channels.telegram.customCommands", "channels.telegram.a
   const op = configOps.find((item) => item.path === pathName);
   assert.ok(op, `missing config op ${pathName}`);
   const commands = op.value.map((item) => item.command);
-  assert.deepEqual(commands, ["amnew", "amhelp", "amstatus", "ammodel", "ampersona", "amtools"], `${pathName} must expose only visible slash commands`);
+  assert.deepEqual(commands, [
+    "amnew",
+    "amhelp",
+    "amstatus",
+    "ammodel",
+    "ampersona",
+    "amtools",
+    "amroll",
+    "amcoin",
+    "amchoose",
+    "amshuffle",
+    "amsplit",
+    "amstats",
+    "amlinks"
+  ], `${pathName} must expose only visible slash commands`);
+  for (const command of op.value) {
+    assert.match(command.description, /[\u3400-\u9fff]/, `${pathName} ${command.command} description should be Chinese-facing`);
+  }
+}
+for (const pathName of [
+  "channels.telegram.commands.native",
+  "channels.telegram.commands.nativeSkills",
+  "channels.telegram.accounts.imagebot.commands.native",
+  "channels.telegram.accounts.imagebot.commands.nativeSkills"
+]) {
+  const op = configOps.find((item) => item.path === pathName);
+  assert.ok(op, `missing config op ${pathName}`);
+  assert.equal(op.value, false, `${pathName} must keep OpenClaw native slash/skill handlers disabled; /am* commands are handled by imagebot pre-model scripts`);
 }
 
 assert.ok(settings.allowedPluginIds.includes("imagebot-background-jobs"), "missing background jobs plugin allowlist");
-assert.ok(settings.allowedPluginIds.includes("deepseek"), "missing DeepSeek provider plugin allowlist");
 assert.ok(settings.localPluginDirs.includes("plugins/imagebot-background-jobs"), "missing background jobs plugin path");
 assert.ok(configOps.some((op) => op.path === "plugins.entries.imagebot-background-jobs.enabled"), "missing background jobs enable op");
-assert.ok(configOps.some((op) => op.path === "plugins.entries.deepseek.enabled"), "missing DeepSeek provider enable op");
+assert.equal(configOps.some((op) => op.path === "plugins.entries.deepseek.enabled"), false, "DeepSeek uses models.providers.deepseek; do not write a missing plugin entry");
 assert.ok(settings.allowedPluginIds.includes("imagebot-turn-observer"), "missing turn observer plugin allowlist");
 assert.ok(settings.localPluginDirs.includes("plugins/imagebot-turn-observer"), "missing turn observer plugin path");
 assert.ok(configOps.some((op) => op.path === "plugins.entries.imagebot-turn-observer.enabled"), "missing turn observer enable op");
@@ -172,6 +279,13 @@ for (const pluginId of ["imagebot-audio-transcribe", "imagebot-public-video", "i
   assert.ok(settings.localPluginDirs.includes(`plugins/${pluginId}`), `missing ${pluginId} plugin path`);
   assert.ok(configOps.some((op) => op.path === `plugins.entries.${pluginId}.enabled`), `missing ${pluginId} enable op`);
 }
+for (const pluginId of ["web-image-search", "imagebot-audio-transcribe", "imagebot-image-skills", "imagebot-meme-tools", "imagebot-media-artifacts", "imagebot-practical-tools", "imagebot-sticker-pack"]) {
+  const pluginConfig = configOps.find((op) => op.path === `plugins.entries.${pluginId}.config`)?.value;
+  assert.ok(pluginConfig?.openclawMediaRoot?.includes(`${path.sep}.openclaw${path.sep}media`), `${pluginId} must declare the shared media:// root`);
+}
+const webImageConfig = configOps.find((op) => op.path === "plugins.entries.web-image-search.config")?.value;
+assert.equal(webImageConfig?.danbooru?.baseUrl, "https://danbooru.donmai.us", "danbooru_resource should default to the full Danbooru host");
+assert.ok(webImageConfig?.danbooru?.secretFile?.endsWith(`secrets${path.sep}danbooru-imagebot.json`), "danbooru_resource should use the shared Danbooru secret file");
 assert.ok(configOps.some((op) => op.path === "plugins.entries.imagebot-creative-ops.config" && op.value?.backgroundJobs?.storeDir), "creative ops must share background job config");
 for (const pluginId of ["web-image-search", "imagebot-video-utils", "imagebot-public-video", "imagebot-meme-tools", "imagebot-practical-tools", "imagebot-feature-core"]) {
   assert.ok(configOps.some((op) => op.path === `plugins.entries.${pluginId}.config` && op.value?.backgroundJobs?.storeDir), `${pluginId} must share background job config`);
@@ -237,6 +351,9 @@ assert.ok(!stickerManual.includes("collect a larger candidate pool"));
 assert.ok(stickerManual.includes("directImportApproved"));
 assert.ok(stickerManual.includes("review_draft"));
 assert.ok(stickerManual.includes("search_sources"));
+assert.ok(stickerManual.includes("clear save/add intent"));
+assert.ok(stickerManual.includes("operation intent"));
+assert.ok(stickerManual.includes("runtime media context"));
 
 const mediaUnderstandingManual = await fs.readFile(path.join(repoRoot, "tool_manuals", "media_understanding.md"), "utf8");
 assert.ok(mediaUnderstandingManual.includes("Telegram static stickers are usually `.webp`"));
@@ -244,7 +361,8 @@ assert.ok(mediaUnderstandingManual.includes("Telegram video stickers saved as `.
 
 const memoryManual = await fs.readFile(path.join(repoRoot, "tool_manuals", "memory_and_persona.md"), "utf8");
 assert.ok(memoryManual.includes("runtime may append a memory recall gate"));
-assert.ok(memoryManual.includes("passive management signal asking"));
+assert.ok(memoryManual.includes("routing metadata"));
+assert.ok(memoryManual.includes("Memory is neutral continuity"));
 assert.ok(memoryManual.includes("exact nickname, meme"));
 
 const accountBrowserRiskManual = await fs.readFile(path.join(repoRoot, "tool_manuals", "account_browser_risk.md"), "utf8");
@@ -256,7 +374,31 @@ assert.ok(searchManual.includes("Source-Site Hints"));
 assert.ok(searchManual.includes("zh.moegirl.org.cn"));
 assert.ok(searchManual.includes("visible tool list is only one signal"));
 assert.ok(searchManual.includes("unavailable, unobservable, empty"));
+assert.ok(searchManual.includes("depends on live external state"));
+assert.ok(searchManual.includes("task description"));
+assert.ok(searchManual.includes("actual subject"));
+assert.ok(searchManual.includes("Search results are leads"));
+assert.ok(searchManual.includes("2-4 source reads/cards/snapshots"));
+assert.ok(searchManual.includes("Click visible tabs/buttons"));
+assert.ok(searchManual.includes("public current state"));
 assert.ok(searchManual.includes("public `imageUrl` values must become bot-local"));
+assert.ok(searchManual.includes("Do not ask the user to click, scroll, or turn a public page for you"));
+
+assert.ok(prompt.includes("搜索工具给候选来源"));
+assert.ok(prompt.includes("页面工具读取候选页面"));
+assert.ok(prompt.includes("web_card"));
+assert.ok(prompt.includes("click_text"));
+assert.ok(prompt.includes("页面状态才是证据"));
+assert.ok(prompt.includes("不要让用户代点、代翻页、代滚动公开网页"));
+assert.ok(prompt.includes("用 `web_snapshot` 自己点击、翻页、等待或滚动"));
+
+const webSearchPlugin = await fs.readFile(path.join(repoRoot, "plugins", "web-image-search", "index.js"), "utf8");
+assert.ok(webSearchPlugin.includes("external-current public facts"));
+assert.ok(webSearchPlugin.includes("do not loop wording variants"));
+
+const stickerPackPlugin = await fs.readFile(path.join(repoRoot, "plugins", "imagebot-sticker-pack", "index.js"), "utf8");
+assert.ok(stickerPackPlugin.includes("add_from_sticker with a Telegram sticker file_id"));
+assert.ok(stickerPackPlugin.includes("current/reply media handle resolved by runtime"));
 
 const backgroundJobsManual = await fs.readFile(path.join(repoRoot, "tool_manuals", "background_jobs.md"), "utf8");
 assert.ok(backgroundJobsManual.includes("background_job"));

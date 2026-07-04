@@ -1,0 +1,62 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index ed55072..b19d385 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -1846,7 +1846,7 @@ function buildTelegramMarsForwardReviewPrompt(result) {
+ 		first.preview ? `First preview: ${first.preview}` : "",
+ 		`Current message: ${current.messageId ?? "unknown"} at ${current.timestamp ?? "unknown"} by ${current.senderName ?? current.senderUsername ?? current.senderId ?? "unknown"}.`,
+ 		current.preview ? `Current preview: ${current.preview}` : "",
+-		"Task: judge whether the current channel forward is materially the same information as the first same-group post. Exact source, filtered canonical URL, Telegram file_unique_id, or exact visual-hash matches are high-confidence mechanical evidence. Similar visual-hash matches are candidates; compare the visible content before treating them as Mars. If it is Mars, make one brief chat-style Mars/duplicate quip and use a fire reaction when available. If a user asks where it was already posted, use mars_forward_lookup action=forward_first to show the first same-group post."
++		"任务：判断这个相似的频道转发候选是否和同群第一次记录的消息是同一件事。来源频道消息、过滤后的规范化 URL、Telegram file_unique_id 这类精确重复已经由脚本在模型复核前处理；这里主要复核视觉哈希或其他相似候选。先比较可见内容，不确定就说不确定，不要硬玩火星梗。确认火星时简短吐槽即可。用户追问之前发在哪里时，使用 mars_forward_lookup action=forward_first 转发同群第一次记录。"
+ 	].filter(Boolean).join("\n");
+ }
+ async function maybeReactToTelegramMarsForward(params) {
+@@ -5356,6 +5356,7 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 		}
+ 		const finishDuplicate = async (result) => {
+ 			const reactionApi = typeof bot.api.setMessageReaction === "function" ? bot.api.setMessageReaction.bind(bot.api) : null;
++			const mechanicalDuplicate = detectorConfig.scriptReactKinds.has(result.fingerprint.kind);
+ 			const reacted = await maybeReactToTelegramMarsForward({
+ 				config: detectorConfig,
+ 				result,
+@@ -5364,11 +5365,30 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 				messageId: params.msg.message_id,
+ 				runtime
+ 			});
++			let scriptReplied = false;
++			if (mechanicalDuplicate) try {
++				const sentMessage = await withTelegramApiErrorLogging({
++					operation: "sendMessage",
++					runtime,
++					fn: () => bot.api.sendMessage(params.chatId, "\u706b\u661f", {
++						reply_parameters: {
++							message_id: params.msg.message_id,
++							allow_sending_without_reply: true
++						},
++						...params.resolvedThreadId != null ? { message_thread_id: params.resolvedThreadId } : {}
++					})
++				});
++				if (typeof sentMessage?.message_id === "number") recordSentMessage(params.chatId, sentMessage.message_id, runtimeCfg);
++				scriptReplied = true;
++			} catch (err) {
++				logVerbose(`telegram mars-forward script reply failed for chat ${params.chatId}: ${String(err)}`);
++			}
+ 			return {
+ 				...result,
+ 				reacted,
+-				shouldDispatch: detectorConfig.llmReview,
+-				processOptions: detectorConfig.llmReview ? {
++				scriptReplied,
++				shouldDispatch: !mechanicalDuplicate && detectorConfig.llmReview,
++				processOptions: !mechanicalDuplicate && detectorConfig.llmReview ? {
+ 					forceWasMentioned: true,
+ 					marsForwardReviewPrompt: buildTelegramMarsForwardReviewPrompt(result)
+ 				} : {}
+@@ -5438,6 +5458,7 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 			fingerprintKind: result.fingerprint?.kind ?? "",
+ 			hitCount: result.hitCount,
+ 			reacted: review.reacted,
++			scriptReplied: review.scriptReplied,
+ 			shouldDispatch: review.shouldDispatch
+ 		}, "telegram mars-forward duplicate before drop");
+ 		return review;

@@ -1,0 +1,39 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index 2fa9a17..4a6e0b9 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -2051,24 +2051,30 @@ function applyTelegramImagebotAmmodelDefaultToSessionSync(params) {
+ 		cfg: params.cfg,
+ 		agentId: params.agentId
+ 	});
+-	applyModelOverrideToSessionEntry({
++	const appliedDefaultModel = applyModelOverrideToSessionEntry({
+ 		entry,
+ 		selection: {
+ 			provider: ref.provider,
+ 			model: ref.model,
+ 			isDefault: ref.provider === defaultModel.provider && ref.model === defaultModel.model
+ 		},
+ 		selectionSource: "user",
+ 		preserveAuthProfileOverride: true,
+ 		markLiveSwitchPending: true
+ 	});
++	let changed = appliedDefaultModel?.updated === true;
+ 	if (state.reasoningEffort) {
+-		entry.thinkingLevel = state.reasoningEffort;
+-		entry.liveModelSwitchPending = true;
+-		entry.updatedAt = Date.now();
++		const nextThinkingLevel = state.reasoningEffort;
++		if (entry.thinkingLevel !== nextThinkingLevel) {
++			entry.thinkingLevel = nextThinkingLevel;
++			entry.liveModelSwitchPending = true;
++			entry.updatedAt = Date.now();
++			changed = true;
++		}
+ 	}
++	if (!changed) return false;
+ 	store[params.sessionKey] = entry;
+ 	writeTelegramImagebotSessionStoreSync(storePath, store);
+ 	return true;
+ }
+ function telegramImagebotUserKey(senderId) {

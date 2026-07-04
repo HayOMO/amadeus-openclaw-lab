@@ -2,11 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
+import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
 
 const LOOKUP_TOOL = "image_skill_lookup";
 const SAVE_REFERENCE_TOOL = "image_skill_save_reference";
 const NOTE_PREFERENCE_TOOL = "image_skill_note_preference";
 const RECENT_TOOL = "image_skill_recent";
+const IMAGE_SKILL_TOOL = "image_skill";
 
 const MAX_REFERENCES = 12;
 const MAX_RESULTS = 8;
@@ -157,16 +159,12 @@ function isInside(root, target) {
   return targetNorm === rootNorm || targetNorm.startsWith(rootNorm + path.sep);
 }
 
-function readMediaPath(raw) {
-  const value = String(raw || "").trim().replace(/^`+|`+$/g, "");
-  const mediaMatch = value.match(/(?:SPOILER_)?MEDIA:\s*`?([^`\r\n]+)`?/i);
-  const unwrapped = mediaMatch ? mediaMatch[1] : value;
-  if (/^file:\/\//i.test(unwrapped)) return decodeURIComponent(unwrapped.replace(/^file:\/\//i, ""));
-  return unwrapped;
+function readMediaPath(raw, config = {}) {
+  return mediaReferenceToLocalPath(raw, config);
 }
 
 async function resolveAllowedReference(config, raw) {
-  const input = readMediaPath(raw);
+  const input = readMediaPath(raw, config);
   if (!input) throw new Error("media path is required");
   if (/^https?:\/\//i.test(input)) throw new Error("image skills save bot-local media paths, not external URLs");
   const resolved = path.resolve(input);
@@ -399,7 +397,7 @@ const saveReferenceTool = makeTool(SAVE_REFERENCE_TOOL, "Image Skill Save Refere
   properties: {
     character: { type: "string", description: "Character or subject name." },
     name: { type: "string", description: "Alias for character." },
-    media: { type: "string", description: "Bot-local image path or MEDIA line." },
+    media: { type: "string", description: "Bot-local image path, MEDIA line, media:// URI, or current/reply media handle resolved by runtime." },
     image: { type: "string", description: "Alias for media." },
     aliases: { type: "string", description: "Comma-separated aliases." },
     traits: { type: "string", description: "Short factual visual traits." },
@@ -447,6 +445,32 @@ const recentTool = makeTool(RECENT_TOOL, "Image Skill Recent", "List recently up
   }
 }, async (_id, params) => recent(recentTool.config || {}, params));
 
+const imageSkillTool = makeTool(IMAGE_SKILL_TOOL, "Image Skill", "Read local character/style reference skills through action=lookup or recent.", {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    action: {
+      type: "string",
+      enum: ["lookup", "recent"],
+      description: "Read action. Default lookup when a query/character/name is supplied; otherwise recent."
+    },
+    query: { type: "string", description: "Character/style/user preference query." },
+    character: { type: "string", description: "Character name alias." },
+    name: { type: "string", description: "Alias for character/query." },
+    count: { type: "number", description: `Max results 1-${MAX_RESULTS}.` }
+  }
+}, async (id, params) => {
+  const requested = readString(params, "action").toLowerCase();
+  const hasLookupQuery = readString(params, "query") || readString(params, "character") || readString(params, "name");
+  const action = requested || (hasLookupQuery ? "lookup" : "recent");
+  if (action === "lookup") return lookupTool.execute(id, params);
+  if (action === "recent") return recentTool.execute(id, params);
+  return {
+    content: [{ type: "text", text: "IMAGE_SKILL error: action must be lookup or recent. Use image_skill_save_reference or image_skill_note_preference for writes." }],
+    details: { status: "failed", error: "invalid action" }
+  };
+});
+
 export const __testing = {
   readIndex,
   writeIndex,
@@ -466,7 +490,8 @@ export default {
   description: "Lightweight local character/style reference cache for image generation.",
   register(api) {
     const config = api.config || {};
-    for (const tool of [lookupTool, saveReferenceTool, notePreferenceTool, recentTool]) tool.config = config;
+    for (const tool of [imageSkillTool, lookupTool, saveReferenceTool, notePreferenceTool, recentTool]) tool.config = config;
+    api.registerTool(imageSkillTool, { name: IMAGE_SKILL_TOOL });
     api.registerTool(lookupTool, { name: LOOKUP_TOOL });
     api.registerTool(saveReferenceTool, { name: SAVE_REFERENCE_TOOL });
     api.registerTool(notePreferenceTool, { name: NOTE_PREFERENCE_TOOL });

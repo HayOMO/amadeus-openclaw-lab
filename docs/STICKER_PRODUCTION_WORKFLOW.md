@@ -23,8 +23,8 @@ Useful action groups:
 - explicit mirroring: `copy_set`, `import_set`;
 - direct publishing/management: `upload`, `create`, `create_batch`, `add`,
   `add_batch`, `delete_sticker`, `set_keywords`, `set_emoji_list`, `link`.
-  `plan` creates a one-shot approval checkpoint for these Telegram mutation
-  actions.
+  `plan` creates a one-shot approval checkpoint for `delete_sticker`; non-delete
+  mutation plans remain compatibility paths but are not required by default.
 
 ## Two-Layer Tool Description
 
@@ -46,17 +46,23 @@ in `tool_manuals/sticker_pack.md`, not in the always-on prompt.
 - `set_default_set` and `forget_managed_set` write only the local managed-set
   registry; they do not grant Telegram edit rights.
 - `draft` and `review_*` write local draft/review artifacts only.
-- `upload`, `publish_draft`, `create`, `add`, `add_from_sticker`, `copy_set`,
-  `import_set`, `delete_sticker`, `set_keywords`, and `set_emoji_list` can
-  mutate Telegram. They default to `dryRun:true`.
-- `dryRun:false` Telegram mutations require a consumed `sticker_pack action=plan`
-  approval or trusted runtime mutation approval. Legacy model-supplied flags
-  such as `directImportApproved`, `directUploadApproved`, and
-  `directManagementApproved` remain compatibility markers and are not
-  sufficient.
+- `upload`, `publish_draft`, `create`, `copy_set`, `import_set`,
+  `delete_sticker`, `set_keywords`, and `set_emoji_list` can mutate Telegram.
+  They default to `dryRun:true`.
+- `add`, `add_from_sticker`, and `add_batch` can mutate Telegram. In chat
+  runtime calls they default to the real add path only when the current sender
+  matches `userId` / `ownerUserId`; explicit `dryRun:true` still forces a
+  preview-only check.
 - Non-dry-run publish/copy/upload/create/add actions require `userId` /
   `ownerUserId` to match the current sender. Missing requester context fails
-  closed.
+  closed. `set_keywords` and `set_emoji_list` also require this owner alignment
+  because a bare sticker `fileId` has no owner semantics.
+- `delete_sticker dryRun:false` requires a consumed delete plan whose
+  `approval_code` is repeated by the original requester in a later message, or
+  trusted runtime mutation approval. Legacy model-supplied flags such as
+  `directImportApproved`, `directUploadApproved`, and
+  `directManagementApproved` remain compatibility markers and are not
+  sufficient.
 - Successful create/add actions record the set in `managed-sets.json` for later
   default routing.
 
@@ -68,7 +74,8 @@ harder to diagnose whether the model misunderstood the task or the tool surface
 was incomplete.
 
 The current approach is more honest: expose the capability, name each action by
-its actual side effect, and keep mutation defaults conservative.
+its actual side effect, keep destructive actions conservative, and let
+user-aligned sticker adds complete without an extra preview turn.
 
 ## Managed Set Registry
 

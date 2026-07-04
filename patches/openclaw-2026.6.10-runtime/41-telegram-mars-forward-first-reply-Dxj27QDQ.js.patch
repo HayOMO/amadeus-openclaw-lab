@@ -1,0 +1,62 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index 87a4912..2fa9a17 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -1846,7 +1846,7 @@ function buildTelegramMarsForwardReviewPrompt(result) {
+ 		first.preview ? `First preview: ${first.preview}` : "",
+ 		`Current message: ${current.messageId ?? "unknown"} at ${current.timestamp ?? "unknown"} by ${current.senderName ?? current.senderUsername ?? current.senderId ?? "unknown"}.`,
+ 		current.preview ? `Current preview: ${current.preview}` : "",
+-		"任务：判断这个相似的频道转发候选是否和同群第一次记录的消息是同一件事。来源频道消息、过滤后的规范化 URL、Telegram file_unique_id 这类精确重复已经由脚本在模型复核前处理；这里主要复核视觉哈希或其他相似候选。先比较可见内容，不确定就说不确定，不要硬玩火星梗。确认火星时简短吐槽即可。用户追问之前发在哪里时，使用 mars_forward_lookup action=forward_first 转发同群第一次记录。"
++		"任务：判断这个相似的频道转发候选是否和同群第一次记录的消息是同一件事。来源频道消息、过滤后的规范化 URL、Telegram file_unique_id 这类精确重复已经由脚本在模型复核前处理；这里主要复核视觉哈希或其他相似候选。先比较可见内容，不确定就说不确定，不要硬玩火星梗。确认火星时不要直接普通回复当前重复消息，不要附链接；调用 mars_forward_lookup action=reply_first，message 写一句短吐槽，让工具回复同群首发消息。"
+ 	].filter(Boolean).join("\n");
+ }
+ async function maybeReactToTelegramMarsForward(params) {
+@@ -5367,20 +5367,36 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 			});
+ 			let scriptReplied = false;
+ 			if (mechanicalDuplicate) try {
+-				const sentMessage = await withTelegramApiErrorLogging({
+-					operation: "sendMessage",
+-					runtime,
+-					fn: () => bot.api.sendMessage(params.chatId, "\u706b\u661f", {
+-						reply_parameters: {
+-							message_id: params.msg.message_id,
+-							allow_sending_without_reply: true
+-						},
+-						...params.resolvedThreadId != null ? { message_thread_id: params.resolvedThreadId } : {}
+-					})
+-				});
+-				if (typeof sentMessage?.message_id === "number") recordSentMessage(params.chatId, sentMessage.message_id, runtimeCfg);
++				const firstMessageIdRaw = String(result.first?.messageId ?? "").trim();
++				const firstMessageId = firstMessageIdRaw ? Number(firstMessageIdRaw) : NaN;
++				const firstThreadIdRaw = String(result.first?.threadId ?? "").trim();
++				const firstThreadId = firstThreadIdRaw ? Number(firstThreadIdRaw) : NaN;
++				const sendScriptMarsReply = async (text, messageId, threadId) => {
++					const sentMessage = await withTelegramApiErrorLogging({
++						operation: "sendMessage",
++						runtime,
++						fn: () => bot.api.sendMessage(params.chatId, text, {
++							reply_parameters: {
++								message_id: messageId
++							},
++							...threadId != null ? { message_thread_id: threadId } : {}
++						})
++					});
++					if (typeof sentMessage?.message_id === "number") recordSentMessage(params.chatId, sentMessage.message_id, runtimeCfg);
++					return sentMessage;
++				};
++				if (Number.isFinite(firstMessageId)) {
++					try {
++						await sendScriptMarsReply("\u706b\u661f", firstMessageId, Number.isFinite(firstThreadId) ? firstThreadId : void 0);
++					} catch (err) {
++						logVerbose(`telegram mars-forward first-message script reply failed for chat ${params.chatId}: ${String(err)}`);
++						await sendScriptMarsReply("\u706b\u661f\uff0c\u4f46\u662f\u9996\u53d1\u6d88\u606f\u4e0d\u89c1\u4e86\u3002", params.msg.message_id, params.resolvedThreadId);
++					}
++				} else {
++					await sendScriptMarsReply("\u706b\u661f\uff0c\u4f46\u662f\u9996\u53d1\u6d88\u606f\u4e0d\u89c1\u4e86\u3002", params.msg.message_id, params.resolvedThreadId);
++				}
+ 				scriptReplied = true;
+ 			} catch (err) {
+ 				logVerbose(`telegram mars-forward script reply failed for chat ${params.chatId}: ${String(err)}`);
+ 			}
+ 			return {

@@ -7,6 +7,7 @@ const DEFAULT_AGENT = "imagebot";
 const DEFAULT_LOCK_STALE_SECONDS = 15 * 60;
 const DEFAULT_MAX_FILES = 80;
 const DEFAULT_MIN_DATA_CHARS = 1024;
+const EMBEDDED_IMAGE_DATA_RE = /("data"\s*:\s*")((?:data:image\/(?:png|jpe?g|webp|gif);base64,)?[A-Za-z0-9+/=]{1024,})(?="|\[\.\.\.|$)/g;
 
 function defaultSessionsDir(agent = DEFAULT_AGENT) {
   return path.join(os.homedir(), ".openclaw", "agents", agent, "sessions");
@@ -94,12 +95,40 @@ function compactImageItem(item, minDataChars) {
   };
 }
 
+function compactEmbeddedImageDataText(item, minDataChars) {
+  if (!item || typeof item !== "object" || Array.isArray(item) || item.type !== "text" || typeof item.text !== "string") {
+    return { item, pruned: 0, bytesSaved: 0 };
+  }
+  if (!item.text.includes('"data"')) return { item, pruned: 0, bytesSaved: 0 };
+  let pruned = 0;
+  let bytesSaved = 0;
+  const text = item.text.replace(EMBEDDED_IMAGE_DATA_RE, (match, prefix, data) => {
+    if (data.length < minDataChars) return match;
+    pruned++;
+    bytesSaved += data.length;
+    return `${prefix}[embedded image data pruned from session history base64Chars=${data.length}]`;
+  });
+  if (!pruned) return { item, pruned: 0, bytesSaved: 0 };
+  return {
+    item: { ...item, text },
+    pruned,
+    bytesSaved
+  };
+}
+
 function pruneContentImages(content, minDataChars) {
   if (!Array.isArray(content)) return { content, pruned: 0, bytesSaved: 0 };
   let pruned = 0;
   let bytesSaved = 0;
   let changed = false;
   const next = content.map((item) => {
+    const embedded = compactEmbeddedImageDataText(item, minDataChars);
+    if (embedded.pruned) {
+      pruned += embedded.pruned;
+      bytesSaved += embedded.bytesSaved;
+      changed = true;
+      return embedded.item;
+    }
     const result = compactImageItem(item, minDataChars);
     if (result.pruned) {
       pruned++;

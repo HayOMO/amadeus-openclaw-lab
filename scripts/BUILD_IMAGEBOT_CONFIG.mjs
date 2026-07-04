@@ -285,13 +285,72 @@ function chatModelConfig(settings) {
   const state = settings.modelState || {};
   const model = settings.modelParams || {};
   const primary = String(state.model || model.model || "openai/gpt-5.5").trim();
+  const fallbacks = chatModelFallbacks(settings, primary);
   const reasoningEffort = String(state.reasoningEffort || model.reasoningEffort || "medium").trim();
   const textVerbosity = String(state.textVerbosity || model.textVerbosity || "low").trim();
   return {
     primary,
+    fallbacks,
     reasoningEffort,
     textVerbosity
   };
+}
+
+function chatModelFallbacks(settings, primary) {
+  const primaryId = String(primary || "").trim().toLowerCase();
+  const fallbacks = normalizeStringList(settings.modelFallbacks);
+  for (const fallback of fallbacks) {
+    assert.ok(isModelRef(fallback), `invalid chat model fallback id: ${fallback}`);
+  }
+  return fallbacks.filter((fallback) => fallback.toLowerCase() !== primaryId);
+}
+
+function isModelRef(value) {
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.:-]+$/.test(String(value || ""));
+}
+
+function enabledChatModelIds(settings, primary) {
+  const ids = new Set();
+  if (isModelRef(primary)) ids.add(primary);
+  const models = Array.isArray(settings.modelCatalog?.models) ? settings.modelCatalog.models : [];
+  for (const model of models) {
+    const id = String(model?.id || "").trim();
+    if (!isModelRef(id) || model?.enabled === false) continue;
+    ids.add(id);
+  }
+  return [...ids];
+}
+
+function singleProfileAliasesByModel(settings) {
+  const profiles = Array.isArray(settings.modelCatalog?.profiles) ? settings.modelCatalog.profiles : [];
+  const byModel = new Map();
+  for (const profile of profiles) {
+    const model = String(profile?.model || "").trim();
+    if (!isModelRef(model)) continue;
+    const values = byModel.get(model) || [];
+    values.push(profile);
+    byModel.set(model, values);
+  }
+  const aliases = new Map();
+  for (const [model, values] of byModel.entries()) {
+    if (values.length !== 1) continue;
+    const alias = String(values[0]?.id || "").trim();
+    if (!alias || alias === "custom") continue;
+    aliases.set(model, alias);
+  }
+  return aliases;
+}
+
+function agentModelAllowlistOps(settings, primary) {
+  const aliases = singleProfileAliasesByModel(settings);
+  const ops = [];
+  for (const modelId of enabledChatModelIds(settings, primary)) {
+    const alias = aliases.get(modelId);
+    const value = alias ? { alias } : {};
+    ops.push({ path: `agents.defaults.models["${modelId}"]`, value });
+    ops.push({ path: `agents.list[0].models["${modelId}"]`, value });
+  }
+  return ops;
 }
 
 function webSearchConfig(settings) {
@@ -312,6 +371,48 @@ function webSearchConfig(settings) {
     result.provider = String(cfg.provider);
   }
   return result;
+}
+
+function toolSearchConfig(settings) {
+  const cfg = settings.toolSearch || {};
+  const mode = ["directory", "tools", "code"].includes(cfg.mode) ? cfg.mode : "directory";
+  const maxSearchLimit = Math.max(1, Math.min(50, Number.isInteger(cfg.maxSearchLimit) ? cfg.maxSearchLimit : 12));
+  const searchDefaultLimit = Math.max(
+    1,
+    Math.min(maxSearchLimit, Number.isInteger(cfg.searchDefaultLimit) ? cfg.searchDefaultLimit : 6)
+  );
+  return {
+    enabled: cfg.enabled !== false,
+    mode,
+    searchDefaultLimit,
+    maxSearchLimit
+  };
+}
+
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+function telegramTextRepeaterConfig(settings) {
+  const cfg = settings.textRepeater || {};
+  return {
+    enabled: cfg.enabled !== false,
+    groupOnly: cfg.groupOnly !== false,
+    repeatText: cfg.repeatText !== false,
+    repeatStickers: cfg.repeatStickers !== false,
+    requireDifferentSenders: cfg.requireDifferentSenders !== false,
+    maxGapMs: boundedInteger(cfg.maxGapMs, 30000, 1000, 5 * 60 * 1000),
+    minCount: boundedInteger(cfg.minCount, 2, 2, 5),
+    cooldownMs: boundedInteger(cfg.cooldownMs, 30000, 1000, 10 * 60 * 1000),
+    stateTtlMs: boundedInteger(cfg.stateTtlMs, 10 * 60 * 1000, 30000, 60 * 60 * 1000),
+    maxTextLength: boundedInteger(cfg.maxTextLength, 160, 1, 500),
+    maxScopes: boundedInteger(cfg.maxScopes, 512, 16, 4096),
+    ignoreCommands: cfg.ignoreCommands !== false,
+    ignoreBotMessages: cfg.ignoreBotMessages !== false,
+    ignoreExplicitBotMention: cfg.ignoreExplicitBotMention !== false
+  };
 }
 
 function normalizeStringList(value) {
@@ -373,12 +474,15 @@ function lifecycleHookPolicy({ promptInjection = false } = {}) {
 function buildConfigOps(settings, customCommands) {
   const model = settings.modelParams;
   const chatModel = chatModelConfig(settings);
+  const chatModelSelection = {
+    primary: chatModel.primary,
+    fallbacks: chatModel.fallbacks
+  };
   const toolsBySender = senderToolPolicy(settings);
   const ops = [
-    { path: "agents.defaults.model.primary", value: chatModel.primary },
-    { path: "agents.list[0].model", value: chatModel.primary },
-    { path: `agents.defaults.models["${chatModel.primary}"]`, value: {} },
-    { path: `agents.list[0].models["${chatModel.primary}"]`, value: {} },
+    { path: "agents.defaults.model", value: chatModelSelection },
+    { path: "agents.list[0].model", value: chatModelSelection },
+    ...agentModelAllowlistOps(settings, chatModel.primary),
     { path: "agents.list[0].params.reasoningEffort", value: chatModel.reasoningEffort },
     { path: "agents.list[0].params.textVerbosity", value: chatModel.textVerbosity },
     { path: "agents.defaults.maxConcurrent", value: model.maxConcurrent },
@@ -392,9 +496,8 @@ function buildConfigOps(settings, customCommands) {
     { path: "plugins.allow", value: settings.allowedPluginIds },
     { path: "plugins.load.paths", value: pluginPaths(settings) },
     { path: "plugins.entries.browser.enabled", value: true },
-    { path: "plugins.entries.deepseek.enabled", value: true },
     { path: "plugins.entries.web-image-search.enabled", value: true },
-    { path: "plugins.entries.web-image-search.config", value: { backgroundJobs: backgroundJobsSharedConfig(settings, "web"), browserPool: browserPoolConfig(settings) } },
+    { path: "plugins.entries.web-image-search.config", value: { openclawMediaRoot: statePath("media"), backgroundJobs: backgroundJobsSharedConfig(settings, "web"), browserPool: browserPoolConfig(settings), danbooru: { baseUrl: "https://danbooru.donmai.us", secretFile: statePath("secrets", "danbooru-imagebot.json") } } },
     { path: "plugins.entries.imagebot-browser-guard.enabled", value: true },
     { path: "plugins.entries.imagebot-browser-guard.hooks", value: lifecycleHookPolicy() },
     { path: "plugins.entries.imagebot-browser-guard.config", value: browserGuardConfig() },
@@ -405,6 +508,7 @@ function buildConfigOps(settings, customCommands) {
       path: "plugins.entries.imagebot-audio-transcribe.config",
       value: {
         mediaDir: statePath("media", "audio-transcribe"),
+        openclawMediaRoot: statePath("media"),
         storeDir: statePath("audio-transcribe"),
         backgroundJobs: backgroundJobsSharedConfig(settings, "video")
       }
@@ -434,7 +538,8 @@ function buildConfigOps(settings, customCommands) {
     {
       path: "plugins.entries.imagebot-image-skills.config",
       value: {
-        storeDir: statePath("imagebot-image-skills")
+        storeDir: statePath("imagebot-image-skills"),
+        openclawMediaRoot: statePath("media")
       }
     },
     { path: "plugins.entries.imagebot-meme-tools.enabled", value: true },
@@ -442,6 +547,7 @@ function buildConfigOps(settings, customCommands) {
       path: "plugins.entries.imagebot-meme-tools.config",
       value: {
         mediaDir: statePath("media", "meme-tools"),
+        openclawMediaRoot: statePath("media"),
         backgroundJobs: backgroundJobsSharedConfig(settings, "media")
       }
     },
@@ -510,6 +616,7 @@ function buildConfigOps(settings, customCommands) {
     {
       path: "plugins.entries.imagebot-media-artifacts.config",
       value: {
+        openclawMediaRoot: statePath("media"),
         strictGeneratedRefs: true,
         appendPromptContext: true,
         dependencyDirs: [
@@ -542,6 +649,7 @@ function buildConfigOps(settings, customCommands) {
     {
       path: "plugins.entries.imagebot-practical-tools.config",
       value: {
+        openclawMediaRoot: statePath("media"),
         backgroundJobs: backgroundJobsSharedConfig(settings, "media"),
         browserPool: browserPoolConfig(settings),
         accountBrowserRisk: accountBrowserRiskConfig(settings)
@@ -562,6 +670,7 @@ function buildConfigOps(settings, customCommands) {
       path: "plugins.entries.imagebot-sticker-pack.config",
       value: {
         mediaDir: statePath("media", "sticker-pack"),
+        openclawMediaRoot: statePath("media"),
         tokenFile: statePath("secrets", "telegram-imagebot.token"),
         botUsername: settings.botUsernames[0] || "YOUR_BOT_USERNAME"
       }
@@ -573,7 +682,8 @@ function buildConfigOps(settings, customCommands) {
       value: {
         appendInteractionContext: true,
         botUsernames: settings.botUsernames,
-        triggerPrefixes: ["Amadeus", "Amaduse", "Makise Kurisu", "Makise", "Kurisu"],
+        triggerPrefixes: ["Amaduse", "Amadesu", "Amadeus", "Makise Kurisu", "Makise", "Kurisu"],
+        textRepeater: telegramTextRepeaterConfig(settings),
         marsForwardDetector: {
           enabled: true,
           llmReview: true,
@@ -655,6 +765,7 @@ function buildConfigOps(settings, customCommands) {
     { path: "tools.deny", value: settings.deniedTools },
     { path: "tools.toolsBySender", value: toolsBySender },
     { path: "tools.web.search", value: webSearchConfig(settings) },
+    { path: "tools.toolSearch", value: toolSearchConfig(settings) },
     { path: "tools.message.actions.allow", value: ["send"] },
     { path: "agents.list[0].tools.allow", value: settings.allowedTools },
     { path: "agents.list[0].tools.deny", value: settings.deniedTools },
@@ -667,6 +778,10 @@ function buildConfigOps(settings, customCommands) {
     { path: "tools.media.image.timeoutSeconds", value: model.imageTimeoutSeconds },
     { path: "channels.telegram.customCommands", value: customCommands },
     { path: "channels.telegram.accounts.imagebot.customCommands", value: customCommands },
+    { path: "channels.telegram.commands.native", value: false },
+    { path: "channels.telegram.commands.nativeSkills", value: false },
+    { path: "channels.telegram.accounts.imagebot.commands.native", value: false },
+    { path: "channels.telegram.accounts.imagebot.commands.nativeSkills", value: false },
     { path: "channels.telegram.streaming", value: groupStreaming() },
     { path: "channels.telegram.accounts.imagebot.streaming", value: groupStreaming() },
     { path: "channels.telegram.groupPolicy", value: "allowlist" },
@@ -698,7 +813,9 @@ export async function buildImagebotConfig({ write = false } = {}) {
   const settingsPath = repoPath("config", "imagebot", "settings.json");
   const settings = await readJson(settingsPath);
   const modelState = await readOptionalJson(repoPath("config", "imagebot", "model-state.json"), {});
+  const modelCatalog = await readOptionalJson(repoPath("scripts", "IMAGEBOT_MODEL_PROFILES.json"), {});
   settings.modelState = modelState;
+  settings.modelCatalog = modelCatalog;
   assert.equal(settings.schema, 1);
   const prompt = await buildPrompt(settings);
   const customCommands = await buildCustomCommands(settings);

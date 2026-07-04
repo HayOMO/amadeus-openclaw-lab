@@ -55,14 +55,7 @@ try {
 
   if (-not $SkipProviderInstall) {
     Write-Host ''
-    Write-Host 'Installing/updating OpenClaw DeepSeek provider plugin...'
-    try {
-      Invoke-OpenClawChecked plugins install --force '@openclaw/deepseek-provider'
-    }
-    catch {
-      Write-Warning "Provider plugin install failed: $($_.Exception.Message)"
-      Write-Warning "The key will still be stored and config will still be written. Retry later with: openclaw plugins install --force @openclaw/deepseek-provider"
-    }
+    Write-Host 'DeepSeek is configured through models.providers.deepseek; no OpenClaw plugin install is required.'
   }
 
   $batchPath = Join-Path $env:TEMP 'openclaw-deepseek-imagebot.batch.json'
@@ -163,7 +156,6 @@ try {
     @{ path = 'models.providers.deepseek.baseUrl'; value = 'https://api.deepseek.com' },
     @{ path = 'models.providers.deepseek.api'; value = 'openai-completions' },
     @{ path = 'models.providers.deepseek.models'; value = $deepseekModels },
-    @{ path = 'plugins.entries.deepseek.enabled'; value = $true },
     @{ path = 'agents.defaults.models["deepseek/deepseek-v4-flash"]'; value = @{ alias = 'ds-fast' } },
     @{ path = 'agents.defaults.models["deepseek/deepseek-v4-pro"]'; value = @{ alias = 'ds-pro' } },
     @{ path = 'agents.list[0].models["deepseek/deepseek-v4-flash"]'; value = @{ alias = 'ds-fast' } },
@@ -174,6 +166,10 @@ try {
   Write-Host ''
   Write-Host 'Applying DeepSeek provider config...'
   Invoke-OpenClawChecked config set --batch-file $batchPath
+  '{"plugins":{"entries":{"deepseek":null}}}' | openclaw config patch --stdin
+  if ($LASTEXITCODE -ne 0) {
+    throw "openclaw config patch --stdin failed with exit code $LASTEXITCODE"
+  }
   Invoke-OpenClawChecked config validate
   Remove-Item -LiteralPath $batchPath -Force -ErrorAction SilentlyContinue
 
@@ -182,7 +178,7 @@ try {
     Write-Host 'Checking DeepSeek model catalog...'
     & openclaw models list --provider deepseek
     if ($LASTEXITCODE -ne 0) {
-      Write-Warning 'DeepSeek model probe failed. The key is stored and config is valid; restart the gateway or check provider plugin availability, then run: openclaw models list --provider deepseek'
+      Write-Warning 'DeepSeek model probe failed. The key is stored and config is valid; restart the gateway if it still uses old credentials, then run: openclaw models list --provider deepseek'
     }
   }
 

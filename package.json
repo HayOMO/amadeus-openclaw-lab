@@ -17,6 +17,7 @@
     "prepare:runtime:ci": "node scripts/PREPARE_OPENCLAW_RUNTIME_FOR_TESTS.mjs",
     "repair:sessions": "node scripts/REPAIR_IMAGEBOT_SESSIONS.mjs && node scripts/REPAIR_IMAGEBOT_WINDOW_STORE.mjs",
     "setup:plugins": "powershell -ExecutionPolicy Bypass -File ./scripts/INSTALL_IMAGEBOT_PLUGIN_DEPS.ps1",
+    "setup:test": "python -m pip install -r requirements-test.txt",
     "test:all": "node scripts/TEST_IMAGEBOT_ALL.mjs",
     "test:core": "node scripts/TEST_IMAGEBOT_CORE.mjs",
     "test:public-export": "node scripts/TEST_PUBLIC_EXPORT_SANITIZATION.mjs",

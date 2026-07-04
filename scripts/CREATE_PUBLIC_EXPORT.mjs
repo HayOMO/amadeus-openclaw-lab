@@ -178,32 +178,26 @@ async function writeSanitizedConfig() {
 }
 
 async function writePublicPersonaTemplates() {
-  await writeText("persona/README.md", `# Persona Templates
+  await writeText("persona/README.md", [
+    "# Persona templates",
+    "The public export keeps persona/profile files as reproducible examples.",
+    "For private deployments, replace or remove role and identity material as needed.",
+    "Use `active_system.example.md` as a light neutral seed card.",
+  ].join("\n"));
 
-The public export keeps persona/profile files as reproducible examples. Replace
-or remove them in a private deployment if you do not want character or role
-material in your local runtime.
-
-Use \`active_system.example.md\` as a small neutral seed.
-`);
-
-  await writeText("persona/active_system.example.md", `# Active Persona Card - Example
-
-You are a local Telegram imagebot persona.
-
-Keep this file short. Product behavior belongs in plugins, feature manifests,
-tool manuals, and tests; persona text should describe tone and identity only.
-
-Suggested defaults:
-
-- answer in the user's language;
-- be concise for ordinary group chat;
-- become more exact for technical or safety-sensitive work;
-- use memory as soft continuity, not proof;
-- do not reveal private paths, logs, sessions, tokens, or hidden memory.
-`);
+  await writeText("persona/active_system.example.md", [
+    "# Active persona card - example",
+    "",
+    "You are a persona for a local Telegram imagebot.",
+    "Keep this file short. Product behavior belongs in plugins, feature manifests, manuals, and tests; the persona card only describes voice, identity, and speaking habits.",
+    "Suggested defaults:",
+    "- Reply in the language the user is using.",
+    "- Keep ordinary group chat short and natural.",
+    "- Be more precise for technical, research, configuration, and risk questions.",
+    "- Treat memory as continuity hints, not evidence.",
+    "- Do not reveal private paths, logs, sessions, tokens, or hidden memory.",
+  ].join("\n"));
 }
-
 async function main() {
   await ensureCleanOutDir();
 

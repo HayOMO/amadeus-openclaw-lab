@@ -19,6 +19,7 @@ for (const name of [
   "web_text_search",
   "explicit_web_text_search",
   "web_image_search",
+  "danbooru_resource",
   "download_image_url",
   "download_image_urls",
   "telegram_media_spoiler",
@@ -27,7 +28,7 @@ for (const name of [
   assert.ok(tools.has(name), `${name} should be available`);
 }
 
-for (const name of ["web_image_search", "download_image_url", "download_image_urls", "reverse_image_search"]) {
+for (const name of ["web_image_search", "danbooru_resource", "download_image_url", "download_image_urls", "reverse_image_search"]) {
   assert.ok(Object.hasOwn(tools.get(name).parameters.properties, "background"), `${name} should support background`);
   assert.ok(Object.hasOwn(tools.get(name).parameters.properties, "dedupe_key"), `${name} should support background dedupe`);
 }
@@ -37,6 +38,7 @@ assert.ok(Object.hasOwn(tools.get("web_image_search").parameters.properties, "pr
 const pluginSource = await fs.readFile(path.resolve("plugins/web-image-search/index.js"), "utf8");
 assert.match(pluginSource, /withEphemeralPage/, "browser-backed image downloads should use ephemeral contexts");
 assert.doesNotMatch(pluginSource, /image-download-pool/, "browser-backed image downloads must not keep a persistent public profile");
+assert.match(pluginSource, /AmadeusImageBot\/1\.0 \(danbooru_resource\)/, "Danbooru CDN downloads should not use the generic browser UA");
 assert.ok(hooks.has("web-image-search-before-tool-call"), "web-image-search should register the image_generate reference guard");
 
 const beforeToolCall = hooks.get("web-image-search-before-tool-call").handler;
@@ -90,6 +92,53 @@ assert.equal(__testing.resolveDownloadTransport({}, danbooruImageUrl), "browser"
 assert.equal(__testing.resolveDownloadTransport({}, "https://example.com/image.jpg"), "http");
 assert.equal(__testing.resolveDownloadTransport({ transport: "http" }, danbooruImageUrl), "http");
 assert.equal(__testing.resolveDownloadTransport({ transport: "browser" }, "https://example.com/image.jpg"), "browser");
+assert.deepEqual(
+  __testing.buildDanbooruQueryTags({
+    tags: ["1girl", "blue_archive"],
+    rating: "explicit",
+    minScore: 200,
+    minFavCount: 500,
+    order: "favcount"
+  }),
+  ["1girl", "blue_archive", "rating:e", "status:active", "score:200..", "favcount:500..", "order:favcount"]
+);
+assert.deepEqual(
+  __testing.buildDanbooruQueryTags({ query: "1girl solo", rating: "any", minBookmarkCount: 500 }),
+  ["1girl", "solo", "status:active", "score:0..", "favcount:500..", "order:favcount"]
+);
+assert.deepEqual(
+  __testing.danbooruSearchTagPlans(["1girl", "rating:e", "status:active", "score:0..", "favcount:200..", "order:favcount"]),
+  [
+    ["1girl", "rating:e", "status:active", "score:0..", "favcount:200..", "order:favcount"],
+    ["1girl", "rating:e", "status:active", "score:0..", "favcount:200.."],
+    ["1girl", "rating:e", "status:active", "favcount:200..", "order:favcount"],
+    ["1girl", "rating:e", "status:active", "score:0..", "order:favcount"]
+  ]
+);
+const normalizedDanbooruPost = __testing.normalizeDanbooruPost({
+  id: 12345,
+  rating: "e",
+  score: 240,
+  fav_count: 777,
+  image_width: 1200,
+  image_height: 1600,
+  file_ext: "jpg",
+  large_file_url: "https://cdn.donmai.us/sample/00/11/sample-test.jpg",
+  file_url: "https://cdn.donmai.us/original/00/11/original-test.jpg",
+  preview_file_url: "https://cdn.donmai.us/preview/00/11/preview-test.jpg",
+  tag_string: "1girl blue_archive solo",
+  tag_string_general: "1girl solo",
+  tag_string_character: "unit_test",
+  tag_string_copyright: "blue_archive",
+  tag_string_artist: "unit_artist"
+}, { baseUrl: "https://danbooru.donmai.us" }, { imageSize: "large" });
+assert.equal(normalizedDanbooruPost.id, 12345);
+assert.equal(normalizedDanbooruPost.imageUrl, "https://cdn.donmai.us/sample/00/11/sample-test.jpg");
+assert.equal(normalizedDanbooruPost.postUrl, "https://danbooru.donmai.us/posts/12345");
+assert.equal(normalizedDanbooruPost.favCount, 777);
+const filteredDanbooruPosts = __testing.filterDanbooruPosts([normalizedDanbooruPost], { minFavCount: 800 });
+assert.equal(filteredDanbooruPosts.posts.length, 0);
+assert.equal(filteredDanbooruPosts.skippedQuality, 1);
 const verboseResults = Array.from({ length: 8 }, (_unused, index) => ({
   title: `candidate ${index + 1}`,
   imageUrl: `https://img.example.test/${index + 1}.jpg`,
@@ -210,6 +259,9 @@ try {
   assert.equal(spoilerResult.details.media.trustedLocalMedia, true);
   assert.equal(spoilerResult.details.media.outbound, false);
   assert.deepEqual(spoilerResult.details.media.mediaUrls, [localMediaPath]);
+  const spoilerMediaUriResult = await spoilerTool.execute("test-media-uri", { media: "media://downloaded/test-web-image-search/spoiler-test.png (image/png)" });
+  assert.equal(spoilerMediaUriResult.details.status, "ok");
+  assert.deepEqual(spoilerMediaUriResult.details.media.mediaUrls, [localMediaPath]);
 
   const practicalDir = path.join(os.homedir(), ".openclaw", "media", "practical-tools", "web-snapshots", "test-web-image-search");
   await fs.mkdir(practicalDir, { recursive: true });

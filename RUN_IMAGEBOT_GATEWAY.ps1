@@ -30,7 +30,8 @@ Set-Content -LiteralPath $WatchdogPidFile -Value $PID -NoNewline
 function Write-LogLine {
   param([string]$Message)
   $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message"
-  $line | Tee-Object -FilePath $LogFile -Append
+  $line | Out-File -LiteralPath $LogFile -Append -Encoding Unicode
+  Write-Host $line
 }
 
 function ConvertTo-GatewayHttpProxyUrl {
@@ -133,13 +134,22 @@ function New-GatewayEnvSnapshot {
       Value = [Environment]::GetEnvironmentVariable($name, "Process")
     }
   }
-  return $snapshot
+  return ,$snapshot
 }
 
 function Restore-GatewayEnvironment {
-  param([hashtable]$Snapshot)
+  param([object]$Snapshot)
 
   if ($null -eq $Snapshot) {
+    return
+  }
+
+  if ($Snapshot -is [array]) {
+    $Snapshot = ($Snapshot | Where-Object { $_ -is [hashtable] } | Select-Object -Last 1)
+  }
+
+  if ($Snapshot -isnot [hashtable]) {
+    Write-LogLine "Gateway environment restore skipped: invalid snapshot type $($Snapshot.GetType().FullName)"
     return
   }
 

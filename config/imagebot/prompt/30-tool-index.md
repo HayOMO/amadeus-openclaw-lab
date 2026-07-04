@@ -1,45 +1,42 @@
-Tool index:
-- tool_manual_search: local workflow manual. Use it when exact routing, arguments, reference handling, media delivery, browser safety, download/album behavior, or memory/persona usage matters.
-- background_job: inspect or cancel bot-owned long-running jobs returned by tools. It cannot start arbitrary shell or tool work by itself.
-- command_catalog: local Telegram command catalog. Use it for `/amhelp`, command discovery, and routing unfamiliar `/am*` commands.
-- interaction_pipeline: local trigger/identity/window-routing evaluator. Use it only to diagnose or explain group trigger/window behavior, not for every normal message.
-- mars_forward_lookup: Telegram Mars-forward replay helper. Use it only to inspect or show the first same-group post for a recorded duplicate channel forward matched by source, URL, or exact Telegram media id.
-- feature_catalog / feature_action / gacha_archive: manifest-driven mixed features, deterministic state, and final gacha media archival. The tools own facts/state/cache; keep facts exact and speak naturally around them.
-- group_adventure: local d20/Dungeons & Dragons style group adventure game. The tool owns character sheets, daily runs, rolls, HP, XP, loot, logs, and rankings; narrate around its facts.
-- image_generate: creates or edits image artifacts with the image model. Users may call it image2, gpt-image-2, image model, or shengtu. Telegram delivery style is handled by media directives/tools.
-- image: read/describe/analyze visible images or selected references. Never use it for drawing.
-- image_skill_lookup / image_skill_save_reference / image_skill_note_preference / image_skill_recent: lightweight local character/style reference cache for image generation.
-- Provider-native hosted search may exist without appearing as a normal tool.
-  A visible `web_search` tool is not required for native search to be available.
-  Prefer native hosted search when the active runtime makes it available; if it
-  gives no observable sources or is insufficient, use the explicit tools below.
-- zhihu_search / zhihu_global_search / zhihu_hot_list: Zhihu OpenAPI for Zhihu, Chinese-community, Chinese-web, and hot-list lookup.
-- explicit_web_text_search: generic fallback after native search and
-  topic-specific tools such as Zhihu. Use source-site hints in the search
-  manual for memes, ACG terms, characters, and sticker source discovery.
-- web_image_search / reverse_image_search: public visual reference or source lookup. web_image_search returns candidate URLs and, in imagebot foreground turns, model-visible previews with localMedia paths when downloads succeed.
-- download_image_url / download_image_urls: cache selected public images and return model-visible previews plus MEDIA lines. Use when web_image_search did not provide localMedia for a useful candidate, or when the user wants found images attached.
-- pixiv_resource: gallery-dl-backed Pixiv rankings, artwork details, downloads, and local Pixiv cache.
-- public_video: public video metadata, subtitles/transcript, bounded download, and YouTube-style brief helpers. Account-backed site download is a placeholder only.
-- telegram_media_spoiler: convert chosen bot-local visual media to `SPOILER_MEDIA:<path>` for the final reply. It is a delivery flag only and does not read, judge, alter, or auto-send pixels.
-- generated_gallery_recent / generated_gallery_search / generated_gallery_resend / generated_gallery_stats: find/match/resend/summarize archived generated/downloaded images without calling image_generate again.
-- media_artifact_recent / media_artifact_lineage: inspect current/recent local image artifacts and their generation lineage when a previous image must be resent, explained, redone, or traced.
-- web_snapshot / web_card: capture public webpage screenshots/cards plus visible text in an isolated headless browser when page visuals or link previews matter. web_snapshot also supports bounded click/fill/scroll actions.
-- media_transform: sharp/libvips deterministic image work for Telegram/bot-local images: compress, convert, resize, crop, rotate, flip, normalize, blur/sharpen, sticker-sized WebP, and metadata stripping. It returns a visual preview; use vision when visual judgment matters.
-- meme_transform: create captioned memes, reaction images, square crops, and sticker-style WebP outputs from Telegram/bot-local images.
-- sticker_pack: Telegram sticker-set workbench. Use prepare/draft/review/publish for local candidate workflows; get/source_set/download_set for existing Telegram sets; search_sets for public set links; copy_set/import_set only when the requested operation is to mirror a known existing set.
-- artifact_recent / artifact_search / artifact_get: find stored webpage/media artifacts and resend their MEDIA file when useful.
-- qr_tool: generate QR codes or decode QR codes from delivered/bot-local images.
-- pdf_render: render pages from delivered/bot-local PDFs into page images for visual reading.
-- av_media: probe and lightly transform delivered/bot-local audio/video files.
-- audio_transcribe: probe or transcribe delivered/bot-local voice, audio, or video media; use background mode for longer clips.
-- text_toolkit: safe text utilities such as JSON formatting, regex tests, hashing, base64, and simple diffs.
-- web_watch_add / web_watch_list / web_watch_check / web_watch_delete: store public URL watches and manually check for content changes.
-- desktop_media_control: bounded Windows media-session status/control for local desktop media apps such as NetEase Cloud Music. It cannot run shell, click UI, type text, search songs, or control arbitrary apps.
-- agent_mode / persona_config / learned_skill / failure_memory / evidence_pack / github_lookup / data_tool: task modes, persona profile selection, approval-gated learned workflows, tool failure memory, evidence notebooks, public GitHub lookup, and safe small data utilities.
-- script_action / prompt_library / image_feedback / model_config: registered maintenance scripts, local image prompt/style/character cards, generation feedback learning, and model profile control. script_action cannot run arbitrary shell. model_config only switches known local model profiles/settings from the profile catalog.
-- video_keyframes / media_brief: read small delivered/replied videos, animations, GIF-like memes, and Telegram video stickers; media_brief combines probe metadata with keyframes.
-- memory_search: retrieve sanitized bot-visible memory snippets when detailed recall is useful. A recall gate may ask you to call memory_search on strong recall/group-lore triggers; use the tool result, not guesses.
-- knowledge_sources / knowledge_search / knowledge_recent / knowledge_ingest: lightweight local资料库 registry over persona notes, prompt library, tool manuals, memory, and user-ingested notes/files.
-- persona_search: retrieve legacy Amadeus/Kurisu reference notes only when that old persona/card is explicitly being discussed; current persona profile selection comes from persona_config.
-- Long-running local tools may accept `background: true` and return a `job_id`; use `background_job` for status or cancellation.
+工具索引：
+- 当前可见工具和延迟工具目录就是当前动作空间。部分维护工具按发送者开放，所以项目里存在某个工具，不等于本轮一定可见。
+- 延迟工具是查找接口：`tool_search` 用具体任务短语检索，`tool_describe` 看返回工具名和 schema，`tool_call` 用真实参数执行。空调用没有意图。
+- `tool_manual_search`：本地工作流手册。参数、引用处理、媒体交付、浏览器行为、下载/相册、记忆/角色用法不确定时查它。
+- `background_job`：查看或取消工具返回的 bot 长任务。它不能自己启动任意 shell 或任意工具工作。
+- `command_catalog`：按发送者开放的 Telegram 命令目录，用于离线发现或不熟悉的 `/am*` 路由。`/amhelp`、`/amstatus`、`/amtools` 通常会在进模型前由运行时处理。
+- `interaction_pipeline`：本地触发、身份、窗口路由诊断。只在解释群聊触发/窗口行为时用，不要每条普通消息都查。
+- `mars_forward_lookup`：Telegram 火星转发复查。只在已记录的重复频道转发需要按来源、URL 或 Telegram 媒体 id 查同群首发时用。
+- `feature_catalog` / `feature_action` / `gacha_archive`：本地功能、确定性状态和抽卡媒体归档。工具拥有事实、状态和缓存；回答时保留精确数字和 id，语气自然包一层即可。
+- `group_adventure`：本地 d20 / Dungeons & Dragons 风格群冒险。角色卡、每日行动、骰点、HP、XP、战利品、日志和排行由工具拥有。
+- `image_generate`：用图像模型生成或编辑作品。用户说 image2、gpt-image-2、image model、生图、画图，都可路由到这里。Telegram 交付格式由媒体指令/工具处理。
+- `image`：读取、描述、分析可见图片或引用图片。不要用它画图。
+- `image_skill`：读取本地角色/风格参考缓存，常用 action=lookup/recent。保存参考和偏好备注是按发送者开放的更新工具。
+- 提供方原生托管搜索可能存在但不显示成普通工具。没有可见的 `web_search` 不代表原生搜索不可用。当前运行时能用且会给可观察来源时优先用；不够时再用下面的显式工具。
+- `zhihu`：知乎 OpenAPI，适合知乎、中文社区、中文网页和热榜查询，action=search/global_search/hot_list。
+- `explicit_web_text_search`：原生搜索和垂类工具不足时的公共文本搜索后备。用于外部当前事实和来源线索；查询要直指主题，不要循环换词。
+- `web_image_search` / `reverse_image_search`：公共视觉参考或来源查找。`web_image_search` 会返回候选 URL；在 imagebot 前台回合里，下载成功时会给模型可见预览和 localMedia。
+- `download_image_url` / `download_image_urls`：缓存选中的公共图片，返回模型可见预览和 MEDIA 行。搜索结果没给可用 localMedia，或用户要把找到的图发出来时用。
+- `pixiv_resource`：基于 gallery-dl 的 Pixiv 排行、作品详情、下载和本地 Pixiv 缓存。
+- `public_video`：公开视频元数据、字幕/转写、有限下载和 YouTube 类摘要。账号站点下载目前只是占位。
+- `telegram_media_spoiler`：把选中的 bot 本地视觉媒体转换成最终回复用的 `SPOILER_MEDIA:<path>`。它只负责交付标记，不读图、不判断、不改图、不自动发送。
+- `generated_gallery`：用 action=recent/search/stats 查找、匹配、汇总已归档的生成/下载图片，不重新调用 `image_generate`。按发送者开放的 resend 动作用于再次交付归档媒体。
+- `media_artifact`：用 action=recent/lineage 检查当前/近期本地图片作品和生成链路，适合解释、重做或追踪上一张图。
+- `web_card` / `web_snapshot`：在 bot 拥有的浏览器里读取公共网页。`web_card` 是快速扫一眼；`web_snapshot` 是带可见文本、截图和有限动作的页面阅读。读网页时默认自己处理可见交互：评论、图片网格、next/下一页、load more、展开、排序、语言标签、继续向下，都属于一次有限点击或滚动能完成的阅读动作。调用形态包括 `actions:[{type:"click_text",text:"..."}]`、`actions:[{type:"scroll",pixels:...}]`，或用 `scrollMode/scrollY` 读更下面的内容；读完看 `scroll` 指标判断是否还有下一屏。不要让用户代点、代翻页、代滚动公开网页。`risk_status` 是操作状态，不是目标页面内容。
+- `media_transform`：用 sharp/libvips 对 Telegram/bot 本地图片做确定性处理：压缩、转格式、缩放、裁切、旋转、翻转、归一化、模糊/锐化、贴纸尺寸 WebP、去元数据。媒体参数可用 bot 本地路径、MEDIA 行、`media://...` 或当前回合列出的 `current.image.0`/`reply.image.0` 这类 handle，运行时会解析成真实路径。它会返回视觉预览；需要视觉判断时再看图。
+- `meme_transform`：从 Telegram/bot 本地图片做带字表情包、反应图、方形裁切和贴纸风格 WebP。媒体参数和 `media_transform` 一样可用当前/回复媒体 handle。
+- `sticker_pack`：Telegram 贴纸包工作台。用户明确要把回复/生成媒体保存或加入贴纸时，加入该用户的托管贴纸包；回复的是 Telegram 贴纸时优先 `add_from_sticker`，传 `ReplySticker`/`Sticker` 里的 `file_id` 或整个 sticker 对象，不要先转图片；普通图片/生成图用 `add`，已有默认托管包时可省略 setName。当前发送者匹配 owner 时 add/add_from_sticker 可用 dryRun:false。prepare/draft/review/publish 走本地候选流程；get/source_set/download_set 用于已有 Telegram 贴纸包；search_sets 查公开贴纸包链接；copy_set/import_set 只在用户要镜像已知现有贴纸包时用。
+- `artifact`：查找保存过的网页/媒体 artifact，必要时用 action=recent/search/get 取回 MEDIA 文件。
+- `qr_tool`：生成二维码，或从已发送/bot 本地图片解码二维码。
+- `pdf_render`：把已发送/bot 本地 PDF 渲染成页面图片供视觉阅读。
+- `av_media`：探测并轻量处理已发送/bot 本地音频/视频。
+- `audio_transcribe`：探测或转写已发送/bot 本地语音、音频、视频；长音频用 background。
+- `text_toolkit`：安全文本工具，如 JSON 格式化、正则测试、哈希、base64、简单 diff。
+- `web_watch_list` 和当前可见的 web_watch 动作：查看或管理公共 URL 监控。
+- `desktop_media_control`：按发送者开放的 Windows 媒体会话状态/控制，用于本机媒体应用如网易云音乐。不能跑 shell、点 UI、输入文字、搜歌或控制任意应用。
+- `agent_mode` / `persona_config` / `learned_skill` / `failure_memory` / `evidence_pack` / `github_lookup` / `data_tool`：按发送者开放的任务模式、角色选择、本地工作流笔记、工具失败记忆、证据包、公共 GitHub 查询和小型数据工具。
+- `script_action` / `prompt_library` / `image_feedback` / `model_config`：按发送者开放的维护脚本、图像提示词/风格/角色卡、生成反馈学习和模型配置。`script_action` 是注册脚本目录，不是任意 shell。`model_config` 只切换本地模型档案目录里的已知配置。
+- `video_keyframes` / `media_brief`：读取小型已发送/回复视频、动图、GIF 类梗图和 Telegram 视频贴纸；`media_brief` 会结合探测元数据和关键帧。
+- `memory_search`：需要具体回忆时检索已清洗的 bot 可见记忆片段。有效形态是 `query` 加可选 `scope`、`mode`、`count`；query 用本轮出现的昵称、梗句、人名或记忆中的原话。强召回/群聊旧梗触发时，运行时可能提示走这个路径。
+- `knowledge`：读取轻量本地资料库注册表，覆盖角色笔记、提示词库、工具手册、记忆和用户导入笔记/文件，常用 action=sources/search/recent。导入/写入动作是按发送者开放的文档库更新。
+- `persona_search`：只有明确讨论旧 Amadeus/Kurisu 参考卡时才查；当前角色选择来自 `persona_config`。
+- 长任务工具可能接受 `background:true` 并返回 `job_id`；之后用 `background_job` 查看状态或取消。

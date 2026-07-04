@@ -8,8 +8,12 @@ $UserAgent = 'PixivAndroidApp/5.0.234 (Android 11; Pixel 5)'
 $RedirectUri = 'https://app-api.pixiv.net/web/v1/users/auth/pixiv/callback'
 $LoginUrl = 'https://app-api.pixiv.net/web/v1/login'
 $AuthTokenUrl = 'https://oauth.secure.pixiv.net/auth/token'
-$ClientId = 'MOBrBDS8blbauoSck0ZfDbtuzpyT'
-$ClientSecret = 'lsACyCD94FhDUtGTXi3QzcFE2uU1hqtDaKeqrdwj'
+$ClientId = $env:PIXIV_CLIENT_ID
+$ClientSecret = $env:PIXIV_CLIENT_SECRET
+
+if (-not $ClientId -or -not $ClientSecret) {
+  throw 'Set PIXIV_CLIENT_ID and PIXIV_CLIENT_SECRET in the environment before requesting a refresh token.'
+}
 
 try {
   Add-Type -AssemblyName System.Web -ErrorAction Stop

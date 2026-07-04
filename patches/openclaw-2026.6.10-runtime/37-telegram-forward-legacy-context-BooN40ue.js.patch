@@ -1,0 +1,32 @@
+diff --git a/dist/sent-message-cache-BooN40ue.js b/dist/sent-message-cache-BooN40ue.js
+index 7e5d1ef..8af4a7c 100644
+--- a/dist/sent-message-cache-BooN40ue.js
++++ b/dist/sent-message-cache-BooN40ue.js
+@@ -412,8 +412,25 @@ function resolveForwardOrigin(origin) {
+ 	}
+ }
+ function normalizeForwardedContext(msg) {
+-	if (!msg.forward_origin) return null;
+-	return resolveForwardOrigin(msg.forward_origin);
++	if (msg.forward_origin) return resolveForwardOrigin(msg.forward_origin);
++	if (msg.forward_from_chat) return buildForwardedContextFromChat({
++		chat: msg.forward_from_chat,
++		date: msg.forward_date,
++		type: msg.forward_from_chat.type === "channel" ? "channel" : "chat",
++		signature: msg.forward_signature,
++		messageId: msg.forward_from_message_id
++	});
++	if (msg.forward_from) return buildForwardedContextFromUser({
++		user: msg.forward_from,
++		date: msg.forward_date,
++		type: "user"
++	});
++	if (msg.forward_sender_name) return buildForwardedContextFromHiddenName({
++		name: msg.forward_sender_name,
++		date: msg.forward_date,
++		type: "hidden_user"
++	});
++	return null;
+ }
+ function extractTelegramLocation(msg) {
+ 	const { venue, location } = msg;

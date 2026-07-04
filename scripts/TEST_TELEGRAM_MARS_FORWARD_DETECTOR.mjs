@@ -5,7 +5,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import vm from "node:vm";
 import { buildImagebotConfig } from "./BUILD_IMAGEBOT_CONFIG.mjs";
 
@@ -33,41 +33,26 @@ async function readDistFile(prefix, marker) {
   throw new Error(`No ${prefix} dist file contains ${marker}`);
 }
 
-function normalizeForwardedContext(msg) {
-  const origin = msg.forward_origin;
-  if (!origin) return null;
-  const chat = origin.chat || {};
-  if (origin.type === "chat") {
-    const senderChat = origin.sender_chat || chat;
-    const title = senderChat.title || senderChat.username || String(senderChat.id || "");
-    return {
-      from: title,
-      date: origin.date,
-      fromType: "chat",
-      fromId: senderChat.id != null ? String(senderChat.id) : undefined,
-      fromUsername: senderChat.username,
-      fromTitle: senderChat.title,
-      fromSignature: origin.author_signature,
-      fromChatType: senderChat.type,
-      fromMessageId: origin.message_id,
-    };
-  }
-  if (origin.type !== "channel") return null;
-  const title = chat.title || chat.username || String(chat.id || "");
-  return {
-    from: title,
-    date: origin.date,
-    fromType: "channel",
-    fromId: chat.id != null ? String(chat.id) : undefined,
-    fromUsername: chat.username,
-    fromTitle: chat.title,
-    fromSignature: origin.author_signature,
-    fromChatType: chat.type,
-    fromMessageId: origin.message_id,
-  };
-}
-
 const bot = await readDistFile("bot-", "TELEGRAM_MARS_FORWARD_DEFAULT_MAX_ENTRIES");
+const telegramApi = await import(pathToFileURL(path.join(distDir, "extensions", "telegram", "api.js")).href);
+assert.match(bot.source, /import \{ DatabaseSync \} from "node:sqlite";/);
+assert.match(bot.source, /telegram mars-forward skipped before drop/);
+assert.match(bot.source, /telegram mars-forward recorded candidate before drop/);
+assert.match(bot.source, /telegram mars-forward duplicate before drop/);
+assert.match(bot.source, /const mechanicalDuplicate = detectorConfig\.scriptReactKinds\.has\(result\.fingerprint\.kind\);/);
+assert.match(bot.source, /const firstMessageIdRaw = String\(result\.first\?\.messageId \?\? ""\)\.trim\(\);/);
+assert.doesNotMatch(bot.source, /const replyMessageId = Number\.isFinite\(firstMessageId\) \? firstMessageId : params\.msg\.message_id;/);
+assert.match(bot.source, /const sendScriptMarsReply = async \(text, messageId, threadId\) =>/);
+assert.match(bot.source, /bot\.api\.sendMessage\(params\.chatId, text/);
+assert.match(bot.source, /message_id: messageId/);
+assert.match(bot.source, /\\u706b\\u661f\\uff0c\\u4f46\\u662f\\u9996\\u53d1\\u6d88\\u606f\\u4e0d\\u89c1\\u4e86\\u3002/);
+assert.match(bot.source, /recordSentMessage\(params\.chatId, sentMessage\.message_id, runtimeCfg\)/);
+assert.match(bot.source, /scriptReplied: review\.scriptReplied/);
+assert.match(bot.source, /shouldDispatch: !mechanicalDuplicate && detectorConfig\.llmReview/);
+assert.match(bot.source, /processOptions: !mechanicalDuplicate && detectorConfig\.llmReview/);
+assert.match(bot.source, /精确重复已经由脚本在模型复核前处理/);
+assert.match(bot.source, /确认火星时不要直接普通回复当前重复消息，不要附链接；调用 mars_forward_lookup action=reply_first/);
+assert.doesNotMatch(bot.source, /exact visual-hash matches are high-confidence mechanical evidence/);
 const start = bot.source.indexOf("const TELEGRAM_MARS_FORWARD_DEFAULT_MAX_ENTRIES");
 const end = bot.source.indexOf("function resolveTelegramImagebotAmmodelDefaultStatePath", start);
 assert.notEqual(start, -1);
@@ -98,7 +83,7 @@ const context = {
       entities: msg.entities ?? msg.caption_entities ?? [],
     };
   },
-  normalizeForwardedContext,
+  normalizeForwardedContext: telegramApi.normalizeForwardedContext,
   resolveTelegramPrimaryMedia(msg) {
     if (Array.isArray(msg.photo) && msg.photo.length) return { placeholder: "<media:photo>" };
     if (msg.sticker) return { placeholder: "<media:sticker>" };
@@ -178,6 +163,25 @@ const baseMessage = {
 
 const baseFingerprints = context.__mars.resolveTelegramMarsForwardFingerprints(baseMessage, detectorConfig);
 assert.ok(baseFingerprints.some((fingerprint) => fingerprint.kind === "channel_message"));
+
+const legacyForwardMessage = {
+  message_id: 101,
+  date: 1780000001,
+  chat: { id: -100123, type: "supergroup", title: "Test group" },
+  from: { id: 2, first_name: "Bob", username: "bob" },
+  text: "legacy forwarded post https://example.com/legacy",
+  entities: [{ type: "url", offset: 22, length: 26 }],
+  forward_date: 1779999901,
+  forward_from_chat: { id: -100778, type: "channel", title: "Legacy Source", username: "legacy_source" },
+  forward_from_message_id: 43,
+  forward_signature: "Legacy Sig",
+};
+const legacyForwardContext = telegramApi.normalizeForwardedContext(legacyForwardMessage);
+assert.equal(legacyForwardContext?.fromType, "channel");
+assert.equal(legacyForwardContext?.fromId, "-100778");
+assert.equal(legacyForwardContext?.fromMessageId, 43);
+const legacyFingerprints = context.__mars.resolveTelegramMarsForwardFingerprints(legacyForwardMessage, detectorConfig);
+assert.ok(legacyFingerprints.some((fingerprint) => fingerprint.kind === "channel_message" && fingerprint.key === "channel:-100778:43"));
 assert.ok(baseFingerprints.some((fingerprint) => fingerprint.kind === "canonical_url"));
 
 const footerMessage = {
@@ -231,9 +235,12 @@ const prompt = context.__mars.buildTelegramMarsForwardReviewPrompt(duplicate);
 assert.match(prompt, /Mars forward candidate/);
 assert.match(prompt, /First seen: message 100/);
 assert.match(prompt, /First same-group post: chat -100123 message 100/);
+assert.doesNotMatch(prompt, /首发链接|https:\/\/t\.me\/c\//);
 assert.match(prompt, /canonical_url|channel_message/);
 assert.match(prompt, /Current message: 101/);
 assert.match(prompt, /Source Channel/);
+assert.match(prompt, /mars_forward_lookup action=reply_first/);
+assert.match(prompt, /不要附链接/);
 
 const sameUrlDifferentChannel = {
   ...baseMessage,
@@ -445,6 +452,7 @@ assert.equal(visualDuplicate.first.messageId, "400");
 assert.equal(visualDuplicate.matches.some((match) => match.visualDistance === 1), true);
 const visualPrompt = context.__mars.buildTelegramMarsForwardReviewPrompt(visualDuplicate);
 assert.match(visualPrompt, /Visual hash candidates/);
+assert.match(visualPrompt, /mars_forward_lookup action=reply_first/);
 
 const visualHashC = {
   algorithm: "ahash8+dhash8+phash32",

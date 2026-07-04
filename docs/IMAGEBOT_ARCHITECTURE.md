@@ -33,6 +33,8 @@ focused on the missing host bridge.
   new windows, but do not create isolated agents or memories.
 - `tool_manuals/*.md`: tool-specific manuals retrieved on demand by
   `tool_manual_search`.
+- `docs/BOT_TOOL_SURFACE_AND_DEPENDENCIES.md`: current tool inventory,
+  operator-only split, and plugin dependency boundary rules.
 - `features/*.json`: manifest-driven mixed LLM/script features.
 - `patches/openclaw-2026.6.10-runtime/manifest.json`: runtime patch inventory.
 - `docs/ATTRIBUTION_AND_REFERENCES.md`: reference and feature-claim matrix for
@@ -68,6 +70,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\APPLY_CHAT_BALANCE_MODE.ps1
 - Plugins own deterministic behavior and local state.
 - Runtime patches only bridge OpenClaw/Telegram behavior that the public config
   surface cannot express.
+- Pre-model Telegram scripts such as `/amhelp` and the text repeater belong to
+  the runtime bridge only when they must answer before group mention/drop
+  filtering and before model context construction.
 - Runtime storage locations and backup boundaries are tracked in
   `docs/IMAGEBOT_DATA_STORAGE.md`. Persistent state may be large; cache and
   temporary workspace cleanup stays separate from archive retention.

@@ -1,17 +1,15 @@
-# Frieren Source Notes
+# 芙莉莲来源笔记
 
-Popularity evidence:
+热度证据：
 
-- Character Tavern public card page observed 2026-06-26: Frieren card shows
-  100 chats and 5.1K messages.
-- Source URL: https://character-tavern.com/character/playboy69/frieren
+- 2026-06-26 观察到 Character Tavern 公开卡页：Frieren 卡显示 100 chats 和 5.1K messages。
+- 来源 URL：https://character-tavern.com/character/playboy69/frieren
 
-Public reference:
+公开参考：
 
-- Frieren Wiki: https://frieren.fandom.com/wiki/Frieren
+- Frieren Wiki：https://frieren.fandom.com/wiki/Frieren
 
-Runtime convention:
+运行约定：
 
-- `active_system.md` is a lightweight speaking card inspired by public card
-  practice and public character facts.
-- The Character Tavern listing was used as popularity evidence.
+- `active_system.md` 是轻量说话卡，参考公开角色卡实践和公开角色事实。
+- Character Tavern 条目只作为热度证据，不直接照抄。

@@ -18,7 +18,7 @@ plugin.register({
   }
 });
 
-for (const name of ["zhihu_search", "zhihu_global_search", "zhihu_hot_list"]) {
+for (const name of ["zhihu", "zhihu_search", "zhihu_global_search", "zhihu_hot_list"]) {
   assert.ok(tools.has(name), `${name} should be registered`);
 }
 
@@ -57,8 +57,16 @@ assert.equal(missingSecret.details.status, "unavailable");
 assert.equal(missingSecret.details.reason, "missing_access_secret");
 assert.match(missingSecret.content[0].text, /explicit_web_text_search/);
 
+const aggregateMissingSecret = await tools.get("zhihu").execute("aggregate-missing-secret", { action: "search", query: "test", count: 1 });
+assert.equal(aggregateMissingSecret.details.status, "unavailable");
+assert.equal(aggregateMissingSecret.details.reason, "missing_access_secret");
+
 const missingQuery = await tools.get("zhihu_search").execute("missing-query", { query: "" });
 assert.equal(missingQuery.details.status, "failed");
 assert.match(missingQuery.details.error, /query is required/);
+
+const aggregateHotMissingSecret = await tools.get("zhihu").execute("aggregate-hot-missing-secret", { action: "hot_list", limit: 1 });
+assert.equal(aggregateHotMissingSecret.details.status, "unavailable");
+assert.equal(aggregateHotMissingSecret.details.reason, "missing_access_secret");
 
 console.log("zhihu openapi plugin tests passed");

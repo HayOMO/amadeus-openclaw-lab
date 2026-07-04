@@ -84,6 +84,7 @@ function normalizeWindowStore(raw) {
   const store = isRecord(raw) ? raw : {};
   const windows = isRecord(store.windows) ? sanitizeJsonValue(store.windows) : {};
   const activeByUser = {};
+  const activeWindowIds = new Set();
   if (isRecord(store.activeByUser)) {
     for (const [userKey, ref] of Object.entries(store.activeByUser)) {
       if (!isRecord(ref)) continue;
@@ -93,14 +94,32 @@ function normalizeWindowStore(raw) {
       const storedWindow = isRecord(windows[windowId]) ? windows[windowId] : cleanRef;
       if (storedWindow.closedAt) continue;
       activeByUser[userKey] = storedWindow;
+      activeWindowIds.add(windowId);
     }
   }
+  const inactiveClosedAt = new Date().toISOString();
+  for (const [windowKey, windowEntry] of Object.entries(windows)) {
+    if (!isRecord(windowEntry)) continue;
+    const windowId = sanitizeString(windowEntry.windowId) || windowKey;
+    if (activeWindowIds.has(windowId) || windowEntry.closedAt) continue;
+    windows[windowKey] = {
+      ...windowEntry,
+      closedAt: inactiveClosedAt,
+      closedReason: sanitizeString(windowEntry.closedReason) || "inactive-window-routing-pruned"
+    };
+  }
+  const isRoutableWindowId = (windowId) => {
+    if (!activeWindowIds.has(windowId)) return false;
+    const storedWindow = isRecord(windows[windowId]) ? windows[windowId] : null;
+    return !storedWindow?.closedAt;
+  };
   const byBotMessage = {};
   if (isRecord(store.byBotMessage)) {
     for (const [messageKey, ref] of Object.entries(store.byBotMessage)) {
       if (!isRecord(ref)) continue;
       const cleanRef = sanitizeJsonValue(ref);
-      if (!sanitizeString(cleanRef.windowId)) continue;
+      const windowId = sanitizeString(cleanRef.windowId);
+      if (!windowId || !isRoutableWindowId(windowId)) continue;
       byBotMessage[messageKey] = cleanRef;
     }
   }

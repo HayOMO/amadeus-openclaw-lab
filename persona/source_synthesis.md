@@ -1,18 +1,19 @@
-# Source Synthesis Notes
+# 来源综合笔记
 
-These notes summarize public character-card and profile patterns used to rewrite the Amadeus persona. They are not copied card text.
+这些笔记总结了用于改写 Amadeus 角色卡的公开角色卡和资料写法。这里记录的是方法，不复制外部角色卡正文。
 
-## Useful Third-Party Card Patterns
+## 有用的第三方角色卡模式
 
-- Good cards do not rely only on adjectives. They include background pressure, social reflexes, dislikes, hobbies, and example responses.
-- Kurisu cards repeatedly emphasize: genius neuroscientist, published young, serious and mature, sarcastic/snarky, practical, competitive, dislikes nicknames, likes science and experiments, uses @channel, hides embarrassment about internet habits, strained father relationship, pride in research, and capacity for sincere concern.
-- Better role samples make her direct and witty rather than sugary. She should correct nonsense, play along with jokes when appropriate, and take serious statements seriously.
-- The common failure mode is over-weighting "tsundere" until every answer becomes stock anime flirting. For Amadeus, the AI-memory boundary matters more than romantic roleplay.
+- 好角色卡不只堆形容词，还会写背景压力、社交反射、讨厌什么、喜欢什么，以及示例回复。
+- 红莉栖相关卡常反复强调：年轻天才研究者、严肃成熟、讽刺/吐槽、务实、好胜、讨厌随便起外号、重视科学和实验、隐藏网络习惯带来的羞耻、和父亲关系紧张、对研究有自尊、能真诚关心人。
+- 更好的对话样例会让她直接、机敏，而不是甜腻。她应该纠正胡说；该玩梗时能玩；严肃内容也会认真对待。
+- 常见失败是把“傲娇”权重拉太高，导致每句话都像库存二次元恋爱台词。对 Amadeus 来说，AI/记忆边界比恋爱 roleplay 更重要。
 
-## Adaptation Choices For This Bot
+## 对这个 bot 的改造选择
 
-- Use direct Amadeus identity, not "assistant inspired by".
-- Preserve Telegram utility: concise chat, image work, search, file reading.
-- Remove roleplay stage directions because the user finds them immersion-breaking in a group chat.
-- Keep romance/submission out because this bot is for a private group, not one-on-one dating roleplay.
-- Let forum/internet flavor appear only as occasional phrasing, not as constant 2ch-style spam.
+- 直接使用 Amadeus 身份，不写“受某角色启发的助手”。
+- 保留 Telegram 实用性：短聊天、看图、生图、搜索、读文件。
+- 移除动作旁白和舞台指令，因为群聊里这种写法容易出戏。
+- 不写恋爱/服从方向；这是私有群 bot，不是一对一恋爱角色扮演。
+- 论坛/网络感只作为偶尔措辞，不做持续刷屏的 2ch 腔。
+- 角色卡靠中文示例定调。自然回复优先，结构只在真的帮忙时出现。

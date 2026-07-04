@@ -1,0 +1,140 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index 6b61ade..c1ad2a4 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -4498,7 +4498,114 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 	const promptContextBoundaryOptions = (timestampMs) => {
+ 		const promptContextMinTimestampMs = normalizePromptContextMinTimestampMs(timestampMs);
+ 		return promptContextMinTimestampMs === void 0 ? {} : { promptContextMinTimestampMs };
+ 	};
++	const preDropImagebotTextRepeaterState = /* @__PURE__ */ new Map();
++	const readPreDropImagebotTextRepeaterNumber = (value, fallback, min, max) => {
++		const parsed = Number(value);
++		if (!Number.isFinite(parsed)) return fallback;
++		return Math.max(min, Math.min(max, Math.trunc(parsed)));
++	};
++	const resolvePreDropImagebotTextRepeaterConfig = (freshCfg) => {
++		const pluginCfg = freshCfg?.plugins?.entries?.["imagebot-interaction-core"]?.config?.textRepeater;
++		const globalCfg = freshCfg?.channels?.telegram?.textRepeater;
++		const accountCfg = freshCfg?.channels?.telegram?.accounts?.[accountId]?.textRepeater;
++		const raw = pluginCfg && typeof pluginCfg === "object" ? pluginCfg : accountCfg && typeof accountCfg === "object" ? accountCfg : globalCfg && typeof globalCfg === "object" ? globalCfg : {};
++		return {
++			enabled: raw.enabled !== false,
++			groupOnly: raw.groupOnly !== false,
++			ignoreCommands: raw.ignoreCommands !== false,
++			ignoreBotMessages: raw.ignoreBotMessages !== false,
++			ignoreExplicitBotMention: raw.ignoreExplicitBotMention !== false,
++			minCount: readPreDropImagebotTextRepeaterNumber(raw.minCount, 2, 2, 5),
++			maxTextLength: readPreDropImagebotTextRepeaterNumber(raw.maxTextLength, 160, 1, 500),
++			cooldownMs: readPreDropImagebotTextRepeaterNumber(raw.cooldownMs, 30_000, 1_000, 10 * 60 * 1e3),
++			stateTtlMs: readPreDropImagebotTextRepeaterNumber(raw.stateTtlMs, 10 * 60 * 1e3, 30_000, 60 * 60 * 1e3),
++			maxScopes: readPreDropImagebotTextRepeaterNumber(raw.maxScopes, 512, 16, 4096)
++		};
++	};
++	const compactPreDropImagebotTextRepeaterState = (now, options) => {
++		for (const [key, value] of preDropImagebotTextRepeaterState.entries()) {
++			if (!value?.updatedAt || now - value.updatedAt > options.stateTtlMs) preDropImagebotTextRepeaterState.delete(key);
++		}
++		while (preDropImagebotTextRepeaterState.size > options.maxScopes) {
++			const oldest = preDropImagebotTextRepeaterState.keys().next().value;
++			if (!oldest) break;
++			preDropImagebotTextRepeaterState.delete(oldest);
++		}
++	};
++	const preDropImagebotRepeaterScopeKey = (msg) => `${accountId}:${msg.chat?.id ?? ""}:${msg.message_thread_id ?? 0}`;
++	const resolvePreDropImagebotTextRepeaterText = (msg) => {
++		const text = getTelegramTextParts(msg).text;
++		return typeof text === "string" ? text.trim() : "";
++	};
++	const shouldIgnorePreDropImagebotTextRepeaterMessage = (msg, text, options, botUsername) => {
++		if (!options.enabled || accountId !== "imagebot") return true;
++		const isGroup = msg.chat?.type === "group" || msg.chat?.type === "supergroup";
++		if (options.groupOnly && !isGroup) return true;
++		const botId = opts?.botInfo?.id ?? bot.botInfo?.id ?? msg?.via_bot?.id;
++		if (options.ignoreBotMessages && (msg.from?.is_bot === true || botId != null && msg.from?.id === botId)) return true;
++		if (!text || text.length > options.maxTextLength) return true;
++		if (options.ignoreCommands && /^[\/\uff0f]/.test(text)) return true;
++		if (options.ignoreExplicitBotMention && botUsername && hasBotMention(msg, botUsername)) return true;
++		return false;
++	};
++	const recordPreDropImagebotTextRepeaterMessage = (msg, options, botUsername) => {
++		const text = resolvePreDropImagebotTextRepeaterText(msg);
++		if (shouldIgnorePreDropImagebotTextRepeaterMessage(msg, text, options, botUsername)) return { shouldRepeat: false };
++		const now = Date.now();
++		compactPreDropImagebotTextRepeaterState(now, options);
++		const key = preDropImagebotRepeaterScopeKey(msg);
++		const previous = preDropImagebotTextRepeaterState.get(key);
++		if (!previous || previous.text !== text || now - previous.updatedAt > options.stateTtlMs) {
++			preDropImagebotTextRepeaterState.set(key, {
++				text,
++				count: 1,
++				updatedAt: now,
++				lastMessageId: msg.message_id,
++				repeatedAt: 0,
++				repeatedText: ""
++			});
++			return { shouldRepeat: false };
++		}
++		if (previous.lastMessageId === msg.message_id) return { shouldRepeat: false };
++		previous.count = Math.min(options.minCount, Number(previous.count || 1) + 1);
++		previous.updatedAt = now;
++		previous.lastMessageId = msg.message_id;
++		const cooledDown = previous.repeatedText !== text || now - Number(previous.repeatedAt || 0) >= options.cooldownMs;
++		if (previous.count >= options.minCount && cooledDown) {
++			previous.repeatedAt = now;
++			previous.repeatedText = text;
++			previous.count = 0;
++			preDropImagebotTextRepeaterState.set(key, previous);
++			return { shouldRepeat: true, text };
++		}
++		preDropImagebotTextRepeaterState.set(key, previous);
++		return { shouldRepeat: false };
++	};
++	const handleImagebotTextRepeaterBeforeDrop = async (ctx, msg) => {
++		if (!msg || accountId !== "imagebot") return false;
++		if (msg.__imagebotTextRepeaterSeen === true) return false;
++		msg.__imagebotTextRepeaterSeen = true;
++		const freshCfg = telegramDeps.getRuntimeConfig();
++		const options = resolvePreDropImagebotTextRepeaterConfig(freshCfg);
++		const botUsername = normalizeOptionalLowercaseString(ctx?.me?.username ?? opts?.botInfo?.username ?? bot.botInfo?.username);
++		const decision = recordPreDropImagebotTextRepeaterMessage(msg, options, botUsername);
++		if (!decision.shouldRepeat) return false;
++		try {
++			await withTelegramApiErrorLogging({
++				operation: "sendMessage",
++				runtime,
++				fn: () => bot.api.sendMessage(msg.chat.id, decision.text, {
++					...msg.message_thread_id != null ? { message_thread_id: msg.message_thread_id } : {}
++				})
++			});
++			logVerbose(`telegram imagebot repeater: repeated text before drop gate in chat ${msg.chat.id}`);
++			return true;
++		} catch (err) {
++			runtime.error?.(danger(`telegram imagebot repeater: failed to send pre-drop repeat: ${String(err)}`));
++			return false;
++		}
++	};
+ 	const marsForwardProcessOptions = (entry) => ({
+ 		...entry?.forceWasMentioned === true ? { forceWasMentioned: true } : {},
+ 		...typeof entry?.marsForwardReviewPrompt === "string" && entry.marsForwardReviewPrompt.trim() ? { marsForwardReviewPrompt: entry.marsForwardReviewPrompt } : {}
+@@ -6739,6 +6845,11 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 			const dispatchDedupe = await claimMessageDispatchDedupe(event.msg);
+ 			if (!dispatchDedupe.process) return;
+ 			dispatchDedupeKeys = dispatchDedupe.keys;
++			if (await handleImagebotTextRepeaterBeforeDrop(event.ctx, event.msg)) {
++				await commitDispatchDedupeKeys(dispatchDedupeKeys);
++				dispatchDedupeKeys = [];
++				return;
++			}
+ 			let droppedUnaddressedMarsForward = false;
+ 			let asyncMarsForwardDispatchStarted = false;
+ 			const handleAsyncMarsForwardDuplicate = async (review) => {
+@@ -10949,6 +11060,8 @@ const createTelegramMessageProcessor = (deps) => {
+ 	const handleImagebotTextRepeaterBeforeModel = async (primaryCtx) => {
+ 		const msg = primaryCtx?.message;
+ 		if (!msg || account.accountId !== "imagebot") return false;
++		if (msg.__imagebotTextRepeaterSeen === true) return false;
++		msg.__imagebotTextRepeaterSeen = true;
+ 		const freshCfg = loadFreshConfig?.() ?? cfg;
+ 		const options = resolveImagebotTextRepeaterConfig(freshCfg);
+ 		const botUsername = normalizeOptionalLowercaseString(primaryCtx?.me?.username ?? opts?.botInfo?.username ?? bot.botInfo?.username);

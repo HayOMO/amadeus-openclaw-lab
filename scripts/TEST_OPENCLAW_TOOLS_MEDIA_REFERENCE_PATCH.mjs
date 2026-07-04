@@ -49,6 +49,12 @@ assert.doesNotMatch(
   openclawTools.source,
   /resolvedInput\.startsWith\("file:\/\/"\) \? resolvedInput\.slice\(7\) : resolvedInput/,
 );
+assert.match(openclawTools.source, /const RECENT_PROBLEM_STATUSES = new Set\(\["failed", "timed_out", "cancelled", "lost"\]\)/);
+assert.match(openclawTools.source, /function findRecentProblemImageGenerationTaskForSession\(sessionKey\)/);
+assert.match(openclawTools.source, /RECENT_IMAGE_GENERATION_PROBLEM_STATUS_MS = 30 \* 6e4/);
+assert.match(openclawTools.source, /No completion event is expected for this \$\{params\.completionLabel\}/);
+assert.match(openclawTools.source, /const recentProblemTask = findRecentProblemImageGenerationTaskForSession\(sessionKey\)/);
+assert.match(openclawTools.source, /buildImageGenerationTaskProblemStatusDetails\(recentProblemTask\)/);
 assert.match(mediaReference.source, /async function resolveMediaReferenceLocalPath\(\w+\)/);
 assert.match(mediaReference.source, /resolveMediaBufferPath\(\w+, "inbound"\)/);
 

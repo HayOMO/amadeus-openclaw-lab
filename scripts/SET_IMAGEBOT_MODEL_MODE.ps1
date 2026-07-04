@@ -1,5 +1,4 @@
 param(
-  [ValidateSet('fast', 'balanced', 'deep', 'research', 'ds-fast', 'ds-pro', 'ds-flash-off', 'ds-flash-max', 'ds-pro-off', 'ds-pro-max', 'custom')]
   [string]$Mode = 'balanced',
 
   [string]$Model = '',
@@ -31,8 +30,15 @@ $imageGenerationConfig = @{
   fallbacks = @()
   timeoutMs = 420000
 }
+$chatModelFallbacks = @(
+  'deepseek/deepseek-v4-flash',
+  'deepseek/deepseek-v4-pro'
+)
 if (Test-Path -LiteralPath $settingsPath) {
   $settings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  if ($null -ne $settings.modelFallbacks) {
+    $chatModelFallbacks = @($settings.modelFallbacks | ForEach-Object { [string]$_ } | Where-Object { $_ })
+  }
   if ($settings.imageGeneration) {
     if ($settings.imageGeneration.primary) {
       $imageGenerationConfig.primary = [string]$settings.imageGeneration.primary
@@ -72,11 +78,33 @@ if (-not $effectiveModel) {
 if ($effectiveModel -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.:-]+$') {
   throw "Invalid model id '$effectiveModel'. Expected provider/model, e.g. openai/gpt-5.5."
 }
+foreach ($fallbackModel in @($chatModelFallbacks)) {
+  if ($fallbackModel -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.:-]+$') {
+    throw "Invalid fallback model id '$fallbackModel'. Expected provider/model, e.g. deepseek/deepseek-v4-flash."
+  }
+}
 if (@('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max') -notcontains $effectiveReasoning) {
   throw "Invalid reasoning effort '$effectiveReasoning'."
 }
 if (@('low', 'medium', 'high') -notcontains $effectiveVerbosity) {
   throw "Invalid text verbosity '$effectiveVerbosity'."
+}
+
+$knownModel = @($catalog.models | Where-Object { $_.id -eq $effectiveModel })[0]
+if ($knownModel -and $knownModel.enabled -eq $false) {
+  throw "Model '$effectiveModel' is disabled in IMAGEBOT_MODEL_PROFILES.json."
+}
+if (-not $knownModel) {
+  Write-Warning "Model '$effectiveModel' is not in IMAGEBOT_MODEL_PROFILES.json. Applying anyway; make sure OpenClaw provider config exists."
+}
+foreach ($fallbackModel in @($chatModelFallbacks)) {
+  $knownFallbackModel = @($catalog.models | Where-Object { $_.id -eq $fallbackModel })[0]
+  if ($knownFallbackModel -and $knownFallbackModel.enabled -eq $false) {
+    throw "Fallback model '$fallbackModel' is disabled in IMAGEBOT_MODEL_PROFILES.json."
+  }
+  if (-not $knownFallbackModel) {
+    Write-Warning "Fallback model '$fallbackModel' is not in IMAGEBOT_MODEL_PROFILES.json. Applying anyway; make sure OpenClaw provider config exists."
+  }
 }
 
 if ([string]::IsNullOrWhiteSpace($ModelStatePath)) {
@@ -100,14 +128,14 @@ $modelStateJson = $modelState | ConvertTo-Json -Depth 6
 $modelStateUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($modelStatePath, $modelStateJson + [Environment]::NewLine, $modelStateUtf8NoBom)
 
-$knownModel = @($catalog.models | Where-Object { $_.id -eq $effectiveModel })[0]
-if (-not $knownModel) {
-  Write-Warning "Model '$effectiveModel' is not in IMAGEBOT_MODEL_PROFILES.json. Applying anyway; make sure OpenClaw provider config exists."
+$effectiveFallbacks = @($chatModelFallbacks | Where-Object { $_ -and $_ -ne $effectiveModel })
+$chatModelConfig = @{
+  primary = $effectiveModel
+  fallbacks = $effectiveFallbacks
 }
-
 $ops = @(
-  @{ path = 'agents.defaults.model.primary'; value = $effectiveModel },
-  @{ path = 'agents.list[0].model'; value = $effectiveModel },
+  @{ path = 'agents.defaults.model'; value = $chatModelConfig },
+  @{ path = 'agents.list[0].model'; value = $chatModelConfig },
   @{ path = 'agents.list[0].params.reasoningEffort'; value = $effectiveReasoning },
   @{ path = 'agents.list[0].params.textVerbosity'; value = $effectiveVerbosity },
   @{ path = ('agents.defaults.models["' + $effectiveModel + '"]'); value = @{} },
@@ -120,6 +148,8 @@ $profilesByModel = @{}
 foreach ($item in @($catalog.profiles)) {
   $profileModel = [string]$item.model
   if (-not $profileModel) { continue }
+  $profileModelEntry = @($catalog.models | Where-Object { $_.id -eq $profileModel })[0]
+  if ($profileModelEntry -and $profileModelEntry.enabled -eq $false) { continue }
   if (-not $profilesByModel.ContainsKey($profileModel)) {
     $profilesByModel[$profileModel] = @()
   }
@@ -150,6 +180,28 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($batchPath, $json, $utf8NoBom)
 
 openclaw config set --batch-file $batchPath
+foreach ($item in @($catalog.models)) {
+  if ($item.enabled -ne $false) { continue }
+  $disabledModelId = [string]$item.id
+  if ([string]::IsNullOrWhiteSpace($disabledModelId)) { continue }
+  foreach ($disabledPath in @(
+    ('agents.defaults.models["' + $disabledModelId + '"]'),
+    ('agents.list[0].models["' + $disabledModelId + '"]')
+  )) {
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      $unsetOutput = & openclaw config unset $disabledPath 2>&1
+      $unsetExitCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorActionPreference
+    }
+    $unsetText = ($unsetOutput | Out-String).Trim()
+    if ($unsetExitCode -ne 0 -and $unsetText -notmatch 'Config path not found') {
+      throw "openclaw config unset $disabledPath failed with exit code $unsetExitCode`n$unsetText"
+    }
+  }
+}
 openclaw config validate
 
 $result = [ordered]@{

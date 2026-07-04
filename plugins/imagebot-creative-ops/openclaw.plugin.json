@@ -20,7 +20,8 @@
       "command_catalog"
     ],
     "hooks": [
-      "before_prompt_build"
+      "before_prompt_build",
+      "before_tool_call"
     ]
   },
   "configSchema": {
@@ -47,6 +48,9 @@
         "type": "string"
       },
       "openClawConfigPath": {
+        "type": "string"
+      },
+      "sessionStorePath": {
         "type": "string"
       },
       "commandCatalogPath": {

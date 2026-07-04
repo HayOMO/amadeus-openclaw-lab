@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +11,8 @@ const MAX_SNIPPET_CHARS = 1200;
 const pluginDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(pluginDir, "..", "..");
 const manualRoot = path.join(repoRoot, "tool_manuals");
+let manualSectionCache = null;
+let manualSectionCachePromise = null;
 
 const STOPWORDS = new Set([
   "the", "and", "for", "with", "that", "this", "from", "into", "about", "tool",
@@ -86,9 +88,8 @@ function discoverFocusValues() {
     const ids = readdirSync(manualRoot, { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
       .map((entry) => {
-        const raw = readFileSync(path.join(manualRoot, entry.name), "utf8");
-        const parsed = parseFrontMatter(raw);
-        return String(parsed.meta.id || entry.name.replace(/\.md$/i, "")).trim();
+        if (entry.name === "README.md") return "tool_manuals_index";
+        return entry.name.replace(/\.md$/i, "");
       })
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b));
@@ -118,19 +119,102 @@ function splitSections(body, meta) {
   return blocks;
 }
 
-async function loadManualSections(focus) {
+async function manualInventory() {
   const entries = await fs.readdir(manualRoot, { withFileTypes: true });
+  const files = await Promise.all(entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .map(async (entry) => {
+      const filePath = path.join(manualRoot, entry.name);
+      const stat = await fs.stat(filePath).catch(() => null);
+      if (!stat?.isFile()) return null;
+      return {
+        name: entry.name,
+        filePath,
+        mtimeMs: Math.trunc(stat.mtimeMs),
+        size: stat.size
+      };
+    }));
+  return files.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function inventorySignature(files) {
+  return files.map((file) => `${file.name}:${file.size}:${file.mtimeMs}`).join("|");
+}
+
+async function buildManualSectionCache(files, signature) {
   const sections = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-    const filePath = path.join(manualRoot, entry.name);
-    const raw = await fs.readFile(filePath, "utf-8");
+  const parsedFiles = await Promise.all(files.map(async (file) => {
+    const raw = await fs.readFile(file.filePath, "utf-8");
     const parsed = parseFrontMatter(raw);
-    const id = String(parsed.meta.id || entry.name.replace(/\.md$/i, "")).trim();
+    const id = String(parsed.meta.id || file.name.replace(/\.md$/i, "")).trim();
+    const meta = {
+      id,
+      file: file.name,
+      tools: parsed.meta.tools || "",
+      keywords: parsed.meta.keywords || "",
+      whenToRead: parsed.meta.when_to_read || ""
+    };
+    return splitSections(parsed.body, meta);
+  }));
+  for (const fileSections of parsedFiles) sections.push(...fileSections);
+  return {
+    signature,
+    files: files.length,
+    sections,
+    loadedAt: Date.now()
+  };
+}
+
+async function ensureManualSectionCache() {
+  const files = await manualInventory();
+  const signature = inventorySignature(files);
+  if (manualSectionCache?.signature === signature) return manualSectionCache;
+  if (manualSectionCachePromise) {
+    const cached = await manualSectionCachePromise;
+    if (cached?.signature === signature) return cached;
+  }
+  manualSectionCachePromise = buildManualSectionCache(files, signature)
+    .then((cache) => {
+      manualSectionCache = cache;
+      return cache;
+    })
+    .finally(() => {
+      manualSectionCachePromise = null;
+    });
+  return manualSectionCachePromise;
+}
+
+async function loadManualSections(focus) {
+  const cache = await ensureManualSectionCache();
+  if (focus === "all") return cache.sections;
+  return cache.sections.filter((section) => section.id === focus);
+}
+
+function manualCacheStats() {
+  return {
+    cached: Boolean(manualSectionCache),
+    files: manualSectionCache?.files || 0,
+    sections: manualSectionCache?.sections?.length || 0,
+    loadedAt: manualSectionCache?.loadedAt || 0
+  };
+}
+
+function clearManualCache() {
+  manualSectionCache = null;
+  manualSectionCachePromise = null;
+}
+
+async function loadManualSectionsUncached(focus) {
+  const files = await manualInventory();
+  const sections = [];
+  for (const file of files) {
+    const raw = await fs.readFile(file.filePath, "utf-8");
+    const parsed = parseFrontMatter(raw);
+    const id = String(parsed.meta.id || file.name.replace(/\.md$/i, "")).trim();
     if (focus !== "all" && id !== focus) continue;
     const meta = {
       id,
-      file: entry.name,
+      file: file.name,
       tools: parsed.meta.tools || "",
       keywords: parsed.meta.keywords || "",
       whenToRead: parsed.meta.when_to_read || ""
@@ -254,6 +338,10 @@ export const __testing = {
   extractTerms,
   parseFrontMatter,
   searchManuals,
+  loadManualSections,
+  loadManualSectionsUncached,
+  manualCacheStats,
+  clearManualCache,
   focusValues: () => [...FOCUS_VALUES]
 };
 

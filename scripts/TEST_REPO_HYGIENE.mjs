@@ -41,7 +41,10 @@ function topLevelYamlBlock(source, key) {
 const tracked = gitLines(["ls-files"]);
 const trackedPosix = tracked.map(toPosix);
 const deletedTrackedPosix = new Set(gitLines(["ls-files", "--deleted"]).map(toPosix));
-const allowedDeletedTracked = [/^patches\/openclaw-2026\.6\.6-runtime\//];
+const allowedDeletedTracked = [
+  /^patches\/openclaw-2026\.6\.6-runtime\//,
+  /^prompt_library\/recipes\/(?:asian_anime_tag_order|asian_social_portrait_grid|guofeng_hanfu_moodboard)\.md$/,
+];
 for (const file of deletedTrackedPosix) {
   assert.ok(
     allowedDeletedTracked.some((pattern) => pattern.test(file)),
@@ -77,17 +80,26 @@ for (const file of workflowFiles) {
   const workflow = await fs.readFile(path.join(repoRoot, file), "utf8");
   const onBlock = topLevelYamlBlock(workflow, "on");
   assert.match(onBlock, /(^|\n)\s+workflow_dispatch:/, `${file} must be manually runnable with workflow_dispatch`);
+  assert.match(onBlock, /(^|\n)\s+push:/, `${file} must run on protected branch pushes`);
+  assert.match(onBlock, /(^|\n)\s+pull_request:/, `${file} must run on pull requests`);
   assert.doesNotMatch(
     onBlock,
-    /(^|\n)\s+(push|pull_request|pull_request_target|schedule|workflow_run|release|deployment|registry_package):/,
-    `${file} must not auto-run from push, pull_request, schedule, release, or deployment triggers`,
+    /(^|\n)\s+(pull_request_target|schedule|workflow_run|release|deployment|registry_package):/,
+    `${file} must not use high-risk automatic triggers`,
   );
   assert.match(workflow, /permissions:\s*\n\s+contents:\s+read\b/, `${file} should keep default permissions read-only`);
+  assert.match(workflow, /python -m pip install -r requirements-test\.txt/, `${file} should install Python test dependencies`);
+  assert.match(workflow, /npm run audit:plugins/, `${file} should audit plugin dependencies before full tests`);
+  for (const match of workflow.matchAll(/uses:\s*([^\s#]+)/g)) {
+    assert.match(match[1], /@[a-f0-9]{40}$/i, `${file} action reference must be pinned to a full commit SHA: ${match[1]}`);
+  }
 }
 
 const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, "package.json"), "utf8"));
 assert.ok(fileExists("package-lock.json"), "root package-lock.json must be tracked so npm ci has a reproducible root");
 assert.ok(isTracked("package-lock.json"), "root package-lock.json must be tracked so npm ci has a reproducible root");
+assert.ok(fileExists("requirements-test.txt"), "Python test dependency lock/range file must exist");
+assert.match(packageJson.scripts?.["setup:test"] || "", /requirements-test\.txt/, "package scripts should expose setup:test for Python test deps");
 for (const [name, command] of Object.entries(packageJson.scripts || {})) {
   for (const match of String(command).matchAll(/(?:^|\s)(?:\.\/)?(scripts\/[^\s"']+|\.\\scripts\\[^\s"']+|scripts\\[^\s"']+)/g)) {
     const raw = match[1].replace(/^\.[\\/]/, "").replace(/\\/g, "/");

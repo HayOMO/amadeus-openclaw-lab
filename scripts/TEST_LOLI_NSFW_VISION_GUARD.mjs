@@ -59,6 +59,17 @@ try {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "loli-guard-test-"));
   const image = path.join(tmp, "blank.png");
   await sharp({ create: { width: 64, height: 64, channels: 3, background: "#ffffff" } }).png().toFile(image);
+  await assert.rejects(
+    screenImage(image, { text: "ordinary smoke test" }, {
+      modelDir: path.join(tmp, "missing-model"),
+      dependencyDirs: [
+        path.join(process.cwd(), "plugins", "imagebot-practical-tools"),
+        path.join(process.cwd(), "plugins", "imagebot-memory-search")
+      ]
+    }),
+    /loli guard model missing/,
+    "a transient runtime load failure should not poison later guard calls"
+  );
   const result = await screenImage(image, { text: "ordinary smoke test" }, {
     dependencyDirs: [
       path.join(process.cwd(), "plugins", "imagebot-practical-tools"),

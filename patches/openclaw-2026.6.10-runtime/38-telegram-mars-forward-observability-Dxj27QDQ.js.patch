@@ -1,0 +1,105 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index 8b1d4bd..e24ac7b 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -5319,8 +5319,39 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 		});
+ 		const detectorConfig = resolveTelegramMarsForwardConfig(runtimeCfg, accountId, sessionState.agentId);
+ 		if (!detectorConfig.enabled) return null;
++		const marsForwardMessageShape = () => {
++			const msg = params.msg ?? {};
++			const text = getTelegramTextParts(msg).text || "";
++			return {
++				chatId: params.chatId,
++				messageId: msg.message_id,
++				accountId,
++				hasForwardOrigin: Boolean(msg.forward_origin),
++				forwardOriginType: normalizeOptionalString(msg.forward_origin?.type) ?? "",
++				hasLegacyForwardChat: Boolean(msg.forward_from_chat),
++				legacyForwardChatType: normalizeOptionalString(msg.forward_from_chat?.type) ?? "",
++				hasForwardFrom: Boolean(msg.forward_from),
++				hasForwardSenderName: Boolean(msg.forward_sender_name),
++				hasText: Boolean(text.trim()),
++				hasPhoto: Array.isArray(msg.photo) && msg.photo.length > 0,
++				hasVideo: Boolean(msg.video),
++				hasAnimation: Boolean(msg.animation),
++				hasDocument: Boolean(msg.document),
++				hasSticker: Boolean(msg.sticker)
++			};
++		};
+ 		const forwardOrigin = normalizeForwardedContext(params.msg);
+-		if (forwardOrigin?.fromType !== "channel" || !forwardOrigin.fromId) return null;
++		if (forwardOrigin?.fromType !== "channel" || !forwardOrigin.fromId) {
++			const msg = params.msg ?? {};
++			const hasForwardHint = Boolean(msg.forward_origin || msg.forward_from_chat || msg.forward_from || msg.forward_sender_name);
++			if (hasForwardHint) logger.info({
++				...marsForwardMessageShape(),
++				reason: "not-channel-forward",
++				normalizedForwardType: forwardOrigin?.fromType ?? "",
++				normalizedForwardId: forwardOrigin?.fromId ?? ""
++			}, "telegram mars-forward skipped before drop");
++			return null;
++		}
+ 		const finishDuplicate = async (result) => {
+ 			const reactionApi = typeof bot.api.setMessageReaction === "function" ? bot.api.setMessageReaction.bind(bot.api) : null;
+ 			const reacted = await maybeReactToTelegramMarsForward({
+@@ -5344,6 +5379,7 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 			};
+ 		};
+ 		let result;
++		let queuedMediaIndex = false;
+ 		try {
+ 			const threadId = params.resolvedThreadId ?? params.dmThreadId;
+ 			const preparedMedia = params.prepareMediaEvidence === true ? await prepareTelegramMarsForwardMediaEvidence(detectorConfig, {
+@@ -5363,7 +5399,7 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 				preparedMedia
+ 			});
+ 			if (result?.status === "duplicate" || preparedMedia.length) result = await cacheTelegramMarsForwardEvidence(detectorConfig, result);
+-			if (result?.status !== "duplicate" && !preparedMedia.length) enqueueTelegramMarsForwardMediaIndex({
++			if (result?.status !== "duplicate" && !preparedMedia.length) queuedMediaIndex = enqueueTelegramMarsForwardMediaIndex({
+ 				config: detectorConfig,
+ 				msg: params.msg,
+ 				chatId: params.chatId,
+@@ -5376,12 +5412,41 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 				},
+ 				onError: (err) => logVerbose(`telegram mars-forward media index failed for chat ${params.chatId}: ${String(err)}`)
+ 			});
++			if (!result) logger.info({
++				...marsForwardMessageShape(),
++				reason: "no-fingerprint",
++				normalizedForwardType: forwardOrigin.fromType,
++				normalizedForwardId: forwardOrigin.fromId,
++				queuedMediaIndex,
++				preparedMediaCount: preparedMedia.length
++			}, "telegram mars-forward skipped before drop");
++			else if (result.status !== "duplicate") logger.info({
++				...marsForwardMessageShape(),
++				status: result.status,
++				fingerprintKind: result.fingerprint?.kind ?? "",
++				keyCount: Array.isArray(result.current?.match?.keys) ? result.current.match.keys.length : 0,
++				queuedMediaIndex,
++				preparedMediaCount: preparedMedia.length
++			}, "telegram mars-forward recorded candidate before drop");
+ 		} catch (err) {
++			logger.warn({
++				...marsForwardMessageShape(),
++				error: String(err)
++			}, "telegram mars-forward detector failed before drop");
+ 			logVerbose(`telegram mars-forward detector failed for chat ${params.chatId}: ${String(err)}`);
+ 			return null;
+ 		}
+ 		if (result?.status !== "duplicate") return result;
+-		return await finishDuplicate(result);
++		const review = await finishDuplicate(result);
++		logger.info({
++			...marsForwardMessageShape(),
++			status: result.status,
++			fingerprintKind: result.fingerprint?.kind ?? "",
++			hitCount: result.hitCount,
++			reacted: review.reacted,
++			shouldDispatch: review.shouldDispatch
++		}, "telegram mars-forward duplicate before drop");
++		return review;
+ 	};
+ 	const processMediaGroup = async (entry) => {
+ 		try {

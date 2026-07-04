@@ -4,6 +4,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
+import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
 
 const TOOL_NAME = "meme_transform";
 const MAX_MEDIA_BYTES = 60 * 1024 * 1024;
@@ -123,16 +124,12 @@ function isInside(root, target) {
   return targetNorm === rootNorm || targetNorm.startsWith(rootNorm + path.sep);
 }
 
-function readMediaPath(raw) {
-  const value = String(raw || "").trim().replace(/^`+|`+$/g, "");
-  const mediaMatch = value.match(/(?:SPOILER_)?MEDIA:\s*`?([^`\r\n]+)`?/i);
-  const unwrapped = mediaMatch ? mediaMatch[1] : value;
-  if (/^file:\/\//i.test(unwrapped)) return decodeURIComponent(unwrapped.replace(/^file:\/\//i, ""));
-  return unwrapped;
+function readMediaPath(raw, config = {}) {
+  return mediaReferenceToLocalPath(raw, config);
 }
 
 async function resolveAllowedInput(config, raw) {
-  const input = readMediaPath(raw);
+  const input = readMediaPath(raw, config);
   if (!input) throw new Error("input image path is required");
   if (/^https?:\/\//i.test(input)) throw new Error("meme_transform only accepts Telegram/bot-local media paths, not URLs");
   const resolved = path.resolve(input);
@@ -404,7 +401,7 @@ const memeTransformTool = {
     type: "object",
     additionalProperties: false,
     properties: {
-      input: { type: "string", description: "Bot-local image path or MEDIA line from current/replied media." },
+      input: { type: "string", description: "Bot-local image path, MEDIA line, media:// URI, or current/reply media handle resolved by runtime." },
       image: { type: "string", description: "Alias for input." },
       action: { type: "string", enum: ["caption", "sticker", "reaction", "square", "demotivator", "quote"], description: "Transform kind." },
       text: { type: "string", description: "Main caption text, used as top text when topText is omitted." },

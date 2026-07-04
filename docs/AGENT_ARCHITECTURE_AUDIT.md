@@ -13,7 +13,7 @@ test is `scripts/TEST_AGENT_ARCHITECTURE_CONTRACT.mjs`.
 | Capability surface is honest | Pass | `policy/capability_surface.json`, `docs/CAPABILITY_SURFACE.md`, `npm run health:features`, contract test |
 | Tool schema is short and manuals are detailed on demand | Pass | 68 registered tools checked for short descriptions/parameter text; frontmatter manual coverage checked |
 | Tool action names match real side effects | Pass for contracted high-risk tools | `policy/agent_architecture_contract.json` names side effects for sticker, script, model, browser, watch, background, and trace tools |
-| Mutations have dry-run, approval, owner check, or code gate | Improved, pass for contracted high-risk tools | Sticker Telegram mutations default to `dryRun:true`; `dryRun:false` requires a consumed sticker plan or trusted runtime mutation approval plus owner context; managed sticker defaults are local registry writes; script/model mutations require ctx-bound approval plans |
+| Mutations have dry-run, approval, owner check, or code gate | Improved, pass for contracted high-risk tools | Sticker Telegram mutations default to `dryRun:true` except user-aligned add paths; non-delete `dryRun:false` paths require trusted user/owner alignment; `delete_sticker` requires a delete approval code or trusted runtime mutation approval; managed sticker defaults are local registry writes; script/model mutations require ctx-bound approval plans |
 | Long tasks have draft/checkpoint/resume | Pass for current long-task surfaces | `sticker_pack` drafts use `draftId`; `background_job` uses `job_id`; long media/watch/script routes support background queue and status |
 | Memory is separated into semantic/episodic/procedural/operational layers | Pass at architecture level | `docs/MEMORY_ARCHITECTURE.md`, `tool_manuals/memory_and_persona.md`, `memory_search` hybrid/semantic/keyword modes |
 | Browser/account tools have untrusted-data boundary | Pass | `config/imagebot/prompt/90-privacy.md`, `tool_manuals/browser_sandbox.md`, `tool_manuals/account_browser_risk.md`, practical-tools SSRF/risk checks |
@@ -23,9 +23,9 @@ test is `scripts/TEST_AGENT_ARCHITECTURE_CONTRACT.mjs`.
 
 - Added `policy/agent_architecture_contract.json` as the action-level contract.
 - Added `scripts/TEST_AGENT_ARCHITECTURE_CONTRACT.mjs`.
-- Added dry-run and one-shot approval plans for `sticker_pack` Telegram
-  mutation paths; legacy model-supplied `direct*Approved` flags no longer
-  authorize real Telegram writes.
+- Added dry-run defaults and one-shot approval plans for `sticker_pack`
+  deletion; legacy model-supplied `direct*Approved` flags no longer authorize
+  real Telegram writes.
 - Added fail-closed owner-context checks for non-dry-run sticker
   publish/copy/upload/create and add paths.
 - Added managed sticker-set registry actions and `add_from_sticker` for adding

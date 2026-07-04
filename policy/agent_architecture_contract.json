@@ -10,6 +10,7 @@
     "docs/AGENT_ARCHITECTURE_ALIGNMENT.md",
     "docs/AGENT_ARCHITECTURE_AUDIT.md",
     "docs/CAPABILITY_SURFACE.md",
+    "docs/BOT_TOOL_SURFACE_AND_DEPENDENCIES.md",
     "docs/EXTENSION_PLAYBOOK.md",
     "docs/FEATURE_MATURITY_MAP.md",
     "docs/MEMORY_ARCHITECTURE.md",
@@ -101,7 +102,7 @@
         "add": {
           "mutation": true,
           "sideEffect": "telegram_add_sticker_to_set",
-          "defaultsDryRun": true,
+          "userAlignedDefaultReal": true,
           "trustedRuntimeApproval": true,
           "failClosedContext": true,
           "ownerCheckWhenContextPresent": true
@@ -109,7 +110,7 @@
         "add_from_sticker": {
           "mutation": true,
           "sideEffect": "telegram_add_sent_sticker_to_managed_set",
-          "defaultsDryRun": true,
+          "userAlignedDefaultReal": true,
           "trustedRuntimeApproval": true,
           "failClosedContext": true,
           "ownerCheckWhenContextPresent": true
@@ -117,7 +118,7 @@
         "add_batch": {
           "mutation": true,
           "sideEffect": "telegram_add_sticker_to_set",
-          "defaultsDryRun": true,
+          "userAlignedDefaultReal": true,
           "trustedRuntimeApproval": true,
           "failClosedContext": true,
           "ownerCheckWhenContextPresent": true
@@ -383,30 +384,13 @@
         }
       }
     },
-    "artifact_recent": {
+    "artifact": {
       "plugin": "plugins/imagebot-practical-tools",
       "manual": "tool_manuals/practical_tools.md",
       "sourceEvidence": [
         "artifactScopeFilter",
         "artifactMatchesFilter",
-        "scopeKey",
-        "actorKey"
-      ]
-    },
-    "artifact_search": {
-      "plugin": "plugins/imagebot-practical-tools",
-      "manual": "tool_manuals/practical_tools.md",
-      "sourceEvidence": [
-        "artifactScopeFilter",
-        "artifactMatchesFilter",
-        "loadArtifacts(config, filter)"
-      ]
-    },
-    "artifact_get": {
-      "plugin": "plugins/imagebot-practical-tools",
-      "manual": "tool_manuals/practical_tools.md",
-      "sourceEvidence": [
-        "artifactScopeFilter",
+        "loadArtifacts(config, filter)",
         "findArtifact(config, query, filter)"
       ]
     },

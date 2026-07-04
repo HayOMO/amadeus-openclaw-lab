@@ -1,0 +1,241 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index 1bd7647..7a6c7c5 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -467,6 +467,12 @@ function collectImagebotTelegramCustomCommandNames(cfg, accountId) {
+ 	return names;
+ }
+ function parseImagebotAllowedTextCommand(text, cfg, options) {
++	if (options?.accountId !== "imagebot") return null;
++	const command = parseImagebotTextCommandParts(text, options);
++	if (!command || !collectImagebotTelegramCustomCommandNames(cfg, options.accountId).has(command.name)) return null;
++	return command;
++}
++function parseImagebotTextCommandParts(text, options) {
+ 	if (options?.accountId !== "imagebot") return null;
+ 	const rawBody = (text ?? "").trim().replace(/^\uff0f/, "/");
+ 	const normalizedBody = normalizeCommandBody(rawBody, { botUsername: options?.botUsername });
+@@ -474,7 +480,7 @@ function parseImagebotAllowedTextCommand(text, cfg, options) {
+ 	const match = normalizedLower.match(/^\/([a-z0-9_]{1,32})(?:@[a-z0-9_]{1,64})?(?:\s+([\s\S]*))?$/);
+ 	if (!match) return null;
+ 	const commandName = match[1];
+-	if (!commandName || !collectImagebotTelegramCustomCommandNames(cfg, options.accountId).has(commandName)) return null;
++	if (!commandName) return null;
+ 	return {
+ 		name: commandName,
+ 		args: (match[2] ?? "").trim()
+@@ -499,6 +505,105 @@ function parseImagebotAmpersonaCommand(text, cfg, options) {
+ 	const command = parseImagebotAllowedTextCommand(text, cfg, options);
+ 	return command?.name === "ampersona" ? command : null;
+ }
++function parseImagebotScriptControlCommand(text, cfg, options) {
++	const command = parseImagebotTextCommandParts(text, options);
++	return command && ["amhelp", "amstatus", "amtools"].includes(command.name) ? command : null;
++}
++function parseImagebotUnsupportedControlCommand(text, options) {
++	const command = parseImagebotTextCommandParts(text, options);
++	return command && ["model"].includes(command.name) ? command : null;
++}
++function formatTelegramImagebotNumber(value) {
++	const number = Number(value);
++	return Number.isFinite(number) ? new Intl.NumberFormat("en-US").format(Math.trunc(number)) : "";
++}
++function readTelegramImagebotUsageNumber(...values) {
++	for (const value of values) {
++		const number = Number(value);
++		if (Number.isFinite(number)) return number;
++	}
++	return 0;
++}
++function normalizeTelegramImagebotUsage(usage) {
++	if (!usage || typeof usage !== "object") return null;
++	const cache = usage.cache && typeof usage.cache === "object" ? usage.cache : {};
++	const input = readTelegramImagebotUsageNumber(usage.input, usage.input_tokens, usage.prompt_tokens, usage.promptTokens);
++	const output = readTelegramImagebotUsageNumber(usage.output, usage.output_tokens, usage.completion_tokens, usage.completionTokens);
++	const cacheRead = readTelegramImagebotUsageNumber(usage.cacheRead, usage.cache_read, cache.read, cache.cacheRead);
++	const cacheWrite = readTelegramImagebotUsageNumber(usage.cacheWrite, usage.cache_write, cache.write, cache.cacheWrite);
++	const total = readTelegramImagebotUsageNumber(usage.total, usage.total_tokens, usage.totalTokens, input + output + cacheRead + cacheWrite);
++	if (input <= 0 && output <= 0 && cacheRead <= 0 && cacheWrite <= 0 && total <= 0) return null;
++	return { input, output, cacheRead, cacheWrite, total };
++}
++function resolveTelegramImagebotSessionUsage(entry) {
++	const candidates = [
++		["last", entry?.lastUsage],
++		["session", entry?.usage],
++		["snapshot", entry?.usageSnapshot?.usage],
++		["response", entry?.lastResponse?.usage],
++		["message", entry?.lastMessage?.usage]
++	];
++	for (const [source, usage] of candidates) {
++		const normalized = normalizeTelegramImagebotUsage(usage);
++		if (normalized) return { source, ...normalized };
++	}
++	return null;
++}
++function formatTelegramImagebotUsageLine(usage) {
++	if (!usage) return "token usage: unavailable";
++	return [
++		`token usage: total=${formatTelegramImagebotNumber(usage.total)}`,
++		usage.input ? `input=${formatTelegramImagebotNumber(usage.input)}` : "",
++		usage.output ? `output=${formatTelegramImagebotNumber(usage.output)}` : "",
++		usage.cacheRead ? `cache_read=${formatTelegramImagebotNumber(usage.cacheRead)}` : "",
++		usage.cacheWrite ? `cache_write=${formatTelegramImagebotNumber(usage.cacheWrite)}` : "",
++		usage.source ? `source=${usage.source}` : ""
++	].filter(Boolean).join(" ");
++}
++function buildTelegramImagebotHelpText(args = "") {
++	const topic = normalizeLowercaseStringOrEmpty(String(args || "").trim());
++	if (topic === "tools" || topic === "scripts") return buildTelegramImagebotToolsText(args);
++	if (topic === "status") return "Use /amstatus for local runtime status. It is handled before model context and does not reveal secrets.";
++	if (topic === "model" || topic === "models") return "Use /ammodel for the model menu, /ammodel status for the current model, or /ammodel model <provider/model> think <level>.";
++	if (topic === "persona" || topic === "personas") return "Use /ampersona for the persona menu, /ampersona status for the active persona, or /ampersona set <id>.";
++	return [
++		"Amadeus controls:",
++		"/amhelp - show this deterministic help",
++		"/amstatus - show local bot/session status",
++		"/amtools - list safe maintenance commands",
++		"/amnew - open a clean chat window",
++		"/ammodel - model menu/status",
++		"/ampersona - persona menu/status",
++		"",
++		"These control commands are handled before model context; ordinary chat still goes to the model only when triggered."
++	].join("\n");
++}
++function buildTelegramImagebotToolsText(args = "") {
++	const query = String(args || "").trim();
++	if (/^run\b/i.test(query)) return "For safety, /amtools does not run scripts from Telegram. Use the operator tool or local shell approval flow for script_action runs.";
++	if (/^route\b/i.test(query)) return "Routing is model/operator-side. In chat, use /amstatus, /ammodel, /ampersona, or ask naturally after mentioning the bot.";
++	return [
++		"Script-style controls:",
++		"- /amstatus: local runtime/session status",
++		"- /ammodel: model menu and one-shot model switch",
++		"- /ampersona: persona menu and fresh persona window",
++		"- /amnew: clean window",
++		"",
++		"Maintenance scripts stay behind operator approval and are not executed directly from Telegram buttons."
++	].join("\n");
++}
++function buildTelegramImagebotScriptControlKeyboard() {
++	return buildInlineKeyboard([
++		[
++			{ text: "Status", callback_data: "/amstatus" },
++			{ text: "Models", callback_data: "/ammodel" }
++		],
++		[
++			{ text: "Personas", callback_data: "/ampersona" },
++			{ text: "Tools", callback_data: "/amtools" }
++		]
++	]);
++}
+ function createTelegramImagebotWindowStore() {
+ 	return {
+ 		version: 3,
+@@ -10728,6 +10833,97 @@ const createTelegramMessageProcessor = (deps) => {
+ 			if (!String(err).includes("message is not modified")) throw err;
+ 		}
+ 	};
++	const handleImagebotUnsupportedControlBeforeModel = async (primaryCtx) => {
++		const msg = primaryCtx?.message;
++		if (!msg || account.accountId !== "imagebot") return false;
++		const command = parseImagebotUnsupportedControlCommand(getTelegramTextParts(msg).text, {
++			accountId: account.accountId,
++			botUsername: normalizeOptionalLowercaseString(primaryCtx?.me?.username ?? opts?.botInfo?.username)
++		});
++		if (!command) return false;
++		if (command.name === "model") {
++			await sendImagebotControlText(msg, "Use /ammodel for model status and switching. I did not change the model.", buildTelegramImagebotScriptControlKeyboard());
++			return true;
++		}
++		return false;
++	};
++	const handleImagebotScriptControlBeforeModel = async (primaryCtx) => {
++		const msg = primaryCtx?.message;
++		if (!msg || account.accountId !== "imagebot") return false;
++		const freshCfg = loadFreshConfig?.() ?? cfg;
++		const command = parseImagebotScriptControlCommand(getTelegramTextParts(msg).text, freshCfg, {
++			accountId: account.accountId,
++			botUsername: normalizeOptionalLowercaseString(primaryCtx?.me?.username ?? opts?.botInfo?.username)
++		});
++		if (!command) return false;
++		if (command.name === "amhelp") {
++			await sendImagebotControlText(msg, buildTelegramImagebotHelpText(command.args), buildTelegramImagebotScriptControlKeyboard());
++			return true;
++		}
++		if (command.name === "amtools") {
++			await sendImagebotControlText(msg, buildTelegramImagebotToolsText(command.args), buildTelegramImagebotScriptControlKeyboard());
++			return true;
++		}
++		let target = null;
++		try {
++			target = resolveImagebotControlTarget(msg, freshCfg);
++		} catch (err) {
++			runtime.error?.(danger(`telegram imagebot /amstatus: failed to resolve target: ${String(err)}`));
++		}
++		const modelState = target ? resolveTelegramImagebotAmmodelState({
++			cfg: freshCfg,
++			agentId: target.agentId,
++			sessionKey: target.sessionKey
++		}) : null;
++		const personaCatalog = loadTelegramImagebotPersonaCatalog(freshCfg);
++		const senderId = msg.from?.id ? String(msg.from.id) : "";
++		let persona = null;
++		try {
++			persona = target ? resolveTelegramImagebotSessionPersona({
++				cfg: freshCfg,
++				sessionKey: target.sessionKey,
++				agentId: target.agentId,
++				windowId: target.window?.windowId,
++				senderId,
++				catalog: personaCatalog
++			}).persona : null;
++		} catch {}
++		let sessionEntry = null;
++		let windowStore = null;
++		let targetWindow = null;
++		if (target?.agentId && target?.sessionKey) try {
++			const storePath = resolveStorePath(freshCfg.session?.store, { agentId: target.agentId });
++			const store = loadSessionStore(storePath, { skipCache: true });
++			sessionEntry = resolveSessionStoreEntry({ store, sessionKey: target.sessionKey }).existing ?? null;
++			windowStore = readTelegramImagebotWindowStore(freshCfg, target.agentId);
++			if (target.window?.windowId) targetWindow = windowStore.windows?.[target.window.windowId] ?? null;
++		} catch {}
++		const usage = resolveTelegramImagebotSessionUsage(sessionEntry);
++		const toolAllow = [
++			...(Array.isArray(freshCfg?.tools?.allow) ? freshCfg.tools.allow : []),
++			...(Array.isArray(freshCfg?.agents?.list?.[0]?.tools?.allow) ? freshCfg.agents.list[0].tools.allow : [])
++		].map((item) => String(item || "").trim()).filter(Boolean);
++		const visibleToolCount = new Set(toolAllow).size;
++		const activeWindowCount = windowStore ? Object.values(windowStore.activeByUser ?? {}).filter(Boolean).length : 0;
++		const openWindowCount = windowStore ? Object.values(windowStore.windows ?? {}).filter((entry) => entry && typeof entry === "object" && !entry.closedAt).length : 0;
++		const recentCount = Array.isArray(targetWindow?.recent) ? targetWindow.recent.length : 0;
++		const lines = [
++			"Amadeus runtime status",
++			`chat: ${msg.chat?.type || "unknown"}`,
++			`window: ${target?.window?.windowId || (target?.sessionKey ? "default/sender" : "unknown")}`,
++			`model: ${modelState?.modelRef || "unknown"}`,
++			`thinking: ${modelState?.thinkingLevel || "unknown"}`,
++			`persona: ${persona?.label || persona?.id || "default"}`,
++			formatTelegramImagebotUsageLine(usage),
++			`tools allowed: ${visibleToolCount || "unknown"}`,
++			`windows: active=${activeWindowCount} open=${openWindowCount}`,
++			`recent window events: ${recentCount}`,
++			"",
++			"Handled as a script command before model context."
++		];
++		await sendImagebotControlText(msg, lines.join("\n"), buildTelegramImagebotScriptControlKeyboard());
++		return true;
++	};
+ 	const handleImagebotAmmodelBeforeModel = async (primaryCtx) => {
+ 		const msg = primaryCtx?.message;
+ 		if (!msg || account.accountId !== "imagebot") return false;
+@@ -10979,6 +11175,8 @@ const createTelegramMessageProcessor = (deps) => {
+ 			if (options?.spooledReplay === true) return;
+ 			recordTelegramMessageProcessingResult(result);
+ 		};
++		if (await handleImagebotUnsupportedControlBeforeModel(primaryCtx)) return { kind: "completed" };
++		if (await handleImagebotScriptControlBeforeModel(primaryCtx)) return { kind: "completed" };
+ 		if (await handleImagebotAmmodelBeforeModel(primaryCtx)) return { kind: "completed" };
+ 		if (await handleImagebotAmpersonaBeforeModel(primaryCtx)) return { kind: "completed" };
+ 		if (await handleImagebotAmnewBeforeModel(primaryCtx)) return { kind: "completed" };
+warning: in the working copy of 'original/dist/bot-Dxj27QDQ.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'patched/dist/bot-Dxj27QDQ.js', LF will be replaced by CRLF the next time Git touches it

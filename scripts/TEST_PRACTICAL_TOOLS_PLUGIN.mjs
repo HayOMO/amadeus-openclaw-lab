@@ -15,7 +15,7 @@ await fs.mkdir(mediaDir, { recursive: true });
 
 const tools = new Map();
 plugin.register({
-  config: { storeDir, mediaDir, backgroundJobs: { storeDir: backgroundStoreDir, maxConcurrent: 2 } },
+  config: { storeDir, mediaDir, openclawMediaRoot: mediaDir, backgroundJobs: { storeDir: backgroundStoreDir, maxConcurrent: 2 } },
   registerTool(tool, opts) {
     tools.set(opts?.name || tool.name, tool);
   }
@@ -25,6 +25,7 @@ for (const name of [
   "web_snapshot",
   "web_card",
   "media_transform",
+  "artifact",
   "artifact_recent",
   "artifact_search",
   "artifact_get",
@@ -109,16 +110,55 @@ await assert.rejects(
   /backoff/
 );
 
+assert.equal(
+  __testing.classifyBrowserRiskPage(null, "https://example.com/", "Sorry, you have been blocked\nCloudflare Ray ID: test", "Attention Required! | Cloudflare"),
+  "cloudflare_block"
+);
+assert.equal(
+  __testing.classifyBrowserRiskPage(null, "https://example.com/cdn-cgi/challenge-platform/h/b", "Just a moment...\nChecking your browser", ""),
+  "cloudflare_challenge"
+);
+const scrollPlan = __testing.readWebScrollPlan({ scrollMode: "bottom", scrollSteps: 99, scrollWaitMs: 9999 }, 768);
+assert.equal(scrollPlan.mode, "bottom");
+assert.equal(scrollPlan.scrollSteps, 8);
+assert.equal(scrollPlan.scrollWaitMs, 2500);
+const originalFetch = globalThis.fetch;
+let redirectFetchCalls = 0;
+__testing.clearRedirectProbeCache();
+globalThis.fetch = async () => {
+  redirectFetchCalls += 1;
+  const error = new Error("redirect probe timed out");
+  error.name = "AbortError";
+  throw error;
+};
+try {
+  const redirected = await __testing.resolveRedirects("https://example.com/slow");
+  assert.equal(redirected.finalUrl, "https://example.com/slow");
+  assert.match(redirected.probeError, /timed out/);
+  const cachedRedirect = await __testing.resolveRedirects("https://example.com/slow");
+  assert.equal(cachedRedirect.finalUrl, "https://example.com/slow");
+  assert.match(cachedRedirect.probeError, /timed out/);
+  assert.equal(redirectFetchCalls, 1);
+  assert.equal(__testing.redirectProbeCacheStats().entries, 1);
+} finally {
+  globalThis.fetch = originalFetch;
+  __testing.clearRedirectProbeCache();
+}
+
 const snapshot = await tools.get("web_snapshot").execute("snapshot", {
   url: "https://example.com",
   waitMs: 100,
   actions: [{ type: "scroll", pixels: 120, waitMs: 50 }],
+  scrollMode: "one_page",
+  scrollWaitMs: 50,
   maxTextChars: 1000
 });
 assert.equal(snapshot.details.status, "ok");
 assert.ok(await fs.stat(snapshot.details.path).then((stat) => stat.isFile()));
 assert.match(snapshot.content[0].text, /Example Domain/);
 assert.match(snapshot.content[0].text, /actions: scroll:ok/);
+assert.match(snapshot.content[0].text, /scroll: y=\d+\/\d+/);
+assert.ok(snapshot.details.scroll);
 assert.equal(snapshot.details.browserProfile, "ephemeral-public");
 await assert.rejects(
   () => fs.stat(path.join(storeDir, "browser-profiles", "web-snapshot-pool")),
@@ -146,6 +186,9 @@ img.save(r'''${input.replaceAll("\\", "\\\\")}''')
 `;
 const made = spawnSync("python", ["-c", py], { encoding: "utf8" });
 assert.equal(made.status, 0, made.stderr);
+const mediaUriInput = path.join(mediaDir, "inbound", "uri-sample.png");
+await fs.mkdir(path.dirname(mediaUriInput), { recursive: true });
+await fs.copyFile(input, mediaUriInput);
 
 const transformed = await tools.get("media_transform").execute("transform", {
   input,
@@ -159,6 +202,15 @@ assert.ok(await fs.stat(transformed.details.path).then((stat) => stat.isFile()))
 assert.match(transformed.content[0].text, /MEDIA_TRANSFORM ok/);
 assert.match(transformed.content[0].text, /engine: sharp/);
 assert.ok(transformed.content.some((item) => item.type === "image"), "media_transform should return a visual preview for model inspection");
+
+const transformedFromMediaUri = await tools.get("media_transform").execute("transform-media-uri", {
+  input: "media://inbound/uri-sample.png (image/png)",
+  action: "resize",
+  maxEdge: 96,
+  format: "png"
+});
+assert.equal(transformedFromMediaUri.details.status, "ok");
+assert.equal(transformedFromMediaUri.details.width, 96);
 
 const cropped = await tools.get("media_transform").execute("crop", {
   input,
@@ -313,6 +365,18 @@ assert.ok(searched.details.results.some((record) => record.artifactId === snapsh
 const got = await tools.get("artifact_get").execute("get", { id: snapshotId });
 assert.equal(got.details.status, "ok");
 assert.match(got.content[0].text, /MEDIA:/);
+
+const aggregateRecent = await tools.get("artifact").execute("aggregate-recent", { action: "recent", count: 5 });
+assert.equal(aggregateRecent.details.status, "ok");
+assert.ok(aggregateRecent.details.results.length >= 2);
+
+const aggregateSearch = await tools.get("artifact").execute("aggregate-search", { action: "search", query: "Example Domain", count: 3 });
+assert.equal(aggregateSearch.details.status, "ok");
+assert.ok(aggregateSearch.details.results.some((record) => record.artifactId === snapshotId));
+
+const aggregateGet = await tools.get("artifact").execute("aggregate-get", { action: "get", id: snapshotId });
+assert.equal(aggregateGet.details.status, "ok");
+assert.match(aggregateGet.content[0].text, /MEDIA:/);
 
 const artifactCtxA = { agentId: "imagebot", accountId: "imagebot", chatId: "artifact-chat-a", sessionKey: "artifact-session-a", senderId: "101" };
 const artifactCtxB = { agentId: "imagebot", accountId: "imagebot", chatId: "artifact-chat-b", sessionKey: "artifact-session-b", senderId: "202" };

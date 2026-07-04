@@ -43,10 +43,43 @@ await fs.writeFile(
   }),
   "utf8"
 );
+const windowStorePath = path.join(tempHome, ".openclaw", "agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-windows.json");
+await fs.writeFile(
+  windowStorePath,
+  JSON.stringify({
+    version: 3,
+    users: {
+      "tg_10001": { names: ["Alice"] }
+    },
+    activeByUser: {},
+    windows: {}
+  }, null, 2),
+  "utf8"
+);
 
 const { default: plugin, __testing } = await import(`../plugins/imagebot-memory-search/index.js?test=${Date.now()}`);
 const cached = await __testing.loadCachedSemanticIndex();
 assert.equal(cached.chunks.length, 1);
+__testing.clearKnownUsersCache();
+assert.equal(__testing.knownUsersCacheStats().cached, false);
+const knownUsers = __testing.readKnownUsers();
+assert.deepEqual(knownUsers.get("tg_10001"), ["Alice"]);
+assert.equal(__testing.knownUsersCacheStats().users, 1);
+await new Promise((resolve) => setTimeout(resolve, 20));
+await fs.writeFile(
+  windowStorePath,
+  JSON.stringify({
+    version: 3,
+    users: {
+      "tg_10001": { names: ["Alice", "Bob"] }
+    },
+    activeByUser: {},
+    windows: {}
+  }, null, 2),
+  "utf8"
+);
+const updatedKnownUsers = __testing.readKnownUsers();
+assert.deepEqual(updatedKnownUsers.get("tg_10001"), ["Alice", "Bob"]);
 
 const tools = new Map();
 const hooks = new Map();
@@ -63,6 +96,12 @@ plugin.register({
 const memorySearch = tools.get("memory_search");
 assert.ok(memorySearch, "memory_search tool should register");
 assert.ok(hooks.get("before_prompt_build")?.length, "memory prompt hook should register");
+assert.deepEqual(memorySearch.parameters.required, [], "memory_search should handle missing query inside the tool instead of schema-looping");
+
+const missingQuery = await memorySearch.execute("missing-query-test", {});
+assert.equal(missingQuery.details.status, "skipped");
+assert.equal(missingQuery.details.reason, "missing_query");
+assert.match(missingQuery.content[0].text, /Do not retry memory_search/);
 
 const result = await memorySearch.execute("keyword-test", {
   query: "Alice official references",
@@ -75,17 +114,42 @@ assert.equal(result.details.results[0].mode, "keyword");
 
 const memoryHint = await hooks.get("before_prompt_build")[0](
   { prompt: groupMemeQuestion },
-  { agentId: "imagebot" }
+  { agentId: "imagebot", sessionKey: "agent:imagebot:telegram:group:-100:sender:10001:window:test" }
 );
-assert.ok(memoryHint?.appendContext.includes("Imagebot memory recall gate"));
+assert.ok(memoryHint?.appendContext.includes("Imagebot 记忆召回提示"));
 assert.ok(memoryHint.appendContext.includes("memory_search"));
 assert.ok(memoryHint.appendContext.includes(groupMemeQuestion));
 assert.ok(memoryHint.appendContext.includes('scope: "group"'));
-assert.ok(memoryHint.appendContext.includes("Before answering"));
+assert.ok(memoryHint.appendContext.includes("记忆层：中性的 bot 可见事实"));
+assert.ok(!memoryHint.appendContext.includes("Before answering"));
+
+const telegramWrappedPrompt = [
+  "[Telegram current turn]",
+  "current_sender=Alice [tg:10001]",
+  "[/Telegram current turn]",
+  "",
+  groupMemeQuestion,
+  "",
+  "[Telegram 路由上下文]",
+  "sessionKey: agent:imagebot:telegram:group:-100:sender:10001:window:test"
+].join("\n");
+assert.equal(__testing.extractRecallQueryText(telegramWrappedPrompt), groupMemeQuestion);
+const wrappedHint = await hooks.get("before_prompt_build")[0](
+  { prompt: telegramWrappedPrompt },
+  { agentId: "imagebot", sessionKey: "agent:imagebot:telegram:group:-100:sender:10001:window:test" }
+);
+assert.ok(wrappedHint.appendContext.includes(groupMemeQuestion));
+assert.ok(!wrappedHint.appendContext.includes("current_sender="));
+
+const internalHint = await hooks.get("before_prompt_build")[0](
+  { prompt: groupMemeQuestion },
+  { agentId: "imagebot", sessionKey: "agent:imagebot:explicit:imagebot-memory-curator-test" }
+);
+assert.equal(internalHint, undefined);
 
 const noHint = await hooks.get("before_prompt_build")[0](
   { prompt: "\u4eca\u5929\u968f\u4fbf\u804a\u4e24\u53e5" },
-  { agentId: "imagebot" }
+  { agentId: "imagebot", sessionKey: "agent:imagebot:telegram:group:-100:sender:10001:window:test" }
 );
 assert.equal(noHint, undefined);
 

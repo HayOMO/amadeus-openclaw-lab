@@ -34,6 +34,12 @@ interactionCore.register({
 assert.ok(tools.has("interaction_pipeline"));
 assert.ok(tools.has("mars_forward_lookup"));
 assert.ok(hooks.has("before_prompt_build"));
+const marsForwardLookupTool = tools.get("mars_forward_lookup");
+assert.match(marsForwardLookupTool.description, /reply_first/);
+assert.deepEqual(marsForwardLookupTool.parameters.properties.action.enum, ["lookup", "forward_first", "reply_first"]);
+assert.match(marsForwardLookupTool.parameters.properties.action.description, /reply_first/);
+assert.match(marsForwardLookupTool.parameters.properties.action.description, /forward_first/);
+assert.match(marsForwardLookupTool.parameters.properties.messageId.description, /不要传 bot 脚本火星回复自己的 message id/);
 
 const ignored = await tools.get("interaction_pipeline").execute("ignored", {
   action: "evaluate",
@@ -84,6 +90,19 @@ assert.equal(command.details.result.shouldRespond, true);
 assert.equal(command.details.result.reason, "control_command");
 assert.equal(command.details.result.command, "/amstatus");
 assert.equal(command.details.result.normalizedText, "");
+
+const unsupportedCommand = await tools.get("interaction_pipeline").execute("unsupported-command", {
+  action: "evaluate",
+  text: "/model spark",
+  isGroup: true,
+  userId: "10003",
+  chatId: "-100test"
+});
+assert.equal(unsupportedCommand.details.result.shouldRespond, true);
+assert.equal(unsupportedCommand.details.result.reason, "unsupported_control_command");
+assert.equal(unsupportedCommand.details.result.command, "/model");
+assert.equal(unsupportedCommand.details.result.normalizedText, "");
+assert.match(unsupportedCommand.details.result.controlReply, /\/ammodel/);
 
 const reply = await tools.get("interaction_pipeline").execute("reply", {
   action: "evaluate",
@@ -173,14 +192,80 @@ const rules = await tools.get("interaction_pipeline").execute("rules", { action:
 assert.match(rules.content[0].text, /middleware-v2/);
 assert.match(rules.content[0].text, /receive -> identity -> command/);
 
+const uiPlan = await tools.get("interaction_pipeline").execute("ui-plan", {
+  action: "ui_plan",
+  uiKind: "gallery",
+  text: "Recent image choices",
+  userId: "10001",
+  chatId: "-100test",
+  replySessionKey: "window:A",
+  callbackPrefix: "/amgallery",
+  page: 0,
+  pageSize: 1,
+  columns: 2,
+  selected: ["first"],
+  disabled: ["second"],
+  items: [
+    { id: "first", label: "First", action: "open" },
+    { id: "second", label: "Second", action: "open", reason: "no media" },
+    { id: "third", label: "Third", action: "open", visible: false, reason: "admin only" },
+    { id: "fourth", label: "Fourth", action: "open" }
+  ],
+  controls: {
+    featureId: "gallery-test",
+    messageId: "700",
+    includeRefresh: true,
+    includeBack: true,
+    includeCancel: true,
+    now: 1000,
+    ttlMs: 60000
+  }
+}, null, null, { agentId: "imagebot", sessionKey: "ctx-window", chatId: "-100test", messageId: "700" });
+assert.equal(uiPlan.details.status, "ok");
+assert.equal(uiPlan.details.plan.uiKind, "gallery");
+assert.equal(uiPlan.details.plan.page.hasNext, true);
+assert.equal(uiPlan.details.plan.counts.suppressedItems, 2);
+assert.equal(uiPlan.details.plan.replyMarkup.inline_keyboard[0][0].text, "[x] First");
+const uiButtons = uiPlan.details.plan.replyMarkup.inline_keyboard.flat();
+assert.ok(uiButtons.some((button) => button.text === "Next >"));
+assert.ok(uiButtons.some((button) => button.text === "Refresh"));
+assert.ok(uiButtons.some((button) => button.text === "Back"));
+assert.ok(uiButtons.some((button) => button.text === "Cancel"));
+for (const button of uiButtons) {
+  if (button.callback_data) assert.ok(Buffer.byteLength(button.callback_data, "utf8") <= 64, button.callback_data);
+}
+assert.equal(uiPlan.details.plan.callbackRecords.length, uiPlan.details.plan.counts.callbackButtons);
+assert.ok(uiPlan.details.plan.callbackRecords.every((record) => record.scope.chatId === "-100test"));
+assert.ok(uiPlan.details.plan.callbackRecords.every((record) => record.scope.windowId === "window:A"));
+assert.ok(uiPlan.details.plan.callbackRecords.every((record) => record.scope.creatorUserId === "tg:10001"));
+assert.ok(uiPlan.details.plan.suppressed.some((item) => item.id === "second" && item.reason === "disabled"));
+assert.ok(uiPlan.details.plan.suppressed.some((item) => item.id === "third" && item.reason === "hidden"));
+
+const pageOnePlan = __testing.buildUiPlan({}, {
+  action: "ui_plan",
+  uiKind: "actions",
+  userId: "10001",
+  chatId: "-100test",
+  callbackPrefix: "/am",
+  page: 1,
+  pageSize: 1,
+  items: ["alpha", "beta", "gamma"]
+});
+assert.equal(pageOnePlan.page.hasPrev, true);
+assert.equal(pageOnePlan.page.hasNext, true);
+assert.equal(pageOnePlan.replyMarkup.inline_keyboard[0][0].text, "beta");
+assert.ok(pageOnePlan.replyMarkup.inline_keyboard.flat().some((button) => button.text === "< Prev"));
+
 const ctx = { agentId: "imagebot", sessionKey: "telegram:window:A", userId: "10004", chatId: "-100test" };
 const promptPieces = [];
 for (const handler of hooks.get("before_prompt_build") || []) {
   const result = await handler({ prompt: "hello" }, ctx);
   if (result?.appendContext) promptPieces.push(result.appendContext);
 }
-assert.match(promptPieces.join("\n"), /interaction context/);
+assert.match(promptPieces.join("\n"), /Telegram 路由上下文/);
+assert.match(promptPieces.join("\n"), /身份键: 可用时使用稳定 Telegram user id/);
 assert.equal(__testing.parseCommand("/amnew@YOUR_BOT_USERNAME hi", ["amaduse_bot"]).command, "/amnew");
+assert.equal(__testing.UNSUPPORTED_CONTROL_COMMANDS["/model"].includes("/ammodel"), true);
 
 await fs.writeFile(marsStatePath, `${JSON.stringify({
   schema: 1,
@@ -248,6 +333,7 @@ const marsLookup = await tools.get("mars_forward_lookup").execute("mars-lookup",
 }, null, null, { agentId: "imagebot", chatId: "-100test", messageId: "777" });
 assert.equal(marsLookup.details.status, "ok");
 assert.equal(marsLookup.details.results[0].first.messageId, "501");
+assert.equal(marsLookup.details.results[0].first.link, "https://t.me/c/test/501");
 assert.deepEqual(marsLookup.details.results[0].matchKeys, ["channel:-100source:42", "url:abc123", "media:photo-unique-large-a"]);
 assert.equal(marsLookup.details.results[0].first.match.urls[0], "https://example.com/post");
 assert.equal(marsLookup.details.results[0].first.media[0].fileUniqueId, "photo-unique-large-a");
@@ -265,6 +351,32 @@ assert.equal(marsForwardDryRun.details.status, "ok");
 assert.equal(marsForwardDryRun.details.method, "dry_run");
 assert.equal(marsForwardDryRun.details.first.messageId, "501");
 assert.equal(marsForwardDryRun.details.first.chatId, "-100test");
+
+const marsReplyDryRun = await tools.get("mars_forward_lookup").execute("mars-reply", {
+  action: "reply_first",
+  messageId: "777",
+  message: "火星",
+  dryRun: true
+}, null, null, { agentId: "imagebot", chatId: "-100test", messageId: "777", threadId: "12" });
+assert.equal(marsReplyDryRun.details.status, "ok");
+assert.equal(marsReplyDryRun.details.method, "dry_run_reply_first");
+assert.equal(marsReplyDryRun.details.payload.chat_id, "-100test");
+assert.equal(marsReplyDryRun.details.payload.text, "火星");
+assert.equal(marsReplyDryRun.details.payload.reply_parameters.message_id, 501);
+assert.equal(Object.hasOwn(marsReplyDryRun.details.payload, "message_thread_id"), false);
+assert.match(marsReplyDryRun.content[0].text, /replied=dry_run_reply_first/);
+
+const marsReplyFallbackDryRun = await __testing.replyFirstMarsMessage({}, {
+  first: { chatId: "-100test" }
+}, {
+  fallbackMessageId: "777",
+  fallbackThreadId: "12",
+  dryRun: true
+}, { chatId: "-100test" });
+assert.equal(marsReplyFallbackDryRun.method, "dry_run_reply_fallback");
+assert.equal(marsReplyFallbackDryRun.payload.text, "火星，但是首发消息不见了。");
+assert.equal(marsReplyFallbackDryRun.payload.reply_parameters.message_id, 777);
+assert.equal(marsReplyFallbackDryRun.payload.message_thread_id, 12);
 
 const marsSqlitePath = path.join(tmpRoot, "mars-forward-detector.sqlite");
 const marsDb = new DatabaseSync(marsSqlitePath);

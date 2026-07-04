@@ -1,8 +1,8 @@
 ---
 id: agent_ops
-tools: agent_mode, persona_config, learned_skill, failure_memory, evidence_pack, github_lookup, data_tool, turn_observer_recent
-keywords: task mode, mode bundle, persona switch, active persona, speaking persona, learned workflow, skill proposal, approve skill, failure memory, slow tool, stuck tool, evidence pack, source notes, GitHub repo, releases, issues, pull requests, CSV, table, histogram, group count, data utility
-when_to_read: Before changing task mode, switching or inspecting speaking persona, proposing/using learned workflows, diagnosing tool failures, replaying recent bot behavior, collecting evidence, reading public GitHub metadata, or doing lightweight table/data work.
+tools: agent_mode, persona_config, learned_skill, failure_memory, evidence_pack, bot_board, github_lookup, data_tool, turn_observer_recent
+keywords: task mode, mode bundle, persona switch, active persona, speaking persona, learned workflow, saved skill, skill note, skill proposal, approve skill, failure memory, slow tool, stuck tool, evidence pack, source notes, bot board, keyword rule, conditional rule, support ticket, scheduled draft, dialogue flow, business flow, chat preset, GitHub repo, releases, issues, pull requests, CSV, table, histogram, group count, data utility
+when_to_read: Before changing task mode, switching or inspecting speaking persona, saving/proposing/using learned workflows, diagnosing tool failures, replaying recent bot behavior, collecting evidence, recording bot rules/tickets/scheduled-message drafts/dialogue flows/chat presets, reading public GitHub metadata, or doing lightweight table/data work.
 ---
 
 # Agent Ops Manual
@@ -55,17 +55,23 @@ group, and window memory remain shared.
 
 ## Learned Skills
 
-Use `learned_skill` when a repeated workflow should become reusable local
-knowledge.
+Use `learned_skill` when a repeated workflow, preference, or small operating
+lesson should become reusable local knowledge.
 
 Workflow:
 
-1. `action: "propose"` creates a pending skill. It is not active.
-2. `action: "approve"` activates the skill after user approval.
-3. `action: "search"` retrieves approved skills when relevant.
+1. `action: "save"` writes an immediately active text-file skill under the
+   local agent-ops skill store. Use this for ordinary self-notes, stable
+   workflow lessons, prompt lessons, and preference rules.
+2. `action: "save"` may include up to a few bot-local image paths in `media` or
+   `images`; external URLs and arbitrary local paths are not accepted.
+3. `action: "propose"` creates a pending skill for cases where human review is
+   explicitly useful. It is not active until `action: "approve"`.
+4. `action: "search"` retrieves active skills when relevant.
 
-Do not silently approve a skill just because the model proposed it. Keep
-instructions concrete and short, like a tool comment rather than a prompt wall.
+Keep instructions concrete and short, like a tool comment rather than a prompt
+wall. Do not use learned skills to store secrets, raw logs, token-like strings,
+private local paths, or one-off chatter.
 
 ## Failure Memory
 
@@ -112,6 +118,38 @@ Workflow:
 
 Evidence packs are not background automations. They are a local notebook for the
 current task.
+
+## Bot Board
+
+Use `bot_board` for low-authority bot operations that should be remembered but
+must not execute hidden side effects.
+
+Supported records:
+
+- Keyword rules: `rule_add`, `rule_match`, `rule_list`, `rule_update`. These
+  return suggested replies only; they do not auto-send messages. Rules may carry
+  simple dry-run conditions such as `groupKey`, `userId`, `hasMedia`, and
+  local-hour windows.
+- Tickets: `ticket_create`, `ticket_update`, `ticket_list`, `ticket_get` for
+  small support/task records.
+- Scheduled-message drafts: `schedule_create`, `schedule_update`,
+  `schedule_list`, `schedule_due`. These are inspect-only records. The tool does
+  not register timers and does not send Telegram messages.
+- Dialogue/business flows: `flow_create`, `flow_update`, `flow_get`,
+  `flow_list`, `flow_validate`, `flow_match`. These store intent labels, sample
+  utterances, required slots, and compact steps for dry-run routing. They do not
+  replace model reasoning or run actions automatically.
+- Chat presets: `preset_save`, `preset_update`, `preset_get`, `preset_list`,
+  `preset_match`. Use these for reusable reply styles or flow instructions that
+  should be found on demand instead of injected into every prompt.
+
+Prefer `scope: "group"` for group behavior notes. Use `status: "ready"` for a
+scheduled-message draft only when the user has clearly accepted the wording,
+audience, and timing. Use `schedule_due` to inspect due ready drafts before any
+separate human-approved delivery workflow.
+
+Use `flow_validate` before relying on a stored flow. A valid flow needs a title
+and at least one step; missing routing samples are warnings, not hard failures.
 
 ## GitHub Lookup
 

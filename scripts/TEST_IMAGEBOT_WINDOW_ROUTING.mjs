@@ -15,6 +15,8 @@ const distDir = path.join(
   "openclaw",
   "dist",
 );
+const HARNESS_NOW = Date.parse("2026-06-18T00:05:00.000Z");
+const RealDate = Date;
 
 async function readBotRuntime() {
   const names = await fs.readdir(distDir);
@@ -63,6 +65,20 @@ function buildHarness(snippet, initialStore) {
   const context = {
     console,
     assert,
+    Date: class extends RealDate {
+      constructor(...args) {
+        super(...(args.length ? args : [HARNESS_NOW]));
+      }
+      static now() {
+        return HARNESS_NOW;
+      }
+      static parse(value) {
+        return RealDate.parse(value);
+      }
+      static UTC(...args) {
+        return RealDate.UTC(...args);
+      }
+    },
     randomUUID: () => "00000000-0000-4000-8000-000000000000",
     process: {
       env: { USERPROFILE: "C:/Users/Test" },
@@ -142,7 +158,11 @@ globalThis.__imagebotWindowRouting = {
   resolveTelegramImagebotSessionPersona,
   resolveTelegramImagebotPersonaForNewWindow,
   getStore: () => globalThis.__store,
-  getWrites: () => globalThis.__writes
+  getWrites: () => globalThis.__writes,
+  getModelDefaultApplied: () => globalThis.__modelDefaultApplied,
+  clearModelDefaultApplied: () => {
+    delete globalThis.__modelDefaultApplied;
+  }
 };
 `, context);
   return context.__imagebotWindowRouting;
@@ -231,14 +251,39 @@ assert.equal(openStore.windows["window-C"].closedReason, "replaced-by-amnew");
 assert.equal(openStore.windows["window-C"].replacedByWindowId, openedWindow.windowId);
 assert.ok(openStore.windows["window-C"].closedAt, "/amnew must close the sender's previous active window");
 assert.equal(openStore.byBotMessage[`${chatId}:9003`], undefined);
+assert.ok(openStore.windows["window-A"].closedAt, "/amnew must also close inactive replyable windows");
+assert.equal(openStore.windows["window-A"].closedReason, "inactive-window-routing-pruned");
+assert.equal(openStore.byBotMessage[`${chatId}:9001`], undefined);
+
+const newWindowHarness = buildHarness(snippet, {
+  version: 3,
+  users: {},
+  windows: {},
+  activeByUser: {},
+  byBotMessage: {},
+});
+const newSenderWindow = newWindowHarness.resolveTelegramImagebotWindowContext({
+  cfg: {},
+  agentId: "imagebot",
+  accountId: "imagebot",
+  chatId,
+  isGroup: true,
+  baseSessionKey: "agent:imagebot:telegram:group:-1000000000000:sender:300",
+  msg: {},
+  senderId: "300",
+  senderName: "Cathy",
+  botId,
+});
+assert.equal(newSenderWindow.source, "new-sender-window");
 assert.equal(
-  openStore.windows["window-A"].closedAt,
-  undefined,
-  "/amnew should only close the sender's current active window, not every archived/replyable window",
+  newWindowHarness.getModelDefaultApplied()?.sessionKey,
+  newSenderWindow.sessionKey,
+  "new sender windows must immediately copy the current /ammodel default into the new session",
 );
 
+const recentHarness = buildHarness(snippet, baseStore);
 assert.equal(
-  harness.resolveTelegramImagebotRecentActiveWindowId({
+  recentHarness.resolveTelegramImagebotRecentActiveWindowId({
     cfg: {},
     agentId: "imagebot",
     accountId: "imagebot",
@@ -251,7 +296,7 @@ assert.equal(
   "a recent active sender window should let a plain group message enter the window",
 );
 assert.equal(
-  harness.resolveTelegramImagebotRecentActiveWindowId({
+  recentHarness.resolveTelegramImagebotRecentActiveWindowId({
     cfg: {},
     agentId: "imagebot",
     accountId: "imagebot",
@@ -263,6 +308,32 @@ assert.equal(
   null,
   "a stale active sender window must not make all future plain group messages trigger the bot",
 );
+assert.equal(recentHarness.getStore().windows["window-C"].closedReason, "idle-window-timeout");
+assert.equal(recentHarness.getStore().activeByUser["tg:100"], undefined);
+
+const idleHarness = buildHarness(snippet, baseStore);
+const idleReplacementWindow = idleHarness.resolveTelegramImagebotWindowContext({
+  cfg: {},
+  agentId: "imagebot",
+  accountId: "imagebot",
+  chatId,
+  isGroup: true,
+  baseSessionKey: windowC.sessionKey,
+  msg: {},
+  senderId: "100",
+  senderName: "Alice",
+  botId,
+  now: Date.parse("2026-06-18T00:10:01.000Z"),
+});
+assert.equal(idleReplacementWindow.source, "new-sender-window");
+assert.notEqual(idleReplacementWindow.windowId, "window-C");
+assert.equal(idleHarness.getStore().windows["window-C"].closedReason, "idle-window-timeout");
+assert.equal(
+  idleHarness.getStore().windows["window-C"].replacedByWindowId,
+  undefined,
+  "idle timeout must not use the /amnew replacement path",
+);
+assert.equal(idleHarness.getStore().activeByUser["tg:100"].windowId, idleReplacementWindow.windowId);
 
 const aliceAmmodelTarget = harness.resolveTelegramImagebotAmmodelTarget({
   cfg: {},
@@ -272,15 +343,15 @@ const aliceAmmodelTarget = harness.resolveTelegramImagebotAmmodelTarget({
   senderId: "100",
   msg: {
     __imagebotAmmodelCallback: {
-      messageId: 9001,
+      messageId: 9003,
     },
   },
   botId,
   botUsername: "YOUR_BOT_USERNAME",
 });
 
-assert.equal(aliceAmmodelTarget.window.windowId, "window-A");
-assert.equal(aliceAmmodelTarget.sessionKey, windowA.sessionKey);
+assert.equal(aliceAmmodelTarget.window.windowId, "window-C");
+assert.equal(aliceAmmodelTarget.sessionKey, windowC.sessionKey);
 assert.equal(aliceAmmodelTarget.ownerUserKey, "tg:100");
 assert.equal(
   harness.isTelegramImagebotAmmodelOwnerAllowed({ senderId: "100", target: aliceAmmodelTarget }),
@@ -296,6 +367,30 @@ const bobClicksAliceAmmodelTarget = harness.resolveTelegramImagebotAmmodelTarget
   senderId: "200",
   msg: {
     __imagebotAmmodelCallback: {
+      messageId: 9003,
+    },
+  },
+  botId,
+  botUsername: "YOUR_BOT_USERNAME",
+});
+
+assert.equal(bobClicksAliceAmmodelTarget.window.windowId, "window-C");
+assert.equal(bobClicksAliceAmmodelTarget.sessionKey, windowC.sessionKey);
+assert.equal(bobClicksAliceAmmodelTarget.ownerUserKey, "tg:100");
+assert.equal(
+  harness.isTelegramImagebotAmmodelOwnerAllowed({ senderId: "200", target: bobClicksAliceAmmodelTarget }),
+  false,
+  "a different group member clicking another user's /ammodel menu must be blocked",
+);
+
+const staleAmmodelTarget = harness.resolveTelegramImagebotAmmodelTarget({
+  cfg: {},
+  accountId: "imagebot",
+  chatId,
+  isGroup: true,
+  senderId: "100",
+  msg: {
+    __imagebotAmmodelCallback: {
       messageId: 9001,
     },
   },
@@ -303,13 +398,12 @@ const bobClicksAliceAmmodelTarget = harness.resolveTelegramImagebotAmmodelTarget
   botUsername: "YOUR_BOT_USERNAME",
 });
 
-assert.equal(bobClicksAliceAmmodelTarget.window.windowId, "window-A");
-assert.equal(bobClicksAliceAmmodelTarget.sessionKey, windowA.sessionKey);
-assert.equal(bobClicksAliceAmmodelTarget.ownerUserKey, "tg:100");
+assert.equal(staleAmmodelTarget.untrustedCallback, true);
+assert.equal(staleAmmodelTarget.window, null);
 assert.equal(
-  harness.isTelegramImagebotAmmodelOwnerAllowed({ senderId: "200", target: bobClicksAliceAmmodelTarget }),
+  harness.isTelegramImagebotAmmodelOwnerAllowed({ senderId: "100", target: staleAmmodelTarget }),
   false,
-  "a different group member clicking another user's /ammodel menu must be blocked",
+  "a stale /ammodel callback from an inactive window must not mutate an old session",
 );
 
 const unmappedAmmodelTarget = harness.resolveTelegramImagebotAmmodelTarget({
@@ -344,9 +438,9 @@ harness.recordTelegramImagebotAmmodelMessage({
   window: aliceAmmodelTarget.window,
 });
 
-assert.equal(harness.getStore().byBotMessage[`${chatId}:9010`].windowId, "window-A");
+assert.equal(harness.getStore().byBotMessage[`${chatId}:9010`].windowId, "window-C");
 assert.equal(harness.getStore().byBotMessage[`${chatId}:9010`].ownerUserKey, "tg:100");
-assert.equal(harness.getStore().byBotMessage[`${chatId}:9010`].sessionKey, windowA.sessionKey);
+assert.equal(harness.getStore().byBotMessage[`${chatId}:9010`].sessionKey, windowC.sessionKey);
 
 harness.noteTelegramImagebotWindowOutbound({
   cfg: {},
@@ -365,15 +459,15 @@ assert.equal(
   9020,
   "model switch notification should be able to reply to the latest ordinary bot message in the window",
 );
-const recentBeforePersonaControl = harness.getStore().windows["window-A"].recent.length;
+const recentBeforePersonaControl = harness.getStore().windows["window-C"].recent.length;
 harness.updateTelegramImagebotWindowPersona({
   cfg: {},
   agentId: "imagebot",
-  windowId: "window-A",
+  windowId: "window-C",
   persona: { id: "chihaya_anon", label: "千早爱音" },
 });
 assert.equal(
-  harness.getStore().windows["window-A"].recent.length,
+  harness.getStore().windows["window-C"].recent.length,
   recentBeforePersonaControl,
   "persona switch control events must not enter model-visible window recent context",
 );
@@ -397,10 +491,11 @@ const aliceReplyOldWindowSequential = harness.resolveTelegramImagebotSequentialW
 
 assert.equal(
   aliceReplyOldWindowSequential,
-  "window-A",
-  "same sender replying to an old bot message must use that old window, not the sender's current active window",
+  "window-C",
+  "same sender replying to an old bot message must stay in the sender's current active window",
 );
 
+harness.clearModelDefaultApplied();
 const aliceReplyOldWindow = harness.resolveTelegramImagebotWindowContext({
   cfg: {},
   agentId: "imagebot",
@@ -419,15 +514,21 @@ const aliceReplyOldWindow = harness.resolveTelegramImagebotWindowContext({
   botId,
 });
 
-assert.equal(aliceReplyOldWindow.windowId, "window-A");
-assert.equal(aliceReplyOldWindow.sessionKey, windowA.sessionKey);
-assert.equal(aliceReplyOldWindow.source, "bot-reply");
+assert.equal(aliceReplyOldWindow.windowId, "window-C");
+assert.equal(aliceReplyOldWindow.sessionKey, windowC.sessionKey);
+assert.equal(aliceReplyOldWindow.source, "sender");
 assert.equal(
   harness.getStore().activeByUser["tg:100"].windowId,
   "window-C",
   "replying to an old window must not replace the sender's current active window",
 );
+assert.equal(
+  harness.getModelDefaultApplied()?.sessionKey,
+  windowC.sessionKey,
+  "same-owner stale replies must sync the current /ammodel default before prompt construction",
+);
 
+harness.clearModelDefaultApplied();
 const aliceStandaloneAfterOldReply = harness.resolveTelegramImagebotWindowContext({
   cfg: {},
   agentId: "imagebot",
@@ -444,6 +545,11 @@ const aliceStandaloneAfterOldReply = harness.resolveTelegramImagebotWindowContex
 assert.equal(aliceStandaloneAfterOldReply.windowId, "window-C");
 assert.equal(aliceStandaloneAfterOldReply.sessionKey, windowC.sessionKey);
 assert.equal(aliceStandaloneAfterOldReply.source, "sender");
+assert.equal(
+  harness.getModelDefaultApplied()?.sessionKey,
+  windowC.sessionKey,
+  "existing sender-owned active windows must reapply the current /ammodel default before prompt construction",
+);
 
 const bobReplySequentialWindow = harness.resolveTelegramImagebotSequentialWindowId({
   cfg: {},
@@ -464,8 +570,8 @@ const bobReplySequentialWindow = harness.resolveTelegramImagebotSequentialWindow
 
 assert.equal(
   bobReplySequentialWindow,
-  "window-A",
-  "Telegram sequential lane must be resolved from replied bot message window before sender fallback",
+  "window-B",
+  "Telegram sequential lane must ignore inactive replied bot windows and fall back to the sender's active window",
 );
 
 const bobReplyToAliceWindow = harness.resolveTelegramImagebotWindowContext({
@@ -486,18 +592,19 @@ const bobReplyToAliceWindow = harness.resolveTelegramImagebotWindowContext({
   botId,
 });
 
-assert.equal(bobReplyToAliceWindow.windowId, "window-A");
-assert.equal(bobReplyToAliceWindow.sessionKey, windowA.sessionKey);
-assert.equal(bobReplyToAliceWindow.source, "bot-reply");
+assert.equal(bobReplyToAliceWindow.windowId, "window-B");
+assert.equal(bobReplyToAliceWindow.sessionKey, windowB.sessionKey);
+assert.equal(bobReplyToAliceWindow.source, "sender");
 assert.equal(bobReplyToAliceWindow.senderUserKey, "tg:200");
 assert.equal(
   harness.getStore().activeByUser["tg:200"].windowId,
   "window-B",
   "replying into another window must not rebind the sender's standalone active window",
 );
-assert.ok(
+assert.equal(
   harness.getStore().windows["window-A"].participants["tg:200"],
-  "replying into another window should add the sender as a participant of that group thread",
+  undefined,
+  "replying to an inactive old window must not add the sender as a participant of that old thread",
 );
 
 const bobStandaloneAfterReply = harness.resolveTelegramImagebotWindowContext({
@@ -517,6 +624,7 @@ assert.equal(bobStandaloneAfterReply.windowId, "window-B");
 assert.equal(bobStandaloneAfterReply.sessionKey, windowB.sessionKey);
 assert.equal(bobStandaloneAfterReply.source, "sender");
 
+harness.clearModelDefaultApplied();
 const aliceReplyToBobWindow = harness.resolveTelegramImagebotWindowContext({
   cfg: {},
   agentId: "imagebot",
@@ -542,6 +650,11 @@ assert.equal(
   harness.getStore().activeByUser["tg:100"].windowId,
   "window-C",
   "entering Bob's window by reply must not replace Alice's own standalone window",
+);
+assert.equal(
+  harness.getModelDefaultApplied(),
+  undefined,
+  "cross-owner bot replies must not copy Alice's /ammodel default into Bob's session",
 );
 
 const closedStore = clone(baseStore);

@@ -4,11 +4,14 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
+import { mutationScopeKey, trustedMutationContext } from "../imagebot-shared/mutation-authorization.mjs";
+import { withStateFileLock, writeJsonAtomic } from "../imagebot-shared/state-file.mjs";
 
 const RECENT_TOOL_NAME = "generated_gallery_recent";
 const SEARCH_TOOL_NAME = "generated_gallery_search";
 const RESEND_TOOL_NAME = "generated_gallery_resend";
 const STATS_TOOL_NAME = "generated_gallery_stats";
+const GALLERY_TOOL_NAME = "generated_gallery";
 
 const DEFAULT_COUNT = 6;
 const MAX_COUNT = 12;
@@ -195,12 +198,62 @@ function parseManifestLine(line) {
       sizeBytes: Number(record.sizeBytes) || 0,
       sha256: sha,
       archivedRelativePath: rel,
+      scopeKey: typeof record.scopeKey === "string" ? record.scopeKey.trim() : "",
+      scopeHash: typeof record.scopeHash === "string" ? record.scopeHash.trim().toLowerCase() : "",
+      chatId: typeof record.chatId === "string" || typeof record.chatId === "number" ? String(record.chatId).trim() : "",
+      threadId: typeof record.threadId === "string" || typeof record.threadId === "number" ? String(record.threadId).trim() : "",
+      sessionKey: typeof record.sessionKey === "string" ? record.sessionKey.trim() : "",
+      sessionKeyHash: typeof record.sessionKeyHash === "string" ? record.sessionKeyHash.trim().toLowerCase() : "",
+      windowId: typeof record.windowId === "string" || typeof record.windowId === "number" ? String(record.windowId).trim() : "",
       copied: record.copied === true,
       ext
     };
   } catch {
     return null;
   }
+}
+
+function runtimeGalleryScope(ctx = {}) {
+  const context = trustedMutationContext(ctx);
+  if (!context.chatId && !context.sessionKey && !context.windowId) return { enabled: false, context };
+  const scopeKey = mutationScopeKey(context);
+  return {
+    enabled: true,
+    context,
+    scopeKey,
+    scopeHash: hash(scopeKey, 20)
+  };
+}
+
+function hashedValueMatches(rawHash, value) {
+  const expected = String(rawHash || "").trim().toLowerCase();
+  if (!expected || !value) return false;
+  return hash(value, expected.length) === expected;
+}
+
+function entryHasScopeProvenance(entry = {}) {
+  return Boolean(entry.scopeKey || entry.scopeHash || entry.chatId || entry.sessionKey || entry.sessionKeyHash || entry.windowId);
+}
+
+function entryMatchesRuntimeScope(entry = {}, scope = runtimeGalleryScope()) {
+  if (!scope.enabled) return true;
+  if (!entryHasScopeProvenance(entry)) return runtimeConfig.allowUnscopedRuntimeGallery === true;
+  const context = scope.context || {};
+  if (entry.scopeKey && entry.scopeKey === scope.scopeKey) return true;
+  if (entry.scopeHash && entry.scopeHash === scope.scopeHash) return true;
+  if (entry.sessionKey && context.sessionKey && entry.sessionKey === context.sessionKey) return true;
+  if (entry.sessionKeyHash && hashedValueMatches(entry.sessionKeyHash, context.sessionKey)) return true;
+  if (entry.windowId && context.windowId && entry.windowId === context.windowId) return true;
+  if (entry.chatId && context.chatId && entry.chatId === context.chatId) {
+    return !entry.threadId || !context.threadId || entry.threadId === context.threadId;
+  }
+  return false;
+}
+
+function scopeFilteredEntries(entries = [], ctx = {}) {
+  const scope = runtimeGalleryScope(ctx);
+  if (!scope.enabled) return entries;
+  return entries.filter((entry) => entryMatchesRuntimeScope(entry, scope));
 }
 
 async function readManifestEntries() {
@@ -313,6 +366,7 @@ function publicEntry(entry) {
     sizeBytes: entry.sizeBytes,
     sha256Prefix: entry.sha256.slice(0, 16),
     relativePath: entry.archivedRelativePath,
+    scoped: entryHasScopeProvenance(entry),
     ...(Number.isFinite(entry.visualDistance) ? { visualDistance: entry.visualDistance } : {}),
     ...(Number.isFinite(entry.visualSimilarity) ? { visualSimilarity: entry.visualSimilarity } : {}),
     ...(entry.visualHash ? { visualHash: entry.visualHash } : {})
@@ -442,8 +496,7 @@ async function readVisualHashIndex() {
 
 async function writeVisualHashIndex(index) {
   const filePath = visualHashIndexPath();
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify({ schema: 1, entries: index.entries || {} }, null, 2), "utf8");
+  await writeJsonAtomic(filePath, { schema: 1, entries: index.entries || {} }, { space: 2 });
 }
 
 function visualIndexKey(entry) {
@@ -475,36 +528,38 @@ async function listVisualSimilarEntries(params, sourceEntries) {
   const queryPath = await resolveVisualQueryImagePath(params, sourceEntries);
   if (!queryPath) throw new Error("visual gallery search requires image, media, path, similarTo, or gallery id");
   const queryHashes = await computeVisualHashes(queryPath);
-  const index = await readVisualHashIndex();
-  let dirty = false;
-  const scored = [];
-  for (const entry of sourceEntries.slice(0, visualIndexEntryLimit())) {
-    try {
-      const before = Object.keys(index.entries || {}).length;
-      const hashes = await visualHashesForEntry(entry, index);
-      const after = Object.keys(index.entries || {}).length;
-      dirty ||= after !== before || hashes.cached === false;
-      const ahashDistance = hammingHex(queryHashes.ahash, hashes.ahash);
-      const dhashDistance = hammingHex(queryHashes.dhash, hashes.dhash);
-      const visualDistance = ahashDistance + dhashDistance;
-      if (visualDistance <= maxDistance) {
-        scored.push({
-          entry: {
-            ...entry,
-            visualDistance,
-            visualSimilarity: Number(Math.max(0, 1 - visualDistance / MAX_VISUAL_DISTANCE).toFixed(4)),
-            visualHash: `${hashes.ahash}:${hashes.dhash}`
-          },
-          score: MAX_VISUAL_DISTANCE - visualDistance
-        });
+  return await withStateFileLock(visualHashIndexPath(), async () => {
+    const index = await readVisualHashIndex();
+    let dirty = false;
+    const scored = [];
+    for (const entry of sourceEntries.slice(0, visualIndexEntryLimit())) {
+      try {
+        const before = Object.keys(index.entries || {}).length;
+        const hashes = await visualHashesForEntry(entry, index);
+        const after = Object.keys(index.entries || {}).length;
+        dirty ||= after !== before || hashes.cached === false;
+        const ahashDistance = hammingHex(queryHashes.ahash, hashes.ahash);
+        const dhashDistance = hammingHex(queryHashes.dhash, hashes.dhash);
+        const visualDistance = ahashDistance + dhashDistance;
+        if (visualDistance <= maxDistance) {
+          scored.push({
+            entry: {
+              ...entry,
+              visualDistance,
+              visualSimilarity: Number(Math.max(0, 1 - visualDistance / MAX_VISUAL_DISTANCE).toFixed(4)),
+              visualHash: `${hashes.ahash}:${hashes.dhash}`
+            },
+            score: MAX_VISUAL_DISTANCE - visualDistance
+          });
+        }
+      } catch {
+        // Skip unreadable archive items; text search/resend can still handle them.
       }
-    } catch {
-      // Skip unreadable archive items; text search/resend can still handle them.
     }
-  }
-  if (dirty) await writeVisualHashIndex(index);
-  scored.sort((left, right) => left.entry.visualDistance - right.entry.visualDistance || right.entry.timeMs - left.entry.timeMs);
-  return scored.slice(0, count).map((item) => item.entry);
+    if (dirty) await writeVisualHashIndex(index);
+    scored.sort((left, right) => left.entry.visualDistance - right.entry.visualDistance || right.entry.timeMs - left.entry.timeMs);
+    return scored.slice(0, count).map((item) => item.entry);
+  });
 }
 
 function previewCacheKey(entries, label = "gallery") {
@@ -648,9 +703,9 @@ function topEntries(counter, count = 8) {
     .map(([key, value]) => ({ key, value }));
 }
 
-async function galleryStats(params = {}) {
+async function galleryStats(params = {}, ctx = {}) {
   const source = normalizeSource(readString(params, "source", "all"));
-  const entries = (await readManifestEntries()).filter((entry) => matchesSource(entry, source));
+  const entries = scopeFilteredEntries(await readManifestEntries(), ctx).filter((entry) => matchesSource(entry, source));
   const byTool = {};
   const byExt = {};
   const byMonth = {};
@@ -690,13 +745,13 @@ function formatStatsResult(stats) {
   return lines.join("\n");
 }
 
-async function listEntries(params, mode) {
+async function listEntries(params, mode, ctx = {}) {
   const source = normalizeSource(readString(params, "source", "generated"));
   const count = readCount(params);
   const query = mode === "search" ? readString(params, "query") : "";
   const visualQuery = mode === "search" ? readVisualQuery(params) : "";
   const terms = extractTerms(query);
-  const entries = (await readManifestEntries()).filter((entry) => matchesSource(entry, source));
+  const entries = scopeFilteredEntries(await readManifestEntries(), ctx).filter((entry) => matchesSource(entry, source));
   if (visualQuery) return await listVisualSimilarEntries(params, entries);
   const scored = entries.map((entry) => ({ entry, score: scoreEntry(entry, terms) }));
   scored.sort((left, right) => right.score - left.score || right.entry.timeMs - left.entry.timeMs);
@@ -776,9 +831,9 @@ function findById(entries, rawId) {
   }) || null;
 }
 
-async function selectResendEntries(params) {
+async function selectResendEntries(params, ctx = {}) {
   const source = normalizeSource(readString(params, "source", "generated"));
-  const entries = (await readManifestEntries()).filter((entry) => matchesSource(entry, source));
+  const entries = scopeFilteredEntries(await readManifestEntries(), ctx).filter((entry) => matchesSource(entry, source));
   const ids = readIds(params);
   if (ids.length > 0) {
     const selected = [];
@@ -789,13 +844,13 @@ async function selectResendEntries(params) {
     return selected;
   }
   const query = readString(params, "query");
-  if (query) return (await listEntries({ ...params, count: readCount(params, 1, MAX_RESEND_COUNT) }, "search")).slice(0, MAX_RESEND_COUNT);
+  if (query) return (await listEntries({ ...params, count: readCount(params, 1, MAX_RESEND_COUNT) }, "search", ctx)).slice(0, MAX_RESEND_COUNT);
   if (readBoolean(params, "latest", true)) return entries.slice(0, Math.min(1, MAX_RESEND_COUNT));
   return [];
 }
 
-async function resendEntries(params) {
-  const entries = await selectResendEntries(params);
+async function resendEntries(params, ctx = {}) {
+  const entries = await selectResendEntries(params, ctx);
   if (entries.length === 0) {
     return {
       entries: [],
@@ -845,9 +900,9 @@ const generatedGalleryRecentTool = {
       }
     }
   },
-  async execute(_toolCallId, params) {
+  async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
     try {
-      const entries = await listEntries(params, "recent");
+      const entries = await listEntries(params, "recent", ctx);
       const preview = readPreviewFlag(params) ? await buildGalleryPreview(entries, "recent") : null;
       return {
         content: [{ type: "text", text: formatListResult("GENERATED_GALLERY_RECENT", entries, "", preview) }, ...(preview ? [preview] : [])],
@@ -910,12 +965,12 @@ const generatedGallerySearchTool = {
       }
     }
   },
-  async execute(_toolCallId, params) {
+  async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
     try {
       const query = readString(params, "query");
       const visualQuery = readVisualQuery(params);
-      if (!query && !visualQuery) throw new Error("generated_gallery_search requires query or image/media/path/similarTo");
-      const entries = await listEntries(params, "search");
+      if (!query && !visualQuery) throw new Error("generated_gallery action=search requires query or image/media/path/similarTo");
+      const entries = await listEntries(params, "search", ctx);
       const preview = readPreviewFlag(params) ? await buildGalleryPreview(entries, "search") : null;
       const visual = Boolean(visualQuery);
       return {
@@ -945,7 +1000,7 @@ const generatedGalleryResendTool = {
     properties: {
       id: {
         type: "string",
-        description: "Gallery id or sha prefix returned by generated_gallery_recent/search."
+        description: "Gallery id or sha prefix returned by generated_gallery action=recent/search."
       },
       galleryId: {
         type: "string",
@@ -975,9 +1030,9 @@ const generatedGalleryResendTool = {
       }
     }
   },
-  async execute(_toolCallId, params) {
+  async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
     try {
-      const { entries, mediaUrls } = await resendEntries(params);
+      const { entries, mediaUrls } = await resendEntries(params, ctx);
       if (mediaUrls.length === 0) {
         return {
           content: [{ type: "text", text: "GENERATED_GALLERY_RESEND no_match: no archived generated image matched the request." }],
@@ -1021,9 +1076,9 @@ const generatedGalleryStatsTool = {
       }
     }
   },
-  async execute(_toolCallId, params) {
+  async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
     try {
-      const stats = await galleryStats(params);
+      const stats = await galleryStats(params, ctx);
       return {
         content: [{ type: "text", text: formatStatsResult(stats) }],
         details: { status: "ok", stats }
@@ -1038,6 +1093,62 @@ const generatedGalleryStatsTool = {
   }
 };
 
+const generatedGalleryTool = {
+  name: GALLERY_TOOL_NAME,
+  label: "Generated Gallery",
+  description: "Read archived generated/downloaded images through action=recent, search, or stats. Resend remains generated_gallery_resend.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      action: {
+        type: "string",
+        enum: ["recent", "search", "stats"],
+        description: "Gallery read action. Default recent unless query/image is supplied."
+      },
+      query: {
+        type: "string",
+        description: "Search terms, filename fragment, gallery id, sha prefix, or user wording such as 'last generated image'."
+      },
+      image: {
+        type: "string",
+        description: "Bot-local media path, MEDIA line, archive relative path, or gallery id for visual similarity search."
+      },
+      media: { type: "string", description: "Alias for image." },
+      path: { type: "string", description: "Alias for image." },
+      similarTo: { type: "string", description: "Alias for image." },
+      maxDistance: {
+        type: "number",
+        description: `Maximum visual Hamming distance, 0-${MAX_VISUAL_DISTANCE}.`
+      },
+      count: {
+        type: "number",
+        description: `Number of results, 1-${MAX_COUNT}. Default ${DEFAULT_COUNT}.`
+      },
+      source: {
+        type: "string",
+        enum: ["generated", "downloaded", "all"],
+        description: "Gallery source. Default generated for recent/search; all for stats."
+      },
+      preview: {
+        type: "boolean",
+        description: "Attach a compact contact-sheet preview for list/search. Default true."
+      }
+    }
+  },
+  async execute(toolCallId, params, signal, onUpdate, ctx) {
+    const requested = readString(params, "action").toLowerCase();
+    const action = requested || (readString(params, "query") || readVisualQuery(params) ? "search" : "recent");
+    if (action === "recent") return generatedGalleryRecentTool.execute(toolCallId, params, signal, onUpdate, ctx);
+    if (action === "search") return generatedGallerySearchTool.execute(toolCallId, params, signal, onUpdate, ctx);
+    if (action === "stats") return generatedGalleryStatsTool.execute(toolCallId, params, signal, onUpdate, ctx);
+    return {
+      content: [{ type: "text", text: "GENERATED_GALLERY error: action must be recent, search, or stats. Use generated_gallery_resend for resend." }],
+      details: { status: "failed", error: "invalid action" }
+    };
+  }
+};
+
 export const __testing = {
   parseManifestLine,
   readManifestTail,
@@ -1045,6 +1156,9 @@ export const __testing = {
   listEntries,
   resendEntries,
   galleryStats,
+  runtimeGalleryScope,
+  entryMatchesRuntimeScope,
+  scopeFilteredEntries,
   buildGalleryPreview,
   computeVisualHashes,
   hammingHex
@@ -1056,6 +1170,7 @@ export default {
   description: "Lists and resends generated imagebot media from the local archive.",
   register(api) {
     runtimeConfig = api.config || {};
+    api.registerTool(generatedGalleryTool, { name: GALLERY_TOOL_NAME });
     api.registerTool(generatedGalleryRecentTool, { name: RECENT_TOOL_NAME });
     api.registerTool(generatedGallerySearchTool, { name: SEARCH_TOOL_NAME });
     api.registerTool(generatedGalleryResendTool, { name: RESEND_TOOL_NAME });

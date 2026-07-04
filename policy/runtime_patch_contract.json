@@ -101,6 +101,13 @@
       "whyRuntimePatch": "Built-in message/image_generate schema, timeout/model override behavior, and media:// reference loading are host-owned tool definitions rather than plugin-owned tool wrappers in 2026.6.10.",
       "retireWhen": "OpenClaw exposes spoiler fields, enforces configured imageGenerationModel timeout/model, and resolves media:// inbound references to local media paths before loading tool references."
     },
+    "image-generate-status-problem-tasks": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["tool schema config", "background task status"],
+      "whyRuntimePatch": "The built-in image_generate status action only reports queued/running tasks and otherwise says no active task, so plugins cannot make the host-owned status result reveal a recent failed or lost image task before the model decides whether to retry.",
+      "retireWhen": "OpenClaw image_generate status reports recent terminal failed/lost task state, or exposes a stable plugin hook to override built-in status results."
+    },
     "telegram-outbound-adapter-spoiler": {
       "ownerClass": "host-delivery-bridge",
       "maintenanceRisk": "low",
@@ -133,8 +140,8 @@
       "ownerClass": "host-agent-bridge",
       "maintenanceRisk": "medium",
       "publicSurfaceChecked": ["tool_result_persist", "before_agent_run"],
-      "whyRuntimePatch": "Pending tool media and terminal reasoning retry are selected inside embedded agent host logic.",
-      "retireWhen": "OpenClaw selection keeps explicit sensitiveMedia and retries terminal reasoning-only turns natively."
+      "whyRuntimePatch": "Pending tool media, terminal reasoning retry, and embedded-run prep stage logging are selected inside embedded agent host logic.",
+      "retireWhen": "OpenClaw selection keeps explicit sensitiveMedia, retries terminal reasoning-only turns natively, and exposes per-agent prep-stage timing diagnostics."
     },
     "telegram-send-spoiler": {
       "ownerClass": "telegram-channel-bridge",
@@ -149,6 +156,13 @@
       "publicSurfaceChecked": ["message_sent"],
       "whyRuntimePatch": "Reply-to-bot routing needs Telegram sent-message cache entries for media placeholders before future inbound replies are routed.",
       "retireWhen": "OpenClaw Telegram reply cache stores media placeholders and resolves prior media for reply routing."
+    },
+    "telegram-forward-legacy-context": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["message_received", "Telegram forwarded-message metadata"],
+      "whyRuntimePatch": "The runtime-level forwarded-context normalizer feeds both reply context and Mars-forward detection before ordinary plugin hooks can repair Telegram legacy forward_from_chat metadata.",
+      "retireWhen": "OpenClaw normalizes both Bot API forward_origin and legacy forward_from_chat/forward_from_message_id fields before Telegram group trigger and Mars-forward routing."
     },
     "embedded-agent-payload-sensitive-media": {
       "ownerClass": "host-agent-bridge",
@@ -184,6 +198,160 @@
       "publicSurfaceChecked": ["message_sent", "session transcript SDK"],
       "whyRuntimePatch": "The host delivery path must serialize, retry, and idempotently append the exact assistant mirror after the channel send succeeds; plugin hooks only observe delivery and cannot safely replace this write on 2026.6.10.",
       "retireWhen": "OpenClaw core delivery mirror performs per-session queued retry, or an official append-by-session SDK can be used without deriving legacy transcript paths."
+    },
+    "telegram-script-control-commands": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["Telegram command config", "message_received", "before_prompt_build"],
+      "whyRuntimePatch": "These Telegram /am control commands and rejected legacy /model commands must answer before model context construction so help, status, safe tool-control discovery, and stale command aliases do not consume prompt budget or let the model claim nonexistent runtime changes.",
+      "retireWhen": "OpenClaw exposes a stable Telegram pre-model command handler that can send bounded runtime status and safe command menus without entering the agent prompt."
+    },
+    "telegram-script-micro-commands": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["Telegram command config", "message_received", "before_prompt_build"],
+      "whyRuntimePatch": "Tiny group utility commands such as /amroll, /amcoin, /amchoose, /amshuffle, /amsplit, /amstats, and /amlinks should answer before model context construction. Existing plugin/tool hooks would wake the agent for no-state script work and cannot reliably bypass the unaddressed group-message drop gate.",
+      "retireWhen": "OpenClaw exposes a stable Telegram pre-model command handler or pre-drop script hook that can parse configured per-account slash commands, send a bounded reply, and mark the update completed without entering the agent prompt."
+    },
+    "telegram-command-chinese-localization": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["Telegram command config", "message_received", "before_prompt_build"],
+      "whyRuntimePatch": "The private Telegram bot is Chinese-facing, so deterministic runtime command replies and inline control labels should not fall back to upstream English strings. These replies must stay pre-model so localization does not consume prompt budget.",
+      "retireWhen": "OpenClaw exposes configurable localized strings for Telegram pre-model command replies and inline control labels."
+    },
+    "tool-result-image-history-prune": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["tool_result_persist", "before_prompt_build", "session transcript SDK"],
+      "whyRuntimePatch": "OpenClaw 2026.6.10 truncates oversized tool results by text length only, so model-visible image blocks persisted as base64 can stay in prompt history and trigger slow replay, compaction loops, or context overflow outside plugin control.",
+      "retireWhen": "OpenClaw natively stores model-visible tool-result images as bounded media references or exposes a stable prompt-history media compaction hook that can prune old image bytes while preserving traceable file/source metadata."
+    },
+    "tool-result-unterminated-image-data-prune": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["tool_result_persist", "before_prompt_build", "session transcript SDK"],
+      "whyRuntimePatch": "Some delegated tool calls stringify nested image result blocks into text. If that text is later truncated before the JSON closing quote, the existing image-history prune regex misses the raw PNG/JPEG/WebP base64 and can replay tens of thousands of useless image bytes as ordinary text tokens.",
+      "retireWhen": "OpenClaw natively stores delegated tool-result media out of band, or its prompt-history compaction pass recognizes nested and partially truncated image-data fields before provider submission."
+    },
+    "selection-image-data-estimate": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["before_prompt_build", "tool_result_persist", "agent context guard config"],
+      "whyRuntimePatch": "The embedded selection guard estimates every image block as a small fixed constant, which misses large base64 screenshot/search previews and lets them reach provider submission or recovery paths only after the turn is already slow.",
+      "retireWhen": "OpenClaw estimates tool-result image payload size from actual media data or stores images out-of-band before mid-turn context checks decide whether to truncate, compact, or submit a prompt."
+    },
+    "telegram-window-active-route": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["message_received", "before_prompt_build", "Telegram callback routing", "session transcript SDK"],
+      "whyRuntimePatch": "Telegram reply and inline-callback routing are resolved inside the channel adapter before plugin hooks can safely decide the target session. Stale bot messages must contribute only Telegram reply context, while inactive window sessions remain on disk for later memory consolidation.",
+      "retireWhen": "OpenClaw exposes stable Telegram reply/callback routing hooks that can reject inactive per-window routes while preserving replied-message context and memory-consolidation inputs."
+    },
+    "telegram-window-idle-timeout": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["message_received", "before_prompt_build", "Telegram callback routing", "session transcript SDK"],
+      "whyRuntimePatch": "Telegram imagebot window freshness is resolved inside the channel adapter before plugin hooks can safely close stale routes. Idle windows must be closed without using /amnew replacement semantics so their old session files remain available for memory consolidation and the next addressed message can create a plain new sender window.",
+      "retireWhen": "OpenClaw exposes stable Telegram window lifecycle hooks with configurable idle close behavior and callback/reply routing that can ignore expired windows without patching the bundled adapter."
+    },
+    "telegram-ammodel-session-sync": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["Telegram callback routing", "before_prompt_build", "session transcript SDK"],
+      "whyRuntimePatch": "The Telegram /ammodel menu is runtime-owned and its inline callbacks are handled before model context construction. The two-step model then reasoning-level menu must remain intact, while existing sender-owned active windows must reapply the /ammodel default before prompt construction so stale per-session overrides cannot keep the old provider/model after a switch.",
+      "retireWhen": "OpenClaw exposes configurable Telegram control-menu actions and stable pre-prompt session model synchronization without patching the channel adapter."
+    },
+    "telegram-ammodel-default-sync-idempotent": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["Telegram callback routing", "before_prompt_build", "session transcript SDK"],
+      "whyRuntimePatch": "The default /ammodel state is synchronized inside the Telegram adapter before prompt construction. Without an adapter-level no-op check, unchanged defaults repeatedly rewrite session state and mark live model switches during ordinary messages.",
+      "retireWhen": "OpenClaw exposes stable pre-prompt session model synchronization that can apply only changed provider/model/reasoning defaults without patching the channel adapter."
+    },
+    "telegram-ammodel-fallback-default": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["Telegram callback routing", "before_prompt_build", "session transcript SDK", "model fallback session persistence"],
+      "whyRuntimePatch": "Telegram /ammodel defaults are mirrored into window sessions inside the channel adapter. They need to behave as configured defaults, not explicit user overrides, so GPT subscription/rate-limit fallback can persist only the current window while later new windows still start from the user-selected default.",
+      "retireWhen": "OpenClaw exposes a stable per-session default-model source distinct from explicit user overrides and keeps model fallback persistence compatible with Telegram default synchronization."
+    },
+    "agent-scope-default-model-fallback": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["before_prompt_build", "model fallback resolution", "session transcript SDK"],
+      "whyRuntimePatch": "OpenClaw currently disables configured fallback chains for every non-auto session model override. Imagebot mirrors /ammodel defaults into sessions, so those default-sourced overrides must keep fallback chains enabled while true explicit user overrides remain isolated.",
+      "retireWhen": "OpenClaw's model fallback resolver natively treats default-sourced session model selections as fallback-capable."
+    },
+    "agent-runner-fallback-notice-zh": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["reply_payload_sending", "model fallback lifecycle", "session transcript SDK"],
+      "whyRuntimePatch": "OpenClaw already emits model fallback notices from the agent runner, but the default copy is English and does not explain imagebot's window-local fallback behavior. The notice is built inside host reply assembly before Telegram delivery, so plugin prompt text cannot reliably prepend the status message without asking the model to self-report runtime state.",
+      "retireWhen": "OpenClaw exposes configurable fallback notice copy or a stable pre-delivery status-notice hook that can localize model fallback transitions per agent without patching the bundled runner."
+    },
+    "telegram-loli-guard-url-import": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["message_received", "before_prompt_build"],
+      "whyRuntimePatch": "The Telegram channel adapter dynamically imports the local image safety preflight module before plugin prompt hooks can repair media admission; the patched code path uses pathToFileURL and must import it from node:url to avoid failing closed for every image attachment.",
+      "retireWhen": "OpenClaw imports pathToFileURL in the Telegram adapter or moves local image safety preflight behind a stable plugin-owned media admission hook."
+    },
+    "telegram-imagebot-text-repeater": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["Telegram command config", "message_received", "before_prompt_build"],
+      "whyRuntimePatch": "The repeater must observe short unaddressed Telegram group text before the imagebot mention/drop gate and answer without building model context; current plugin hooks run too late or after context construction to guarantee zero model wakeup for dropped group chatter.",
+      "retireWhen": "OpenClaw exposes a stable per-account Telegram prefilter/script hook that can send a same-chat reply before mention gating and explicitly mark the update completed without entering model context."
+    },
+    "telegram-imagebot-text-repeater-pre-drop": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["Telegram message ingress", "message_received", "dispatch dedupe", "before_prompt_build"],
+      "whyRuntimePatch": "The first repeater patch added a pre-model handler, but ordinary unaddressed group text is discarded earlier by the Telegram imagebot drop gate. This layered patch moves the repeater observation into the inbound message path before that gate and commits dispatch dedupe when it sends, so a repeat reply cannot duplicate or fall through into model context.",
+      "retireWhen": "OpenClaw exposes a stable per-account Telegram prefilter/script hook before mention gating, or the imagebot adapter can run this repeater through an official pre-drop ingress extension without patching bot runtime internals."
+    },
+    "telegram-imagebot-sticker-repeater": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["Telegram Sticker object", "Telegram sendSticker", "message_received", "dispatch dedupe"],
+      "whyRuntimePatch": "The pre-drop repeater must support Telegram stickers without downloading media or waking the model. Telegram exposes stable file_unique_id values for equality and reusable file_id values for sendSticker, while plugin hooks are still too late for unaddressed group sticker messages that can be discarded before model context.",
+      "retireWhen": "OpenClaw exposes a stable pre-drop Telegram message hook with access to sticker metadata and a same-chat sendSticker helper, or native channel configuration supports same-sticker repeat behavior without runtime patching."
+    },
+    "telegram-repeater-different-senders": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["Telegram sender metadata", "Telegram message ingress", "dispatch dedupe", "before_prompt_build"],
+      "whyRuntimePatch": "The pre-drop repeater needs sender-aware sequence state before unaddressed group messages are discarded, so a stale same-chat text or sticker cannot make another user's single message repeat. Current plugin hooks do not provide a stable pre-drop same-chat script handler with sender-aware completion.",
+      "retireWhen": "OpenClaw exposes a stable Telegram pre-drop script hook that can inspect sender metadata, maintain per-chat/topic sequence state, send the repeat, and mark the inbound update completed without entering model context."
+    },
+    "telegram-mars-forward-observability": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["message_received", "Telegram forwarded-message metadata", "runtime logging"],
+      "whyRuntimePatch": "Mars-forward classification runs inside the Telegram adapter before ordinary plugin hooks and before unaddressed group messages are dropped. Without runtime-level logging, real Telegram metadata shape regressions look like silent feature loss.",
+      "retireWhen": "OpenClaw exposes a stable pre-drop Telegram forward-classification hook with structured diagnostic events, or the built-in Mars-forward path logs non-sensitive skip and duplicate states natively."
+    },
+    "telegram-mars-forward-sqlite-import": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["message_received", "runtime imports", "Telegram forwarded-message metadata"],
+      "whyRuntimePatch": "The Mars-forward detector uses node:sqlite DatabaseSync inside the Telegram adapter before plugins can handle or repair the event, so the adapter bundle must import DatabaseSync directly.",
+      "retireWhen": "OpenClaw's built-in Telegram adapter imports node:sqlite for Mars-forward state or exposes a plugin-owned pre-drop state hook that can replace this runtime code."
+    },
+    "telegram-mars-forward-script-reply": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["message_received", "Telegram forwarded-message metadata", "Telegram sendMessage", "Telegram sent-message cache"],
+      "whyRuntimePatch": "Mechanical Mars-forward duplicates must be handled before the unaddressed group-message drop gate by reacting/replying directly and recording the bot reply for future reply-to-bot routing. Similar candidates still need model review, but exact source/URL/file duplicates should not consume a model turn.",
+      "retireWhen": "OpenClaw exposes a stable Telegram pre-drop script hook that can send and cache a reply, mark the inbound update handled, and separately pass similarity candidates into model review with first-post lookup evidence."
+    },
+    "telegram-mars-forward-first-reply": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["message_received", "Telegram forwarded-message metadata", "Telegram reply_parameters", "Telegram sendMessage"],
+      "whyRuntimePatch": "Mechanical Mars-forward replies are emitted before the model and before ordinary plugin tools can run, so the adapter must point the script reply at the first same-group message directly and fall back when that message is gone. Similar-review prompts also need explicit guidance to call the plugin-owned reply_first tool after model confirmation.",
+      "retireWhen": "OpenClaw exposes a stable pre-drop Telegram duplicate hook that can target first-message replies and inject matching review guidance without patching the bundled adapter."
     }
   }
 }

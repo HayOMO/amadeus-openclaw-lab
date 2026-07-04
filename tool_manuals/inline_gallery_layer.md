@@ -1,6 +1,6 @@
 ---
 id: inline_gallery_layer
-tools: generated_gallery_recent, generated_gallery_search, generated_gallery_resend, web_image_search, download_image_url, download_image_urls, tool_manual_search
+tools: generated_gallery, generated_gallery_resend, web_image_search, download_image_url, download_image_urls, tool_manual_search
 keywords: inline, gallery, mini app, deep link, telegram native, image cards, candidate cards, 图库, 候选, 内联, mini app, 入口链接
 when_to_read: When designing or simulating Telegram-native gallery/search/prompt-card interactions without adding noisy group messages.
 ---
@@ -12,7 +12,7 @@ currently wired into the bot runtime.
 
 Current practical layer:
 
-- Use `generated_gallery_recent/search/resend` for local generated-image cache.
+- Use `generated_gallery action=recent/search` plus `generated_gallery_resend` for local generated-image cache.
 - Use `web_image_search` plus `download_image_url(s)` for public image candidates.
 - Use compact text cards in group chat when real inline cards are unavailable.
 

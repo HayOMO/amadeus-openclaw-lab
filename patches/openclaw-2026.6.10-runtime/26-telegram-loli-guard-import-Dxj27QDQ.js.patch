@@ -1,0 +1,11 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index 7a6c7c5..9f2c0db 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -145,5 +145,6 @@ import { n as deliverReplies, r as emitInternalMessageSentHook, t as resolveMedi
+ import fs from "node:fs";
+ import path from "node:path";
++import { pathToFileURL } from "node:url";
+ import { randomUUID } from "node:crypto";
+ import { AsyncLocalStorage } from "node:async_hooks";
+ //#region extensions/telegram/src/bot-processing-outcome.ts

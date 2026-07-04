@@ -76,6 +76,7 @@ run("tar", ["-xf", tarballName], { cwd: scratch });
 const unpacked = path.join(scratch, "package");
 if (!fs.existsSync(path.join(unpacked, "dist"))) throw new Error(`OpenClaw dist not found after npm pack: ${unpacked}`);
 fs.cpSync(unpacked, runtimeRoot, { recursive: true });
+run("npm", ["install", "--omit=dev", "--ignore-scripts", "--silent"], { cwd: runtimeRoot });
 
 const patchDir = path.dirname(manifestPath);
 for (const entry of manifest.patches || []) {

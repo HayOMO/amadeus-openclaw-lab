@@ -27,7 +27,6 @@
       "web_watch_check",
       "web_watch_delete",
       "desktop_media_control",
-      "sticker_pack",
       "agent_mode",
       "persona_config",
       "learned_skill",
@@ -46,12 +45,9 @@
   ],
   "commandCatalogPath": "scripts/IMAGEBOT_COMMANDS.json",
   "promptSegments": [
-    "config/imagebot/prompt/00-identity.md",
-    "config/imagebot/prompt/10-group-context.md",
     "config/imagebot/prompt/20-default-behavior.md",
     "config/imagebot/prompt/30-tool-index.md",
-    "config/imagebot/prompt/40-workflows.md",
-    "config/imagebot/prompt/90-privacy.md"
+    "config/imagebot/prompt/40-workflows.md"
   ],
   "mentionPatterns": [
     "^@?YOUR_BOT_USERNAME\\b",
@@ -61,7 +57,6 @@
   ],
   "allowedPluginIds": [
     "openai",
-    "deepseek",
     "telegram",
     "browser",
     "canvas",
@@ -124,11 +119,10 @@
   "allowedTools": [
     "image",
     "image_generate",
-    "zhihu_search",
-    "zhihu_global_search",
-    "zhihu_hot_list",
+    "zhihu",
     "explicit_web_text_search",
     "web_image_search",
+    "danbooru_resource",
     "download_image_url",
     "download_image_urls",
     "telegram_media_spoiler",
@@ -138,33 +132,25 @@
     "video_keyframes",
     "media_brief",
     "audio_transcribe",
-    "image_skill_lookup",
+    "image_skill",
     "image_skill_save_reference",
     "image_skill_note_preference",
-    "image_skill_recent",
     "meme_transform",
     "memory_search",
-    "knowledge_sources",
-    "knowledge_search",
-    "knowledge_recent",
+    "knowledge",
     "knowledge_ingest",
     "persona_search",
     "tool_manual_search",
     "background_job",
     "turn_observer_recent",
-    "generated_gallery_recent",
-    "generated_gallery_search",
+    "generated_gallery",
     "generated_gallery_resend",
-    "generated_gallery_stats",
     "group_adventure",
-    "media_artifact_recent",
-    "media_artifact_lineage",
+    "media_artifact",
     "web_snapshot",
     "web_card",
     "media_transform",
-    "artifact_recent",
-    "artifact_search",
-    "artifact_get",
+    "artifact",
     "qr_tool",
     "pdf_render",
     "av_media",
@@ -222,6 +208,10 @@
     "mediaMaxMb": 100,
     "imageTimeoutSeconds": 420
   },
+  "modelFallbacks": [
+    "deepseek/deepseek-v4-flash",
+    "deepseek/deepseek-v4-pro"
+  ],
   "imageGeneration": {
     "primary": "openai/gpt-image-2",
     "fallbacks": [],
@@ -232,6 +222,22 @@
     "telegramDebounceMs": 250,
     "cap": 12,
     "drop": "summarize"
+  },
+  "textRepeater": {
+    "enabled": true,
+    "groupOnly": true,
+    "repeatText": true,
+    "repeatStickers": true,
+    "requireDifferentSenders": true,
+    "maxGapMs": 30000,
+    "minCount": 2,
+    "cooldownMs": 30000,
+    "stateTtlMs": 600000,
+    "maxTextLength": 160,
+    "maxScopes": 512,
+    "ignoreCommands": true,
+    "ignoreBotMessages": true,
+    "ignoreExplicitBotMention": true
   },
   "backgroundJobs": {
     "defaultMaxConcurrent": 4,
@@ -249,6 +255,12 @@
       "mode": "live",
       "contextSize": "medium"
     }
+  },
+  "toolSearch": {
+    "enabled": true,
+    "mode": "directory",
+    "searchDefaultLimit": 6,
+    "maxSearchLimit": 12
   },
   "browserPool": {
     "prewarm": true,
@@ -304,8 +316,7 @@
     ],
     "requiredSubstrings": [
       "telegram_media_spoiler",
-      "delivery flag only",
-      "There is no privileged owner"
+      "只负责交付标记"
     ]
   }
 }

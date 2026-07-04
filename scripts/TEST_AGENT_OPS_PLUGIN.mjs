@@ -7,6 +7,13 @@ import { __testing as manualTesting } from "../plugins/imagebot-tool-manual-sear
 
 const storeDir = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-agent-ops-test-"));
 const windowStorePath = path.join(storeDir, "windows.json");
+const mediaDir = path.join(storeDir, "media");
+await fs.mkdir(mediaDir, { recursive: true });
+const skillMediaPath = path.join(mediaDir, "reference.png");
+await fs.writeFile(skillMediaPath, Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52
+]));
 const tools = new Map();
 const hooks = new Map();
 let typedHookCount = 0;
@@ -19,7 +26,7 @@ function recordHook(name, handler) {
 }
 
 plugin.register({
-  config: { storeDir, repoRoot: process.cwd(), windowStorePath, failureSlowMs: 10 },
+  config: { storeDir, repoRoot: process.cwd(), windowStorePath, failureSlowMs: 10, allowedMediaRoots: [mediaDir] },
   registerTool(tool, opts) {
     tools.set(opts?.name || tool.name, tool);
   },
@@ -39,6 +46,7 @@ for (const name of [
   "learned_skill",
   "failure_memory",
   "evidence_pack",
+  "bot_board",
   "github_lookup",
   "data_tool"
 ]) {
@@ -139,26 +147,28 @@ const promptOnlyPersonaContext = await hooks.get("before_prompt_build")[0]({
   prompt: `[Telegram current turn]\nwindow_id=${personaSet.details.window.windowId}\n[/Telegram current turn]\n\n你是谁`
 }, { agentId: "imagebot" });
 assert.ok(promptOnlyPersonaContext.prependSystemContext.includes("Chihaya Anon"));
-assert.ok(promptOnlyPersonaContext.prependSystemContext.includes("## Lorebook"));
-assert.ok(promptOnlyPersonaContext.prependSystemContext.includes("England and Ann"));
-assert.ok(promptOnlyPersonaContext.prependSystemContext.includes("## Example Style"));
+assert.ok(promptOnlyPersonaContext.prependSystemContext.includes("## 设定补充"));
+assert.ok(promptOnlyPersonaContext.prependSystemContext.includes("英国"));
+assert.ok(promptOnlyPersonaContext.prependSystemContext.includes("Ann"));
+assert.ok(promptOnlyPersonaContext.prependSystemContext.includes("## 对话示例"));
 assert.equal(promptOnlyPersonaContext.prependContext, undefined, "persona must not be injected as low-priority prompt context");
 assert.equal(promptOnlyPersonaContext.appendContext, undefined, "persona hook context must not append to the user prompt");
-assert.ok(!/Imagebot active persona overlay|persona_id|persona_label|scope:/i.test(promptOnlyPersonaContext.prependSystemContext));
+assert.match(promptOnlyPersonaContext.prependSystemContext, /^# 角色卡 - 千早爱音/);
+assert.ok(!/Active Persona State|runtime_agent|persona_id|persona_label|memory_layer|authority_layer/i.test(promptOnlyPersonaContext.prependSystemContext));
 assert.ok(!/Tool contracts|safety boundaries|owner checks|memory provenance/i.test(promptOnlyPersonaContext.prependSystemContext));
 
 const promptChatSenderPersonaContext = await hooks.get("before_prompt_build")[0]({
   prompt: "plain runtime event without embedded window_id"
 }, { agentId: "imagebot", chatId: "-100test", senderId: "100" });
 assert.ok(promptChatSenderPersonaContext.prependSystemContext.includes("Chihaya Anon"));
-assert.ok(!/Imagebot active persona overlay|persona_id|persona_label|scope:/i.test(promptChatSenderPersonaContext.prependSystemContext));
+assert.ok(!promptChatSenderPersonaContext.prependSystemContext.includes("persona_id: chihaya_anon"));
 
 const promptOtherWindowContext = await hooks.get("before_prompt_build")[0]({
   prompt: `[Telegram current turn]\nwindow_id=bob-window\n[/Telegram current turn]\n\n你是谁`
 }, { agentId: "imagebot", senderId: "100" });
-assert.ok(promptOtherWindowContext.prependSystemContext.includes("You are Amadeus"));
+assert.ok(promptOtherWindowContext.prependSystemContext.includes("你是 Amaduse"));
 assert.ok(!promptOtherWindowContext.prependSystemContext.includes("Chihaya Anon"));
-assert.ok(!/Imagebot active persona overlay|persona_id|persona_label|scope:/i.test(promptOtherWindowContext.prependSystemContext));
+assert.match(promptOtherWindowContext.prependSystemContext, /^# 活跃角色卡 - Amaduse/);
 
 const personaStatusWithoutSession = await tools.get("persona_config").execute("persona-status-no-session", {
   action: "status",
@@ -170,8 +180,8 @@ assert.equal(personaStatusWithoutSession.details.active.record.personaId, "chiha
 const promptWithoutWindowOrSession = await hooks.get("before_prompt_build")[0]({
   prompt: "plain no-window event"
 }, { agentId: "imagebot" });
-assert.ok(promptWithoutWindowOrSession.prependSystemContext.includes("You are Amadeus"));
-assert.ok(!/Imagebot active persona overlay|persona_id|persona_label|scope:/i.test(promptWithoutWindowOrSession.prependSystemContext));
+assert.ok(promptWithoutWindowOrSession.prependSystemContext.includes("你是 Amaduse"));
+assert.match(promptWithoutWindowOrSession.prependSystemContext, /^# 活跃角色卡 - Amaduse/);
 
 const proposal = await tools.get("learned_skill").execute("skill-propose", {
   action: "propose",
@@ -205,15 +215,46 @@ const skillSearch = await tools.get("learned_skill").execute("skill-search", {
 assert.equal(skillSearch.details.status, "ok");
 assert.ok(skillSearch.details.results.some((item) => item.id === skillId));
 
+const savedSkill = await tools.get("learned_skill").execute("skill-save", {
+  action: "save",
+  title: "Kurisu image preference note",
+  trigger: "牧濑红莉栖 image generation",
+  content: "For Makise Kurisu image generation, prefer official anime identity, lab-coat scientist styling, red-brown hair, and avoid generic westernized influencer faces.",
+  media: [skillMediaPath],
+  tags: ["image", "kurisu"]
+});
+assert.equal(savedSkill.details.status, "ok");
+assert.equal(savedSkill.details.skill.status, "approved");
+assert.ok(savedSkill.details.skill.file.endsWith(path.join(savedSkill.details.skill.id, "SKILL.md")));
+assert.equal(savedSkill.details.skill.media.length, 1);
+const savedSkillMarkdown = await fs.readFile(savedSkill.details.skill.file, "utf8");
+assert.match(savedSkillMarkdown, /Kurisu image preference note/);
+assert.match(savedSkillMarkdown, /## Instructions/);
+assert.match(savedSkillMarkdown, /assets\//);
+
+const savedSkillSearch = await tools.get("learned_skill").execute("skill-search-saved", {
+  action: "search",
+  query: "牧濑红莉栖 westernized influencer"
+});
+assert.equal(savedSkillSearch.details.status, "ok");
+assert.ok(savedSkillSearch.details.results.some((item) => item.id === savedSkill.details.skill.id));
+
 const promptContext = await hooks.get("before_prompt_build")[0]({
   prompt: "Please generate a specified character image with official reference."
 }, personaCtx);
 assert.ok(promptContext.prependSystemContext.includes("Chihaya Anon"));
 assert.ok(promptContext.prependSystemContext.includes("Tomori"));
-assert.ok(!/Imagebot active persona overlay|persona_id|persona_label|scope:/i.test(promptContext.prependSystemContext));
+assert.match(promptContext.prependSystemContext, /^# 角色卡 - 千早爱音/);
+assert.ok(!/Active Persona State|persona_id|memory_layer|authority_layer/i.test(promptContext.prependSystemContext));
 assert.ok(!/Tool contracts|safety boundaries|owner checks|memory provenance/i.test(promptContext.prependSystemContext));
 assert.ok(promptContext?.prependContext.includes("research"));
 assert.ok(promptContext.prependContext.includes("official-looking reference"));
+
+const savedPromptContext = await hooks.get("before_prompt_build")[0]({
+  prompt: "牧濑红莉栖 image generation should avoid westernized influencer faces."
+}, personaCtx);
+assert.ok(savedPromptContext.prependContext.includes("Kurisu image preference note"));
+assert.ok(savedPromptContext.prependContext.includes("MEDIA:"));
 
 const personaClear = await tools.get("persona_config").execute("persona-clear", {
   action: "clear",
@@ -286,6 +327,155 @@ const gotPack = await tools.get("evidence_pack").execute("pack-get", {
 assert.equal(gotPack.details.status, "ok");
 assert.equal(gotPack.details.pack.itemCount, 1);
 
+const rule = await tools.get("bot_board").execute("rule-add", {
+  action: "rule_add",
+  scope: "group",
+  groupKey: "test-group",
+  keywords: ["shipping", "refund"],
+  response: "Use the support ticket flow and ask for an order id.",
+  tags: ["support"]
+});
+assert.equal(rule.details.status, "ok");
+assert.equal(rule.details.item.kind, "rule");
+
+const ruleMatch = await tools.get("bot_board").execute("rule-match", {
+  action: "rule_match",
+  text: "The user asks about shipping and a refund."
+});
+assert.equal(ruleMatch.details.status, "ok");
+assert.ok(ruleMatch.details.matches.some((item) => item.id === rule.details.item.id && item.hits.includes("shipping")));
+
+const conditionalRule = await tools.get("bot_board").execute("rule-add-conditional", {
+  action: "rule_add",
+  scope: "group",
+  groupKey: "test-group",
+  keywords: ["reference image"],
+  response: "Ask for the source image before generating variants.",
+  conditions: { groupKey: "test-group", hasMedia: true, fromHour: 9, toHour: 18 },
+  tags: ["conditional"]
+});
+assert.equal(conditionalRule.details.status, "ok");
+
+const conditionalMiss = await tools.get("bot_board").execute("rule-match-conditional-miss", {
+  action: "rule_match",
+  text: "reference image please",
+  groupKey: "test-group",
+  hasMedia: false,
+  hour: 10
+});
+assert.equal(conditionalMiss.details.status, "ok");
+assert.ok(!conditionalMiss.details.matches.some((item) => item.id === conditionalRule.details.item.id));
+
+const conditionalHit = await tools.get("bot_board").execute("rule-match-conditional-hit", {
+  action: "rule_match",
+  text: "reference image please",
+  groupKey: "test-group",
+  hasMedia: true,
+  hour: 10
+});
+assert.equal(conditionalHit.details.status, "ok");
+assert.ok(conditionalHit.details.matches.some((item) => item.id === conditionalRule.details.item.id));
+
+const ticket = await tools.get("bot_board").execute("ticket-create", {
+  action: "ticket_create",
+  scope: "group",
+  groupKey: "test-group",
+  title: "Check failed gallery resend",
+  body: "Gallery resend should preserve the original MEDIA directive.",
+  priority: "high",
+  owner: "codex",
+  tags: ["gallery", "ops"]
+});
+assert.equal(ticket.details.status, "ok");
+
+const ticketUpdate = await tools.get("bot_board").execute("ticket-update", {
+  action: "ticket_update",
+  id: ticket.details.item.id,
+  status: "doing",
+  note: "Reproduced in unit test."
+});
+assert.equal(ticketUpdate.details.status, "ok");
+assert.equal(ticketUpdate.details.item.status, "doing");
+
+const schedule = await tools.get("bot_board").execute("schedule-create", {
+  action: "schedule_create",
+  scope: "group",
+  groupKey: "test-group",
+  title: "Nightly manual check",
+  message: "Check due bot-board drafts before sending anything.",
+  dueAt: "2026-06-29T12:00:00+08:00",
+  audience: "test group",
+  status: "ready"
+});
+assert.equal(schedule.details.status, "ok");
+
+const due = await tools.get("bot_board").execute("schedule-due", {
+  action: "schedule_due",
+  before: "2026-06-29T12:01:00+08:00"
+});
+assert.equal(due.details.status, "ok");
+assert.ok(due.details.results.some((item) => item.id === schedule.details.item.id));
+
+const flow = await tools.get("bot_board").execute("flow-create", {
+  action: "flow_create",
+  scope: "group",
+  groupKey: "test-group",
+  status: "active",
+  title: "Refund support flow",
+  intent: "refund_support",
+  samples: ["refund request", "return my order"],
+  slots: ["order_id"],
+  steps: [
+    "Ask for the order id.",
+    { id: "triage", text: "Create or update a support ticket with priority.", expect: "ticket id" }
+  ],
+  instructions: "Use this as a dry-run dialogue flow, not as automatic refund approval.",
+  source: "Rasa business flow candidate"
+});
+assert.equal(flow.details.status, "ok");
+assert.equal(flow.details.validation.ok, true);
+
+const flowMatch = await tools.get("bot_board").execute("flow-match", {
+  action: "flow_match",
+  text: "I have a refund request for my order"
+});
+assert.equal(flowMatch.details.status, "ok");
+assert.ok(flowMatch.details.matches.some((item) => item.id === flow.details.item.id));
+
+const flowValidate = await tools.get("bot_board").execute("flow-validate", {
+  action: "flow_validate",
+  id: flow.details.item.id
+});
+assert.equal(flowValidate.details.status, "ok");
+assert.equal(flowValidate.details.validation.ok, true);
+
+const preset = await tools.get("bot_board").execute("preset-save", {
+  action: "preset_save",
+  scope: "group",
+  groupKey: "test-group",
+  title: "Concise support preset",
+  trigger: "support flow",
+  keywords: ["support-preset"],
+  instructions: "Answer with a short status summary, one next action, and no invented policy.",
+  source: "Kirara loadable preset candidate",
+  tags: ["preset"]
+});
+assert.equal(preset.details.status, "ok");
+
+const presetMatch = await tools.get("bot_board").execute("preset-match", {
+  action: "preset_match",
+  text: "Use support-preset for this reply"
+});
+assert.equal(presetMatch.details.status, "ok");
+assert.ok(presetMatch.details.matches.some((item) => item.id === preset.details.item.id));
+
+const presetGet = await tools.get("bot_board").execute("preset-get", {
+  action: "preset_get",
+  id: preset.details.item.id
+});
+assert.equal(presetGet.details.status, "ok");
+assert.match(presetGet.content[0].text, /Concise support preset/);
+
 const githubBad = await tools.get("github_lookup").execute("github-bad", {
   action: "repo",
   repo: "bad repo name"
@@ -337,5 +527,9 @@ const toolEvents = await __testing.loadToolEvents({ storeDir });
 assert.ok(toolEvents.length >= 2);
 const evidenceState = await __testing.loadEvidenceState({ storeDir });
 assert.ok(evidenceState.some((item) => item.id === packId));
+const boardState = await __testing.loadBotBoardState({ storeDir });
+assert.ok(boardState.some((item) => item.id === ticket.details.item.id && item.status === "doing"));
+assert.ok(boardState.some((item) => item.id === flow.details.item.id && item.kind === "flow" && item.steps.length === 2));
+assert.ok(boardState.some((item) => item.id === preset.details.item.id && item.kind === "preset"));
 
 console.log("agent-ops plugin tests passed");

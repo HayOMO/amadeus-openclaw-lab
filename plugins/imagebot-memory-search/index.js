@@ -10,7 +10,7 @@ const DEFAULT_COUNT = 4;
 const MAX_COUNT = 8;
 const MAX_FILE_BYTES = 220_000;
 const MAX_WINDOW_FILES = 80;
-const RECALL_GATE_QUERY_CHARS = 900;
+const RECALL_GATE_QUERY_CHARS = 360;
 const SEMANTIC_MODEL = process.env.IMAGEBOT_MEMORY_EMBEDDING_MODEL || "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 const SEMANTIC_INDEX_VERSION = 2;
 const CHUNK_CHARS = 950;
@@ -19,11 +19,14 @@ const MAX_CHUNKS_PER_DOC = 48;
 const AUTO_RECALL_TRIGGER_RE =
   /\b(?:remember|memory|previous|before|last time|nickname|inside joke|group lore|meme|impression)\b|(?:记得|记忆|上次|之前|以前|前面|外号|绰号|印象|群友|群里|老梗|烂梗|什么梗|啥梗|梗|典|名场面|怎么回事|什么来着|是谁|谁是|叫法)/iu;
 
+const LEGACY_TELEGRAM_ROUTING_CONTEXT = ["[Telegram", "routing context]"].join(" ");
+
 let extractorPromise = null;
 let cachedSemanticIndex = null;
 let cachedSemanticIndexMtimeMs = 0;
 let semanticBuildPromise = null;
 let lastSemanticBuildError = null;
+let knownUsersCache = null;
 
 const STOPWORDS = new Set([
   "ask", "draw", "edit", "read", "describe", "search", "dream", "failures", "help",
@@ -123,7 +126,14 @@ function extractTerms(text) {
 
 function readKnownUsers() {
   try {
-    const parsed = JSON.parse(fsSync.readFileSync(windowStorePath(), "utf-8"));
+    const filePath = windowStorePath();
+    const stat = fsSync.statSync(filePath);
+    if (!stat.isFile()) return new Map();
+    const signature = `${stat.size}:${Math.trunc(stat.mtimeMs)}`;
+    if (knownUsersCache?.signature === signature) {
+      return new Map(knownUsersCache.users);
+    }
+    const parsed = JSON.parse(fsSync.readFileSync(filePath, "utf-8"));
     const users = new Map();
     for (const [userKey, data] of Object.entries(parsed.users || {})) {
       const names = Array.isArray(data?.names) ? data.names.map((name) => String(name || "").trim()).filter(Boolean) : [];
@@ -142,10 +152,22 @@ function readKnownUsers() {
         if (names.length) users.set(userKey, names);
       }
     }
-    return users;
+    knownUsersCache = { signature, users };
+    return new Map(users);
   } catch {
     return new Map();
   }
+}
+
+function clearKnownUsersCache() {
+  knownUsersCache = null;
+}
+
+function knownUsersCacheStats() {
+  return {
+    cached: Boolean(knownUsersCache),
+    users: knownUsersCache?.users?.size || 0
+  };
 }
 
 async function safeReadFile(filePath) {
@@ -578,28 +600,61 @@ function eventPromptText(event = {}) {
   return "";
 }
 
-function shouldOpenRecallGate(prompt) {
+function runtimeSessionKey(event = {}, ctx = {}) {
+  return String(ctx?.sessionKey || ctx?.session?.key || event?.sessionKey || event?.session?.key || "").trim();
+}
+
+function isForegroundTelegramSession(event = {}, ctx = {}) {
+  const sessionKey = runtimeSessionKey(event, ctx);
+  return /^agent:imagebot:telegram:/i.test(sessionKey);
+}
+
+function extractRecallQueryText(prompt = "") {
   const text = String(prompt || "").trim();
+  if (!text) return "";
+  const marker = "[/Telegram current turn]";
+  const markerIndex = text.lastIndexOf(marker);
+  if (markerIndex < 0) return text;
+  let current = text.slice(markerIndex + marker.length).trim();
+  const stopMarkers = [
+    "[Imagebot interaction context]",
+    LEGACY_TELEGRAM_ROUTING_CONTEXT,
+    "[Telegram 路由上下文]",
+    "[Telegram media available",
+    "[Reply chain",
+    "[Imagebot turn boundary]",
+    "[Inter-session message]"
+  ];
+  const stopIndex = stopMarkers
+    .map((item) => current.indexOf(item))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)[0];
+  if (Number.isInteger(stopIndex)) current = current.slice(0, stopIndex).trim();
+  return current || text;
+}
+
+function shouldOpenRecallGate(prompt) {
+  const text = extractRecallQueryText(prompt);
   if (!text) return false;
   if (AUTO_RECALL_TRIGGER_RE.test(text)) return true;
   return false;
 }
 
 function inferRecallScope(prompt = "") {
-  const text = String(prompt || "");
+  const text = extractRecallQueryText(prompt);
   if (/(?:群友|群里|群聊|老梗|烂梗|什么梗|啥梗|梗|group lore|inside joke|meme)/iu.test(text)) return "group";
   if (/(?:外号|绰号|印象|谁是|是谁|nickname|impression)/iu.test(text)) return "users";
   return "all";
 }
 
 function formatRecallGate(prompt = "") {
-  const query = clip(prompt, RECALL_GATE_QUERY_CHARS);
+  const query = clip(extractRecallQueryText(prompt), RECALL_GATE_QUERY_CHARS);
   const scope = inferRecallScope(prompt);
   const lines = [
-    "Imagebot memory recall gate:",
-    "This turn likely depends on prior bot-visible memory. Before answering, call `memory_search` once unless the user is clearly making a pure joke or the answer is already fully present in the current message.",
-    `Suggested call: memory_search({ query: ${JSON.stringify(query)}, scope: "${scope}", mode: "hybrid", count: 4 })`,
-    "Use returned memories as soft continuity, not proof. If results are empty or weak, say you are not sure rather than inventing. Do not mention this gate, hidden memory files, scores, or storage mechanics."
+    "Imagebot 记忆召回提示：",
+    "记忆层：中性的 bot 可见事实、偏好、别名和过去事件；不带角色语气。",
+    `建议调用：memory_search({ query: ${JSON.stringify(query)}, scope: "${scope}", mode: "hybrid", count: 4 })`,
+    "空结果或弱结果表示未知。"
   ];
   return lines.join("\n");
 }
@@ -607,6 +662,7 @@ function formatRecallGate(prompt = "") {
 async function recallGatePromptContext(config = {}, event = {}, ctx = {}) {
   if (config.appendPromptContext === false) return "";
   if (ctx?.agentId && ctx.agentId !== "imagebot") return "";
+  if (!isForegroundTelegramSession(event, ctx)) return "";
   const prompt = eventPromptText(event);
   if (!shouldOpenRecallGate(prompt)) return "";
   return formatRecallGate(prompt);
@@ -645,11 +701,20 @@ const memorySearchTool = {
         description: "Search mode. Default hybrid uses semantic embeddings plus keyword matching. Use semantic for fuzzy recall, keyword for exact names/phrases."
       }
     },
-    required: ["query"]
+    required: []
   },
   async execute(_toolCallId, params) {
     try {
       const query = readString(params, "query");
+      if (!query) {
+        return {
+          content: [{
+            type: "text",
+            text: "MEMORY_SEARCH skipped: query is required. Do not retry memory_search in this turn unless you can form a concrete query from the user's current message."
+          }],
+          details: { status: "skipped", reason: "missing_query" }
+        };
+      }
       const target = readString(params, "target");
       const results = await searchMemory(params);
       return {
@@ -670,12 +735,17 @@ export const __testing = {
   buildSemanticIndex,
   eventPromptText,
   extractTerms,
+  extractRecallQueryText,
   formatRecallGate,
   inferRecallScope,
+  isForegroundTelegramSession,
+  knownUsersCacheStats,
   loadCachedSemanticIndex,
   prewarmSemanticIndex,
   resolveSemanticIndexForSearch,
   recallGatePromptContext,
+  readKnownUsers,
+  clearKnownUsersCache,
   shouldOpenRecallGate,
   searchMemory,
   sanitizeText

@@ -3,11 +3,11 @@
   "design": {
     "unit": "persona_overlay",
     "notes": [
-      "Selectable persona profile cards.",
-      "The default entry is the base Amaduse profile.",
-      "The none entry is the explicit no-profile option.",
-      "Profile packs may include a core card, language rules, lorebook, examples, and source notes.",
-      "Maintenance notes stay outside runtime persona injection."
+      "可选择的说话角色卡。",
+      "default 条目是 Amaduse 角色，会注入 Amaduse 角色卡。",
+      "none 条目是显式无人设选项，不注入任何角色卡。",
+      "说话配置包可以包含核心卡、语言规则、设定补充、示例和来源笔记。",
+      "维护笔记不进入运行时角色注入。"
     ]
   },
   "personas": [
@@ -18,6 +18,7 @@
         "default",
         "base",
         "amaduse",
+        "amadesu",
         "amadeus",
         "kurisu",
         "christina",
@@ -27,7 +28,7 @@
         "紅莉栖",
         "默认"
       ],
-      "description": "Use the base Amaduse profile.",
+      "description": "使用 Amaduse 默认角色卡。",
       "cardPath": "persona/active_system.md"
     },
     {
@@ -41,7 +42,7 @@
         "无设定",
         "空白"
       ],
-      "description": "Use the neutral base prompt without a persona profile."
+      "description": "不注入任何角色卡，只保留工具和工作流基础提示词。"
     },
     {
       "id": "chihaya_anon",
@@ -58,7 +59,7 @@
         "あのん",
         "あのちゃん"
       ],
-      "description": "MyGO!!!!! 千早爱音 speaking profile.",
+      "description": "MyGO!!!!! 千早爱音说话配置。",
       "cardPath": "persona/profiles/chihaya_anon/active_system.md",
       "languageRulesPath": "persona/profiles/chihaya_anon/language_rules.md",
       "lorebookPath": "persona/profiles/chihaya_anon/lorebook.json",
@@ -82,7 +83,7 @@
         "tomori",
         "takamatsu tomori"
       ],
-      "description": "MyGO!!!!! 高松灯 speaking profile.",
+      "description": "MyGO!!!!! 高松灯说话配置。",
       "cardPath": "persona/profiles/takamatsu_tomori/active_system.md",
       "sourceUrls": [
         "https://anime.bang-dream.com/mygo/character/tomori/",
@@ -101,7 +102,7 @@
         "rikki",
         "りっきー"
       ],
-      "description": "MyGO!!!!! 椎名立希 speaking profile.",
+      "description": "MyGO!!!!! 椎名立希说话配置。",
       "cardPath": "persona/profiles/shiina_taki/active_system.md",
       "sourceUrls": [
         "https://anime.bang-dream.com/mygo/character/taki/",
@@ -121,7 +122,7 @@
         "raana",
         "kaname rana"
       ],
-      "description": "MyGO!!!!! 要乐奈 speaking profile.",
+      "description": "MyGO!!!!! 要乐奈说话配置。",
       "cardPath": "persona/profiles/kaname_rana/active_system.md",
       "sourceUrls": [
         "https://anime.bang-dream.com/mygo/character/rana/",
@@ -141,7 +142,7 @@
         "soyo",
         "nagasaki soyo"
       ],
-      "description": "MyGO!!!!! 长崎爽世 speaking profile.",
+      "description": "MyGO!!!!! 长崎爽世说话配置。",
       "cardPath": "persona/profiles/nagasaki_soyo/active_system.md",
       "sourceUrls": [
         "https://anime.bang-dream.com/mygo/character/soyo/",
@@ -161,7 +162,7 @@
         "oblivionis",
         "オブリビオニス"
       ],
-      "description": "Ave Mujica 丰川祥子 / Oblivionis speaking profile.",
+      "description": "Ave Mujica 丰川祥子 / Oblivionis 说话配置。",
       "cardPath": "persona/profiles/togawa_sakiko/active_system.md",
       "sourceUrls": [
         "https://anime.bang-dream.com/avemujica/character/sakiko/",
@@ -180,7 +181,7 @@
         "konosuba",
         "kono suba"
       ],
-      "description": "KonoSuba 惠惠 speaking profile.",
+      "description": "KonoSuba 惠惠说话配置。",
       "cardPath": "persona/profiles/megumin/active_system.md",
       "languageRulesPath": "persona/profiles/megumin/language_rules.md",
       "lorebookPath": "persona/profiles/megumin/lorebook.json",
@@ -200,7 +201,7 @@
         "フリーレン",
         "sousou no frieren"
       ],
-      "description": "葬送的芙莉莲 speaking profile.",
+      "description": "葬送的芙莉莲说话配置。",
       "cardPath": "persona/profiles/frieren/active_system.md",
       "languageRulesPath": "persona/profiles/frieren/language_rules.md",
       "lorebookPath": "persona/profiles/frieren/lorebook.json",
@@ -225,7 +226,7 @@
         "neko",
         "mimi"
       ],
-      "description": "Original classic nekomimi / catgirl speaking profile.",
+      "description": "原创经典猫耳娘说话配置。",
       "cardPath": "persona/profiles/classic_nekomimi/active_system.md",
       "languageRulesPath": "persona/profiles/classic_nekomimi/language_rules.md",
       "lorebookPath": "persona/profiles/classic_nekomimi/lorebook.json",
@@ -244,7 +245,7 @@
         "virtual singer",
         "vocaloid"
       ],
-      "description": "Hatsune Miku virtual singer speaking profile.",
+      "description": "初音未来虚拟歌手说话配置。",
       "cardPath": "persona/profiles/hatsune_miku/active_system.md",
       "languageRulesPath": "persona/profiles/hatsune_miku/language_rules.md",
       "lorebookPath": "persona/profiles/hatsune_miku/lorebook.json",
@@ -270,7 +271,7 @@
         "shogun",
         "genshin"
       ],
-      "description": "Genshin Impact 雷电将军 / 影 speaking profile.",
+      "description": "原神雷电将军 / 影说话配置。",
       "cardPath": "persona/profiles/raiden_shogun_ei/active_system.md",
       "languageRulesPath": "persona/profiles/raiden_shogun_ei/language_rules.md",
       "lorebookPath": "persona/profiles/raiden_shogun_ei/lorebook.json",
@@ -295,7 +296,7 @@
         "kono suba",
         "axis order"
       ],
-      "description": "KonoSuba 阿库娅 speaking profile.",
+      "description": "KonoSuba 阿库娅说话配置。",
       "cardPath": "persona/profiles/aqua_konosuba/active_system.md",
       "languageRulesPath": "persona/profiles/aqua_konosuba/language_rules.md",
       "lorebookPath": "persona/profiles/aqua_konosuba/lorebook.json",

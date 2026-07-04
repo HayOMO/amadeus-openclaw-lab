@@ -79,6 +79,15 @@ function readNumber(params, key, fallback, min, max) {
   return Math.max(min, Math.min(max, Math.trunc(value)));
 }
 
+function readMinBookmarkCount(params = {}) {
+  for (const key of ["minBookmarkCount", "minBookmarks", "minFavCount", "minFavorites"]) {
+    const raw = isRecord(params) ? params[key] : undefined;
+    const value = typeof raw === "number" ? raw : Number(raw);
+    if (Number.isFinite(value)) return Math.max(0, Math.min(10_000_000, Math.trunc(value)));
+  }
+  return 0;
+}
+
 function rankingDownloadConcurrency(config = {}, params = {}) {
   const configured = readNumber(config, "rankingDownloadConcurrency", DEFAULT_RANKING_DOWNLOAD_CONCURRENCY, 1, MAX_RANKING_DOWNLOAD_CONCURRENCY);
   return readNumber(params, "downloadConcurrency", configured, 1, MAX_RANKING_DOWNLOAD_CONCURRENCY);
@@ -430,6 +439,23 @@ function filterSafetyItems(config = {}, items = [], context = {}) {
   return { allowed, skippedBlocked, rawCount: Array.isArray(items) ? items.length : 0 };
 }
 
+function filterPopularityItems(items = [], params = {}) {
+  const minBookmarkCount = readMinBookmarkCount(params);
+  if (minBookmarkCount <= 0) {
+    return { allowed: Array.isArray(items) ? items : [], skippedPopularity: 0, minBookmarkCount };
+  }
+  const allowed = [];
+  let skippedPopularity = 0;
+  for (const item of Array.isArray(items) ? items : []) {
+    if (Number(item?.bookmarkCount || 0) < minBookmarkCount) {
+      skippedPopularity += 1;
+      continue;
+    }
+    allowed.push(item);
+  }
+  return { allowed, skippedPopularity, minBookmarkCount };
+}
+
 async function readJsonMaybe(file) {
   try {
     return JSON.parse(await fs.readFile(file, "utf8"));
@@ -472,7 +498,7 @@ function parseItemsFromJson(stdout, maxCount = MAX_COUNT) {
   return items;
 }
 
-async function metadataList(config, url, count) {
+async function metadataList(config, url, count, params = {}) {
   const result = await runGalleryDl(config, [
     "-j",
     "-s",
@@ -482,15 +508,25 @@ async function metadataList(config, url, count) {
   ]);
   const rawItems = parseItemsFromJson(result.stdout, count);
   const filtered = filterSafetyItems(config, rawItems, { url });
+  const popularity = filterPopularityItems(filtered.allowed, params);
   await writeJson(path.join(storeRoot(config), "metadata", `${Date.now()}-${hash(url, 10)}.json`), {
     fetchedAt: new Date().toISOString(),
     url,
     stderr: result.stderr,
     rawCount: filtered.rawCount,
     skippedBlocked: filtered.skippedBlocked,
-    items: filtered.allowed
+    skippedPopularity: popularity.skippedPopularity,
+    minBookmarkCount: popularity.minBookmarkCount,
+    items: popularity.allowed
   });
-  return { items: filtered.allowed, rawCount: filtered.rawCount, skippedBlocked: filtered.skippedBlocked, stderr: result.stderr };
+  return {
+    items: popularity.allowed,
+    rawCount: filtered.rawCount,
+    skippedBlocked: filtered.skippedBlocked,
+    skippedPopularity: popularity.skippedPopularity,
+    minBookmarkCount: popularity.minBookmarkCount,
+    stderr: result.stderr
+  };
 }
 
 async function listDownloadedMedia(root) {
@@ -625,14 +661,16 @@ async function ranking(config, params = {}) {
   const downloadCount = readNumber(params, "downloadCount", 0, 0, Math.min(MAX_DOWNLOAD_COUNT, count));
   const url = rankingUrl(params);
   const mode = rankingMode(readString(params, "mode", "daily"));
+  const fetchCount = readMinBookmarkCount(params) > 0 ? MAX_COUNT : count;
   const metadataStartedAt = Date.now();
-  const metadata = await metadataList(config, url, count);
+  const metadata = await metadataList(config, url, fetchCount, params);
   const metadataMs = Date.now() - metadataStartedAt;
-  const sensitiveSource = hasAdultPixivItems(metadata.items, { url, mode });
+  const items = metadata.items.slice(0, count);
+  const sensitiveSource = hasAdultPixivItems(items, { url, mode });
   let media = [];
   let downloadDiagnostics = { downloadConcurrency: 0, attemptedWorks: 0, failedWorks: 0, downloadMs: 0, errors: [] };
   if (downloadCount > 0) {
-    const downloaded = await downloadRankingMedia(config, metadata.items, params, {
+    const downloaded = await downloadRankingMedia(config, items, params, {
       downloadCount,
       adult: sensitiveSource,
       mode,
@@ -645,11 +683,13 @@ async function ranking(config, params = {}) {
     url,
     mode,
     date: rankingDate(readString(params, "date")),
-    items: metadata.items,
+    items,
     media,
     sensitiveMedia: hasSensitiveMediaFiles(media),
     rawCount: metadata.rawCount,
     skippedBlocked: metadata.skippedBlocked,
+    skippedPopularity: metadata.skippedPopularity,
+    minBookmarkCount: metadata.minBookmarkCount,
     stderr: metadata.stderr,
     diagnostics: {
       metadataMs,
@@ -661,24 +701,24 @@ async function ranking(config, params = {}) {
 async function detail(config, params = {}) {
   const url = artworkUrl(params);
   const count = readNumber(params, "count", 1, 1, MAX_COUNT);
-  const metadata = await metadataList(config, url, count);
-  return { url, items: metadata.items, rawCount: metadata.rawCount, skippedBlocked: metadata.skippedBlocked, blocked: metadata.rawCount > 0 && metadata.items.length === 0 && metadata.skippedBlocked > 0, stderr: metadata.stderr };
+  const metadata = await metadataList(config, url, count, params);
+  return { url, items: metadata.items, rawCount: metadata.rawCount, skippedBlocked: metadata.skippedBlocked, skippedPopularity: metadata.skippedPopularity, minBookmarkCount: metadata.minBookmarkCount, blocked: metadata.rawCount > 0 && metadata.items.length === 0 && metadata.skippedBlocked > 0, stderr: metadata.stderr };
 }
 
 async function download(config, params = {}) {
   const url = readString(params, "url") || readString(params, "artworkUrl")
     ? normalizePixivUrl(readString(params, "url") || readString(params, "artworkUrl"))
     : artworkUrl(params);
-  const metadata = await metadataList(config, url, readNumber(params, "count", 1, 1, MAX_COUNT));
+  const metadata = await metadataList(config, url, readNumber(params, "count", 1, 1, MAX_COUNT), params);
   if (metadata.rawCount > 0 && metadata.items.length === 0 && metadata.skippedBlocked > 0) {
-    return { url, items: [], media: [], rawCount: metadata.rawCount, skippedBlocked: metadata.skippedBlocked, blocked: true, stderr: metadata.stderr };
+    return { url, items: [], media: [], rawCount: metadata.rawCount, skippedBlocked: metadata.skippedBlocked, skippedPopularity: metadata.skippedPopularity, minBookmarkCount: metadata.minBookmarkCount, blocked: true, stderr: metadata.stderr };
   }
   if (metadata.items.length === 0) {
-    return { url, items: [], media: [], rawCount: metadata.rawCount, skippedBlocked: metadata.skippedBlocked, blocked: false, stderr: metadata.stderr };
+    return { url, items: [], media: [], rawCount: metadata.rawCount, skippedBlocked: metadata.skippedBlocked, skippedPopularity: metadata.skippedPopularity, minBookmarkCount: metadata.minBookmarkCount, blocked: false, stderr: metadata.stderr };
   }
   const sensitiveSource = hasAdultPixivItems(metadata.items, { url });
   const media = await downloadWithGalleryDl(config, url, params, { adult: sensitiveSource });
-  return { url, items: metadata.items, media: media.files, sensitiveMedia: hasSensitiveMediaFiles(media.files), rawCount: metadata.rawCount, skippedBlocked: metadata.skippedBlocked, blocked: false, stderr: media.stderr };
+  return { url, items: metadata.items, media: media.files, sensitiveMedia: hasSensitiveMediaFiles(media.files), rawCount: metadata.rawCount, skippedBlocked: metadata.skippedBlocked, skippedPopularity: metadata.skippedPopularity, minBookmarkCount: metadata.minBookmarkCount, blocked: false, stderr: media.stderr };
 }
 
 async function recent(config = {}, params = {}) {
@@ -816,6 +856,7 @@ function formatRanking(result) {
     lines.push(`download_diag: concurrency=${result.diagnostics.downloadConcurrency || 0} attempted=${result.diagnostics.attemptedWorks || 0} failed=${result.diagnostics.failedWorks || 0} metadataMs=${result.diagnostics.metadataMs || 0} downloadMs=${result.diagnostics.downloadMs || 0}`);
   }
   if (result.skippedBlocked) lines.push(`safety_filter: skipped=${result.skippedBlocked}`);
+  if (result.skippedPopularity) lines.push(`quality_filter: minBookmarkCount=${result.minBookmarkCount || 0} skipped=${result.skippedPopularity}`);
   result.items.forEach((item, index) => lines.push(formatItem(item, index)));
   lines.push(...formatMedia(result.media, { sensitive: result.sensitiveMedia === true }));
   return lines.join("\n");
@@ -824,6 +865,7 @@ function formatRanking(result) {
 function formatDetail(result) {
   const lines = [`PIXIV_RESOURCE detail ok results=${result.items.length}`, `source: ${result.url}`];
   if (result.skippedBlocked) lines.push(`safety_filter: skipped=${result.skippedBlocked}`);
+  if (result.skippedPopularity) lines.push(`quality_filter: minBookmarkCount=${result.minBookmarkCount || 0} skipped=${result.skippedPopularity}`);
   result.items.forEach((item, index) => lines.push(formatItem(item, index)));
   return lines.join("\n");
 }
@@ -834,6 +876,7 @@ function formatDownload(result) {
     `source: ${result.url}`
   ];
   if (result.skippedBlocked) lines.push(`safety_filter: skipped=${result.skippedBlocked}`);
+  if (result.skippedPopularity) lines.push(`quality_filter: minBookmarkCount=${result.minBookmarkCount || 0} skipped=${result.skippedPopularity}`);
   result.items.forEach((item, index) => lines.push(formatItem(item, index)));
   lines.push(...formatMedia(result.media, { sensitive: result.sensitiveMedia === true }));
   return lines.join("\n");
@@ -905,6 +948,8 @@ const pixivResourceTool = {
       content: { type: "string", description: "Optional Pixiv ranking content parameter, such as illust or manga." },
       count: { type: "number", description: `Metadata/result count, max ${MAX_COUNT}.` },
       downloadCount: { type: "number", description: `Download top N works/images for ranking or URL, max ${MAX_DOWNLOAD_COUNT}.` },
+      minBookmarkCount: { type: "number", description: "Only keep Pixiv works with bookmarkCount >= this value. Alias: minBookmarks/minFavCount/minFavorites." },
+      minBookmarks: { type: "number", description: "Alias for minBookmarkCount." },
       illustId: { type: "number", description: "Pixiv illustration/artwork ID." },
       postId: { type: "number", description: "Alias for illustId." },
       id: { type: "number", description: "Alias for illustId." },
@@ -967,6 +1012,8 @@ export const __testing = {
   hasAdultPixivItems,
   hasBlockedSafetyTag,
   filterSafetyItems,
+  filterPopularityItems,
+  readMinBookmarkCount,
   annotateDownloadedMedia,
   hasSensitiveMediaFiles,
   rankingDownloadConcurrency,

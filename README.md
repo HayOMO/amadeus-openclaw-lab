@@ -125,21 +125,21 @@ The apply wrapper now:
 
 - generates config batches from `config\imagebot\settings.json` and `config\imagebot\prompt\*.md`,
 - lints the active prompt source against known stale spoiler/refusal wording before writing generated batches,
-- loads the active Amadeus role card from `persona\active_system.md` into the Telegram system prompt, and enables hidden `persona_search` over the local `persona\` notes so the bot can re-anchor Amadeus/Kurisu tone when identity, role fidelity, or "out of character" corrections come up,
-- enables `zhihu_search`, `zhihu_global_search`, and `zhihu_hot_list` as the default text-search layer, with broad web search hidden behind `explicit_web_text_search`,
-- search policy: daily chat does not browse; public/current/source-dependent work should browse; explicit "do not search/browse" requests override browsing for that turn; browsing defaults to Zhihu OpenAPI, with `explicit_web_text_search` only for explicit broad-web requests, official/original source needs, insufficient Chinese/Zhihu coverage, or one fallback after Zhihu is empty/unavailable,
-- hard-caps ordinary public search/reference turns to a single search round in the prompt,
+- keeps the base Telegram system prompt focused on tool routing, the tool index, and workflow hints; active persona cards are selected by `persona_config` / agent-ops prompt hooks and are injected before the tool prompt,
+- exposes Zhihu, provider-native search, `explicit_web_text_search`, `web_card`, and `web_snapshot` as complementary source-reading routes,
+- search policy: stable chat can answer directly; public/current/source-dependent work should retrieve evidence; source snippets are leads, and source pages can be read with `web_card` / `web_snapshot` when snippets are incomplete or the page state matters,
+- browser posture: `web_snapshot` is a page reader, not only a screenshot tool. Visible clicks, waits, and scrolling are normal reading moves for tabs, comments, image grids, next/load-more controls, and expanded sections; account-backed pages still use the account-browser risk tiers,
 - enables per-agent tool loop detection for repeated no-progress tool usage,
 - explicitly sets `agents.defaults.maxConcurrent=6`, while each `:window:<id>` session lane remains serial,
 - disables Telegram preview tool-progress chatter so failed search attempts do not spam the group.
 
 The Telegram-visible tool status is handled by the imagebot runtime patch as a single editable status message per request. Do not re-enable generic Telegram `toolProgress` unless that patch is removed or redesigned.
-- No tool status appears for pure model replies. The active prompt now explicitly forbids saying it searched/checked/read an original source unless a real search or reference tool is called in that same turn.
+- No tool status appears for pure model replies. Evidence claims should line up with actual search, page, or reference tool results from the current turn.
 - adds a scripted `reverse_image_search` path for SauceNAO/IQDB lookups on Telegram-delivered images,
 - adds a scripted `video_keyframes` path for Telegram-delivered small videos, video notes, and animation/GIF messages,
 - uses a Telegram status message for slow media tools such as image generation; if the turn actually stalls, that status message is edited to a retry notice instead of adding another misleading reply,
-- enables the browser tool only through the isolated managed `openclaw` profile,
-- blocks browser attempts that request `user` / `existing-session` profiles or local-path / `file://` targets outside Telegram media roots.
+- enables browser-backed page reading through bot-owned isolated or platform-specific profiles,
+- keeps local/private/internal/file URLs outside the public page-reading path.
 
 Current routing note:
 
@@ -182,6 +182,13 @@ chat-side model state lives outside git at
 `OPENCLAW_IMAGEBOT_MODEL_STATE_FILE` only for tests/repairs). `/ammodel` and
 `SET_IMAGEBOT_MODEL_MODE.ps1` write the local state file so ordinary model
 experiments do not dirty the checkout.
+
+Chat model fallbacks are configured by `config\imagebot\settings.json` under
+`modelFallbacks`; the default chain is DeepSeek V4 Flash, then DeepSeek V4 Pro.
+When a GPT subscription/quota/rate-limit failure triggers fallback, OpenClaw can
+persist the fallback model for that current window only. Future new windows
+still seed from the local `/ammodel` default. The turn that enters fallback
+also gets a short Chinese status notice before the assistant reply.
 
 Telegram chat-side control uses `/ammodel`. The button flow is model first,
 then that model's raw thinking levels, with a Back button:

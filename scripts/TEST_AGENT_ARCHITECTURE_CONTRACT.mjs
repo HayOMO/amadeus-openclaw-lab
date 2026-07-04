@@ -138,6 +138,10 @@ for (const [toolName, spec] of Object.entries(contract.highRiskTools)) {
       assert.ok(manualText.includes("dryRun:true"), `${toolName}.${action} must document dryRun:true`);
       assert.ok(source.includes("params.dryRun === undefined ? true"), `${toolName}.${action} must default mutation paths to dryRun`);
     }
+    if (actionSpec.userAlignedDefaultReal) {
+      assert.ok(source.includes("addDefaultsToRealMutation"), `${toolName}.${action} must use the user-aligned add default helper`);
+      assert.ok(manualText.includes("runtime sender matches"), `${toolName}.${action} must document the user-aligned add default`);
+    }
     for (const key of actionSpec.approvalKeys || []) {
       assert.ok(source.includes(key), `${toolName}.${action} missing approval key in code: ${key}`);
       assert.ok(manualText.includes(key) || source.includes(`${key}"`) || source.includes(`${key}'`), `${toolName}.${action} approval key must be documented or schema-visible: ${key}`);

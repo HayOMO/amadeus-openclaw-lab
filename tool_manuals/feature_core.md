@@ -65,7 +65,7 @@ Manual `gacha_archive` also supports `background: true`.
 
 ## Waifu Gacha
 
-`feature_action` returns Safebooru/Danbooru posts as the card images. The post
+`feature_action` returns full Danbooru posts as the card images. The post
 image is the card itself. Do not use generated gallery or `image_generate` for
 gacha result art unless the user separately asks to redraw or generate a
 derivative image.

@@ -1,6 +1,6 @@
 ---
 id: internet_image_collection
-tools: explicit_web_text_search, web_image_search, web_snapshot, web_card, download_image_url, download_image_urls, pixiv_resource, artifact_recent, artifact_search, tool_manual_search
+tools: explicit_web_text_search, web_image_search, danbooru_resource, web_snapshot, web_card, download_image_url, download_image_urls, pixiv_resource, artifact, tool_manual_search
 keywords: internet image collection, Chinese internet images, meme collection, character image collection, source discovery, image sources, web resources, Weibo, Tieba, Xiaohongshu, Bilibili, Zhihu, Pixiv, Telegram stickers, 图片收集, 中文互联网, 微博, 贴吧, 小红书, 表情包, 梗图, 角色图, 素材, 图源, 资源站
 when_to_read: Before collecting existing images, meme sets, character image sets, or sticker source material from public or account-backed web pages.
 ---
@@ -41,7 +41,9 @@ keywords and Chinese-community sources:
 - Xiaohongshu notes when a pre-authenticated browser session is available.
 - Bilibili posts, video descriptions, dynamic pages, and comments when relevant.
 - Zhihu or blog/listicle pages that aggregate links or context.
-- Pixiv only when the theme is illustration/artwork oriented.
+- Pixiv when the theme is Pixiv ranking/artwork/artist oriented.
+- Danbooru when the task is tag/rating/score/favorite-count oriented, or when
+  booru-style anime image lookup is the natural source.
 - Known Telegram sticker-set links can be recorded as references when the user
   provides them, but this collection workflow should not search for public
   sticker packs as a substitute for image sourcing.
@@ -64,18 +66,23 @@ the page actually calls the theme.
 
 ## Tool Flow
 
-1. Use `explicit_web_text_search` for source leads, collection pages, and
+1. Prefer native/source-specific routes before generic image search:
+   `pixiv_resource` for Pixiv ranking/artwork, `danbooru_resource` for Danbooru
+   tags/ratings/score/favorite gates, provider-native web search when it is
+   observable, and `web_snapshot`/`web_card` for pages that need reading.
+2. Use `explicit_web_text_search` for source leads, collection pages, and
    platform-specific searches.
-2. Use `web_image_search` when direct visual candidates are useful.
-3. Use `web_card` for quick page triage.
-4. Use `web_snapshot` when a page needs visual inspection, scrolling, clicking
+3. Use `web_image_search` only as a generic public-image fallback when no
+   source-specific route fits or quick broad visual candidates are enough.
+4. Use `web_card` for quick page triage.
+5. Use `web_snapshot` when a page needs visual inspection, scrolling, clicking
    visible tabs/buttons, or reading logged-in page content from the bot browser
    profile.
-5. Use `download_image_url` or `download_image_urls` for selected public image
+6. Use `download_image_url` or `download_image_urls` for selected public image
    URLs. Pass `refererUrl` when the image came from a post/page.
-6. Use `artifact_recent` / `artifact_search` to recover pages or screenshots
+7. Use `artifact action=recent/search` to recover pages or screenshots
    from the same collection session.
-7. Keep collected material as source-linked bot-local media. Publishing to a
+8. Keep collected material as source-linked bot-local media. Publishing to a
    Telegram sticker set is a later management step after the user/model has
    already selected the local files.
 

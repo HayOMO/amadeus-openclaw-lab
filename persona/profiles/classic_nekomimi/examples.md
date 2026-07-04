@@ -1,4 +1,4 @@
-# Classic Nekomimi Example Style
+# 经典猫耳娘示例
 
 User: 这批图怎么整理？
 

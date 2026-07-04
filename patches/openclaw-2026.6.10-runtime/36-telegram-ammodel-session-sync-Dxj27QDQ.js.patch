@@ -1,0 +1,27 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -2294,8 +2294,15 @@ function resolveTelegramImagebotWindowContext(params) {
+ 		applyTelegramImagebotAmmodelDefaultToSessionSync({
+ 			cfg: params.cfg,
+ 			agentId: params.agentId,
+ 			sessionKey: windowEntry.sessionKey
+ 		});
+ 	}
++	if (source !== "new-sender-window" && windowEntry?.sessionKey && normalizeOptionalString(windowEntry.ownerUserKey)?.trim() === senderUserKey) {
++		applyTelegramImagebotAmmodelDefaultToSessionSync({
++			cfg: params.cfg,
++			agentId: params.agentId,
++			sessionKey: windowEntry.sessionKey
++		});
++	}
+ 	noteTelegramImagebotKnownWindowUser(store, senderUserKey, params.senderId, params.senderName, now);
+ 	windowEntry.participants ??= {};
+@@ -11510,6 +11517,7 @@ const createTelegramMessageProcessor = (deps) => {
+ 			}
+ 			await clearImagebotControlKeyboard(msg, callbackEdit);
+ 			const label = parsed.action === "profile" ? `${parsed.profile.id} (${parsed.profile.model})` : parsed.action === "model_think" ? `${parsed.model.id}, thinking=${parsed.level}` : `thinking=${parsed.level}`;
++			logVerbose(`telegram imagebot /ammodel: applied ${label} to ${target.sessionKey}`);
+ 			const latestBotMessageId = resolveTelegramImagebotLatestBotMessageId({ cfg: freshCfg, agentId: target.agentId, window: target.window });
+ 			const replyTargetId = latestBotMessageId ?? callbackEdit?.messageId ?? msg.message_id;
+ 			await withTelegramApiErrorLogging({

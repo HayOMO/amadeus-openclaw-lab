@@ -73,6 +73,13 @@ assert.match(brief.content[0].text, /MEDIA_BRIEF ok/);
 assert.match(brief.details.probeSummary, /duration|video|size/);
 await fs.access(brief.details.keyframes.outputPath);
 
+const briefFromMediaUri = await tools.get("media_brief").execute("media-brief-uri", {
+  video: "media://inbound/video-utils-test/unit-bg.mp4 (video/mp4)",
+  maxFrames: 4
+});
+assert.equal(briefFromMediaUri.details.status, "ok");
+assert.match(briefFromMediaUri.content[0].text, /MEDIA_BRIEF ok/);
+
 const videoStickerBrief = await tools.get("media_brief").execute("media-brief-webm-sticker", {
   video: videoStickerPath,
   maxFrames: 4

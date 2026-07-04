@@ -1,55 +1,56 @@
-# Image Generation Routing Skill
+# 图像生成路由技能
 
-Internal manual for `/ask`, `/draw`, and `/edit` image turns. Do not expose these mechanics.
+`/ask`、`/draw`、`/edit` 图片回合的内部手册。不要把这些机制暴露给用户。
 
-## Core
+## 核心
 
-`/ask` is unified: decide from the current delivered text/media whether this is chat, image reading, image editing/reference, or new image generation.
+`/ask` 是统一入口：根据当前文本和已发送/回复媒体，判断这是普通聊天、图片阅读、图片编辑/引用，还是新图生成。
 
-Users may call the generation backend "image2", "gpt-image-2", "image model", "shengtu model", or similar. In this bot those all mean the visible `image_generate` tool. If `image_generate` is available, use it; do not say there is no image2 tool just because the tool name differs. The `image` tool only analyzes images and must never be used as the generation backend.
+用户可能把生成后端叫作 “image2”、“gpt-image-2”、“image model”、“生图模型”等。在这个 bot 里，这些都指可见的 `image_generate` 工具。`image_generate` 可用时就用它；不要因为工具名不同就说没有 image2 工具。`image` 工具只分析图片，绝不能当生成后端。
 
-Generation is stateless by default. Do not inherit old prompts, old generated images, old reference images, old styles, or another participant's image context unless the current turn explicitly points to them.
+默认生成是无状态的。不要继承旧提示词、旧生成图、旧参考图、旧风格，或另一个参与者的图片上下文，除非当前回合明确指向它们。
 
-Prefer one model decision and one `image_generate` call. Search/reference only when it materially improves the result.
+优先做一次模型决策和一次 `image_generate` 调用。只有搜索/参考能明显提升结果时才用。
 
-## Quality and Size
+## 质量和尺寸
 
-Mirror the ChatGPT web default: do not set `quality`, `size`, or `resolution` unless the user explicitly asks for a quality, speed, or format constraint.
+贴近 ChatGPT 网页默认：用户没有明确要求质量、速度或格式限制时，不设置 `quality`、`size` 或 `resolution`。
 
-- If the user asks for fast/draft/quick/low-cost/极速/草稿, use lower/provider-auto quality and a normal smaller size.
-- If the user asks for high quality/final/refined/wallpaper/高清/精修/壁纸, set `quality: high` and an appropriate aspect ratio/size.
-- Otherwise leave quality/size unset and let `gpt-image-2` choose its default.
-- Use `aspectRatio` only when the user asks for a framing or the prompt clearly implies it.
+- 用户要求 fast/draft/quick/low-cost/极速/草稿时，用较低或 provider-auto 质量和正常较小尺寸。
+- 用户要求 high quality/final/refined/wallpaper/高清/精修/壁纸时，设置 `quality: high` 和合适的画幅/尺寸。
+- 其它情况不传 quality/size，让 `gpt-image-2` 使用默认。
+- 只有用户要求构图/画幅，或提示词强烈暗示时，才设置 `aspectRatio`。
 
-## Local/Telegram Images
+## 本地/Telegram 图片
 
-Use Telegram/local image paths only when the current text clearly asks to edit/use/reference a specific available image.
+只有当前文本明确要求编辑、使用或参考某张可用图片时，才传 Telegram/本地图片路径。
 
-Priority:
-1. `ReplyMediaPaths` when the user points at the replied image.
-2. `CurrentMediaPaths` when the user points at the attached image.
-3. `WindowRecentMediaPaths` only for explicit previous-image wording: previous/above/last/that image, 上一张, 上面, 刚才, 那张, 原图, 参考上面那张, 改刚才那张.
+优先级：
 
-Fresh wording such as 重新画, 再画一张, 画另一张, 新图, start over means prompt-only generation unless a specific image is named.
+1. 用户指向回复图片时，用 `ReplyMediaPaths`。
+2. 用户指向当前附件时，用 `CurrentMediaPaths`。
+3. 只有明确出现 previous/above/last/that image、上一张、上面、刚才、那张、原图、参考上面那张、改刚才那张时，才用 `WindowRecentMediaPaths`。
 
-## Public/Named Subjects
+“重新画”“再画一张”“画另一张”“新图”“start over” 这种新图措辞默认是纯提示词生成，除非明确点名某张图。
 
-For named characters, IPs, products, places, memes, public people, brands, logos, artworks, current trends, or unfamiliar visual subjects:
+## 公共/具名主体
 
-- Prefer `web_search` when available to build a compact canonical brief. If it is unavailable/empty/absent, use model knowledge or one visible public-search fallback such as `explicit_web_text_search`, `web_image_search`, `zhihu_global_search`, or `browser`.
-- Prefer official/canonical facts: source title, outfit, colors, silhouette, accessories, avoidable mistakes.
-- Use `web_image_search` when the user asks for visual refs, the subject is likely unfamiliar, or exact visual fidelity matters. Prefer returned `localMedia` paths after inspecting the visible previews.
-- Public image URLs from search must become local MEDIA paths first. If `web_image_search` did not provide `localMedia` for a useful candidate, use `download_image_url`, inspect the returned preview, then pass the local MEDIA path to `image_generate.images`.
-- Do not inspect web image candidates with `image` by default; inspect only when ambiguity or strict accuracy makes it worth the delay.
+遇到具名角色、IP、产品、地点、梗、公众人物、品牌、logo、艺术作品、当前趋势或不熟悉的视觉主体：
 
-## Tool Contract
+- `web_search` 可用时，优先用它生成紧凑的规范信息；不可用、空结果或不可见时，用模型知识，或一个可见公共搜索后备，如 `explicit_web_text_search`、`web_image_search`、`zhihu_global_search`、`browser`。
+- 优先官方/规范事实：来源标题、服装、颜色、轮廓、配饰、常见错误。
+- 用户要求视觉参考、主体可能不熟、或视觉还原要求高时，用 `web_image_search`。先看返回的可见预览，优先使用其中的 `localMedia` 路径。
+- 搜索得到的公共图片 URL 必须先变成本地 MEDIA 路径。`web_image_search` 没给有用候选的 `localMedia` 时，用 `download_image_url`，看返回预览，再把本地 MEDIA 路径传给 `image_generate.images`。
+- 默认不要用 `image` 检查网页图片候选；只有有歧义或严格准确性值得这点延迟时才检查。
 
-- New original image: call `image_generate` with prompt only.
-- Edit/reference available image: pass only the specific replied/current/explicit recent image path(s).
-- Public reference image: inspect returned previews and pass local MEDIA paths.
-- User says "draw/generate/make/paint", "shengtu", "hua yi zhang", or "gei image2 shengcheng": call `image_generate`, not `image`.
-- Do not pass prior media, prior generated images, or old prompts unless the current turn explicitly asks for them.
-- Do not pass `quality`, `size`, or `resolution` unless the user explicitly requested a quality/speed/format constraint.
-- Call `image_generate` at most once per request.
-- If generation fails, aborts, or times out, retry once only when the same local reference images are still required and the failure looks like transport/input delivery. Otherwise reply briefly.
-- After success, include every returned `MEDIA:<path>` line exactly as plain lines so Telegram attaches the result.
+## 工具契约
+
+- 新原创图：只用 prompt 调 `image_generate`。
+- 编辑/引用可用图片：只传明确被回复、当前、或当前回合点名的近期图片。
+- 公共参考图：检查返回预览，传本地 MEDIA 路径。
+- 用户说 draw/generate/make/paint、生图、画一张、给 image2 生成：调 `image_generate`，不是 `image`。
+- 除非当前回合明确要求，不传旧媒体、旧生成图或旧提示词。
+- 除非用户明确要求质量、速度或格式限制，不传 `quality`、`size` 或 `resolution`。
+- 每个请求最多调用一次 `image_generate`。
+- 生成失败、中止或超时时，只有同一批本地参考图仍然必要且失败像传输/输入交付问题时才重试一次。否则简短回复。
+- 成功后，把每一条返回的 `MEDIA:<path>` 原样作为普通行放进最终回复，让 Telegram 附上结果。

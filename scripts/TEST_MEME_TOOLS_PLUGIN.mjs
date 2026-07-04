@@ -13,6 +13,7 @@ const bgRoot = path.join(root, "background");
 await fs.mkdir(mediaRoot, { recursive: true });
 
 const input = path.join(mediaRoot, "sample.png");
+const mediaUriInput = path.join(mediaRoot, "inbound", "uri-sample.png");
 const py = `
 from PIL import Image, ImageDraw
 img = Image.new("RGBA", (640, 360), (40, 70, 120, 255))
@@ -23,10 +24,12 @@ img.save(r'''${input.replaceAll("\\", "\\\\")}''')
 `;
 const made = spawnSync("python", ["-c", py], { encoding: "utf8" });
 assert.equal(made.status, 0, made.stderr);
+await fs.mkdir(path.dirname(mediaUriInput), { recursive: true });
+await fs.copyFile(input, mediaUriInput);
 
 const tools = new Map();
 plugin.register({
-  config: { mediaDir: outRoot, allowedMediaRoots: [mediaRoot], backgroundJobs: { storeDir: bgRoot, maxConcurrent: 1 } },
+  config: { mediaDir: outRoot, openclawMediaRoot: mediaRoot, allowedMediaRoots: [mediaRoot], backgroundJobs: { storeDir: bgRoot, maxConcurrent: 1 } },
   registerTool(tool, meta) {
     tools.set(meta.name, tool);
   }
@@ -45,6 +48,14 @@ assert.equal(caption.details.status, "ok");
 assert.equal(caption.details.action, "caption");
 await fs.access(caption.details.outputPath);
 assert.match(caption.content[0].text, /MEDIA:/);
+
+const captionFromMediaUri = await tools.get("meme_transform").execute("caption-media-uri", {
+  input: "media://inbound/uri-sample.png (image/png)",
+  action: "caption",
+  topText: "media uri"
+});
+assert.equal(captionFromMediaUri.details.status, "ok");
+assert.equal(captionFromMediaUri.details.action, "caption");
 
 const sticker = await tools.get("meme_transform").execute("sticker", {
   input,

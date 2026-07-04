@@ -149,6 +149,8 @@ function securityHeaders(extra = {}) {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "Cross-Origin-Resource-Policy": "same-origin",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",
     "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
     "X-Frame-Options": "DENY",
@@ -452,9 +454,20 @@ function latestLine(tail, predicate) {
   return "";
 }
 
+function redactControlOutput(value) {
+  return String(value || "")
+    .replace(/\b\d{6,}:[A-Za-z0-9_-]{20,}\b/g, "[telegram-token-redacted]")
+    .replace(/(?<![A-Za-z0-9_])sk-[A-Za-z0-9_-]{32,}/g, "[api-key-redacted]")
+    .replace(/\bgh[opsu]_[A-Za-z0-9_]{20,}/g, "[github-token-redacted]")
+    .replace(/https:\/\/api\.telegram\.org\/(?:file\/)?bot[^\s<>"']+/gi, "https://api.telegram.org/[telegram-token-redacted]")
+    .replace(/[A-Za-z]:\\Users\\[^\\\s<>"']+\\[^\s<>"']+/g, "[local-path-redacted]")
+    .replace(/[A-Za-z0-9_][A-Za-z0-9_-]{63,}/g, "[long-token-redacted]");
+}
+
 function compactOutput(output, limit = 14000) {
-  if (!output || output.length <= limit) return output || "";
-  return `${output.slice(0, 1600)}\n\n... trimmed ...\n\n${output.slice(-limit + 1600)}`;
+  const clean = redactControlOutput(output);
+  if (!clean || clean.length <= limit) return clean || "";
+  return `${clean.slice(0, 1600)}\n\n... trimmed ...\n\n${clean.slice(-limit + 1600)}`;
 }
 
 function getFeatureHealth() {

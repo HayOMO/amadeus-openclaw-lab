@@ -1,0 +1,36 @@
+diff --git a/dist/tool-result-truncation-CFLypc-Q.js b/dist/tool-result-truncation-CFLypc-Q.js
+index 4d6027d..7a8a8cc 100644
+--- a/dist/tool-result-truncation-CFLypc-Q.js
++++ b/dist/tool-result-truncation-CFLypc-Q.js
+@@ -201,7 +201,7 @@ function formatImageBlockPruneNotice(block, dataChars) {
+ 	parts.push(`base64Chars=${dataChars}]`);
+ 	return parts.join(" ");
+ }
+-const EMBEDDED_IMAGE_DATA_RE = /("data"\s*:\s*")([A-Za-z0-9+/=]{1024,})(")/g;
++const EMBEDDED_IMAGE_DATA_RE = /("data"\s*:\s*")((?:data:image\/(?:png|jpe?g|webp|gif);base64,)?[A-Za-z0-9+/=]{1024,})(?="|\[\.\.\.|$)/g;
+ function formatEmbeddedImageDataPruneNotice(dataChars) {
+ 	return `[embedded image data pruned from tool result history base64Chars=${dataChars}]`;
+ }
+@@ -214,7 +214,7 @@ function compactToolResultEmbeddedImageDataText(text, minDataChars = IMAGE_BLOCK
+ 	const nextText = text.replace(EMBEDDED_IMAGE_DATA_RE, (match, prefix, data, suffix) => {
+ 		if (data.length < minDataChars) return match;
+ 		changed = true;
+-		return `${prefix}${formatEmbeddedImageDataPruneNotice(data.length)}${suffix}`;
++		return `${prefix}${formatEmbeddedImageDataPruneNotice(data.length)}`;
+ 	});
+ 	return {
+ 		text: nextText,
+@@ -396,12 +396,12 @@ function buildOversizedToolResultReplacements(params) {
+ 		const msg = entry.message;
+ 		if (msg.role !== "toolResult") continue;
+ 		const payloadLength = getToolResultPayloadLength(msg);
+-		if (payloadLength <= params.maxChars) continue;
+ 		const replacementMessage = truncateToolResultMessage(msg, params.maxChars, {
+ 			minKeepChars,
+ 			preserveImages: preserveImageEntryIds.has(entry.id)
+ 		});
++		if (payloadLength <= params.maxChars && replacementMessage === msg) continue;
+ 		if (getToolResultPayloadLength(replacementMessage) >= payloadLength && replacementMessage === msg) continue;
+ 		replacements.push({
+ 			entryId: entry.id,
+ 			message: replacementMessage

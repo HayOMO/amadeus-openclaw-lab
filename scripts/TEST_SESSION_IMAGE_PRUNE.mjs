@@ -12,6 +12,8 @@ try {
 
   const sessionPath = path.join(sessionsDir, "session-a.jsonl");
   const imageData = "a".repeat(5000);
+  const nestedImageData = "c".repeat(6000);
+  const truncatedNestedImageData = "iVBORw0KGgo" + "d".repeat(6000);
   const lines = [
     JSON.stringify({ type: "session", id: "session-a" }),
     JSON.stringify({
@@ -22,6 +24,34 @@ try {
           { type: "text", text: "WEB_SNAPSHOT ok\nMEDIA: `C:\\Users\\Bot\\.openclaw\\media\\practical-tools\\web-snapshots\\shot.png`" },
           { type: "image", data: imageData, mimeType: "image/png", fileName: "shot.png" }
         ]
+      }
+    }),
+    JSON.stringify({
+      type: "message",
+      message: {
+        role: "toolResult",
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            tool: { name: "web_card" },
+            result: {
+              content: [
+                { type: "text", text: "WEB_CARD ok" },
+                { type: "image", data: nestedImageData, mimeType: "image/jpeg", fileName: "card.jpg" }
+              ]
+            }
+          })
+        }]
+      }
+    }),
+    JSON.stringify({
+      type: "message",
+      message: {
+        role: "toolResult",
+        content: [{
+          type: "text",
+          text: `{"tool":{"name":"web_card"},"result":{"content":[{"type":"image","data":"${truncatedNestedImageData}[... 36073 more characters truncated; rerun with narrower args if needed]`
+        }]
       }
     }),
     JSON.stringify({
@@ -38,12 +68,16 @@ try {
 
   const result = await pruneSessionFile(sessionPath, { minDataChars: 1024 });
   assert.equal(result.changed, true);
-  assert.equal(result.pruned, 1);
-  assert.ok(result.bytesSaved >= imageData.length);
+  assert.equal(result.pruned, 3);
+  assert.ok(result.bytesSaved >= imageData.length + nestedImageData.length + truncatedNestedImageData.length);
 
   const pruned = await fs.readFile(sessionPath, "utf8");
   assert.doesNotMatch(pruned, new RegExp(imageData.slice(0, 100)));
+  assert.doesNotMatch(pruned, new RegExp(nestedImageData.slice(0, 100)));
+  assert.doesNotMatch(pruned, new RegExp(truncatedNestedImageData.slice(0, 100)));
   assert.match(pruned, /saved image preview pruned from session history/);
+  assert.match(pruned, /embedded image data pruned from session history/);
+  assert.match(pruned, /\[embedded image data pruned from session history base64Chars=6011\]\[\.\.\. 36073 more characters truncated/);
   assert.match(pruned, /MEDIA: `C:\\\\Users\\\\Bot\\\\.openclaw\\\\media\\\\practical-tools\\\\web-snapshots\\\\shot\.png`/);
   assert.match(pruned, /MEDIA:C:\\\\Users\\\\Bot\\\\.openclaw\\\\media\\\\downloaded\\\\20260621\\\\card\.jpg/);
 

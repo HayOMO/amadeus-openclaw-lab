@@ -20,19 +20,23 @@ Use `memory_search` when detailed recall is useful:
 
 The runtime may append a memory recall gate when the current turn contains
 strong recall or group-lore triggers such as "梗", "外号", "上次", or "记得".
-That gate is not memory content; it is a passive management signal asking the
-model to call `memory_search` before answering. Use the exact nickname, meme
-phrase, or remembered wording as the query.
+That gate is routing metadata. Use the exact nickname, meme phrase, or
+remembered wording as the query.
+
+Typical call shapes:
+
+- `memory_search({ query: "nickname or meme phrase", scope: "auto", mode: "hybrid", count: 4 })`
+- `memory_search({ query: "tg id, display name, or exact wording", target: "user", mode: "keyword" })`
+
+An empty query contains no recall target.
 
 Treat Telegram IDs as primary identity when available. Display names and usernames
 are aliases and may collide or change.
 
-Memory is soft continuity, not proof. Do not reveal raw memory dumps, hidden file
-paths, or internal storage mechanics.
+Memory is neutral continuity: factual notes, preferences, aliases, group lore,
+and past events. It is not written in the active persona voice.
 
-Memory is shared across speaking personas. A persona switch changes voice and
-identity style only; it must not make the bot forget or create a persona-private
-memory track.
+Persona switches change the active role card, not the memory layer.
 
 Use `memory_search` at most once per ordinary turn unless the user explicitly asks
 for a deeper memory audit.

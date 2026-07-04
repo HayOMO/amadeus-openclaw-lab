@@ -5,6 +5,7 @@ import path from "node:path";
 const ZHIHU_SEARCH_TOOL = "zhihu_search";
 const ZHIHU_GLOBAL_SEARCH_TOOL = "zhihu_global_search";
 const ZHIHU_HOT_LIST_TOOL = "zhihu_hot_list";
+const ZHIHU_TOOL = "zhihu";
 const BASE_URL = "https://developer.zhihu.com";
 const REQUEST_TIMEOUT_MS = Number(process.env.IMAGEBOT_ZHIHU_TIMEOUT_MS || "18000");
 const DEFAULT_SEARCH_COUNT = 5;
@@ -380,6 +381,34 @@ const zhihuHotListTool = {
   }
 };
 
+const zhihuTool = {
+  name: ZHIHU_TOOL,
+  label: "Zhihu",
+  description: "Search Zhihu/OpenAPI content through action=search, global_search, or hot_list.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      action: {
+        type: "string",
+        enum: ["search", "global_search", "hot_list"],
+        description: "Zhihu action. Default search when query is supplied; hot_list when only limit is supplied."
+      },
+      query: { type: "string", description: "Search keywords, 2-100 characters recommended." },
+      count: { type: "number", description: `Search result count, 1-${MAX_GLOBAL_COUNT}.` },
+      limit: { type: "number", description: `Hot-list item count, 1-${MAX_HOT_LIMIT}.` }
+    }
+  },
+  async execute(toolCallId, params, signal) {
+    const requested = readString(params, "action").toLowerCase();
+    const action = requested || (readString(params, "query") ? "search" : "hot_list");
+    if (action === "search") return zhihuSearchTool.execute(toolCallId, params, signal);
+    if (action === "global_search") return zhihuGlobalSearchTool.execute(toolCallId, params, signal);
+    if (action === "hot_list") return zhihuHotListTool.execute(toolCallId, params, signal);
+    return failure(ZHIHU_TOOL, "action must be search, global_search, or hot_list");
+  }
+};
+
 export const __testing = {
   stripHtml,
   normalizeSearchItem,
@@ -393,6 +422,7 @@ export default {
   name: "Zhihu OpenAPI",
   description: "Searches Zhihu Open Platform public search and hot-list APIs.",
   register(api) {
+    api.registerTool(zhihuTool, { name: ZHIHU_TOOL });
     api.registerTool(zhihuSearchTool, { name: ZHIHU_SEARCH_TOOL });
     api.registerTool(zhihuGlobalSearchTool, { name: ZHIHU_GLOBAL_SEARCH_TOOL });
     api.registerTool(zhihuHotListTool, { name: ZHIHU_HOT_LIST_TOOL });

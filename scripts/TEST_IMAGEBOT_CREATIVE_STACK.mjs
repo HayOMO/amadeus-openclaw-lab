@@ -131,9 +131,9 @@ for (const hook of hooks.get("before_prompt_build") || []) {
   if (result?.appendContext) append.push(result.appendContext);
 }
 const combined = append.join("\n\n");
-assert.match(combined, /approved learned workflows/);
-assert.match(combined, /image feedback hints/);
-assert.match(combined, /interaction context/);
+assert.match(combined, /Imagebot 活跃工作流笔记/);
+assert.match(combined, /Imagebot 图像反馈提示/);
+assert.match(combined, /Telegram 路由上下文/);
 assert.match(combined, /fanart drift/);
 
 const routed = await tools.get("script_action").execute("route", {

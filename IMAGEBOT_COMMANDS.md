@@ -46,6 +46,16 @@ The visible Telegram command menu is intentionally small:
 - `/ammodel`: inspect or switch model profile.
 - `/ampersona`: inspect or switch speaking persona with Telegram buttons.
 - `/amtools`: list/route/run registered scripts.
+- `/amroll`: 掷骰，小型 pre-model 脚本命令。
+- `/amcoin`: 抛一次或多次硬币，小型 pre-model 脚本命令。
+- `/amchoose`: 从短列表里选一个。
+- `/amshuffle`: 打乱短列表。
+- `/amsplit`: 把名字或项目随机分组。
+- `/amstats`: 统计命令参数或被回复文本消息。
+- `/amlinks`: 从命令参数或被回复文本消息里提取链接。
+
+`/amroll` 到 `/amlinks` 这批小功能刻意做成命令式：不唤醒模型，
+不写群历史，执行范围有上限，就算坏了也只会坏在小脚本层。
 
 Hidden but cataloged control scripts:
 

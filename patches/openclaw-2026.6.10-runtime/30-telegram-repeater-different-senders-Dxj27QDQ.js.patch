@@ -1,0 +1,105 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index a6b5cf0..d2f4a19 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -4512,6 +4512,8 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 			groupOnly: raw.groupOnly !== false,
+ 			repeatText: raw.repeatText !== false,
+ 			repeatStickers: raw.repeatStickers !== false,
++			requireDifferentSenders: raw.requireDifferentSenders !== false,
++			maxGapMs: readPreDropImagebotTextRepeaterNumber(raw.maxGapMs, 30_000, 1_000, 5 * 60 * 1e3),
+ 			ignoreCommands: raw.ignoreCommands !== false,
+ 			ignoreBotMessages: raw.ignoreBotMessages !== false,
+ 			ignoreExplicitBotMention: raw.ignoreExplicitBotMention !== false,
+@@ -4532,6 +4534,11 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 			preDropImagebotTextRepeaterState.delete(oldest);
+ 		}
+ 	};
++	const preDropImagebotRepeaterSenderKey = (msg) => {
++		if (msg.from?.id != null) return `user:${msg.from.id}`;
++		if (msg.sender_chat?.id != null) return `sender_chat:${msg.sender_chat.id}`;
++		return "";
++	};
+ 	const preDropImagebotRepeaterScopeKey = (msg) => `${accountId}:${msg.chat?.id ?? ""}:${msg.message_thread_id ?? 0}`;
+ 	const resolvePreDropImagebotTextRepeaterText = (msg) => {
+ 		const text = getTelegramTextParts(msg).text;
+@@ -4541,16 +4548,20 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 		const sticker = msg.sticker;
+ 		const stickerFileId = typeof sticker?.file_id === "string" ? sticker.file_id.trim() : "";
+ 		const stickerUniqueId = typeof sticker?.file_unique_id === "string" ? sticker.file_unique_id.trim() : "";
++		const senderKey = preDropImagebotRepeaterSenderKey(msg);
++		if (options.requireDifferentSenders && !senderKey) return null;
+ 		if (options.repeatStickers && stickerFileId) return {
+ 			kind: "sticker",
+ 			key: `sticker:${stickerUniqueId || stickerFileId}`,
+-			fileId: stickerFileId
++			fileId: stickerFileId,
++			senderKey
+ 		};
+ 		const text = resolvePreDropImagebotTextRepeaterText(msg);
+ 		if (options.repeatText && text) return {
+ 			kind: "text",
+ 			key: `text:${text}`,
+-			text
++			text,
++			senderKey
+ 		};
+ 		return null;
+ 	};
+@@ -4567,18 +4579,28 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 		return false;
+ 	};
+ 	const recordPreDropImagebotTextRepeaterMessage = (msg, options, botUsername) => {
++		const key = preDropImagebotRepeaterScopeKey(msg);
++		const clearPreDropImagebotTextRepeaterState = () => {
++			preDropImagebotTextRepeaterState.delete(key);
++			return { shouldRepeat: false };
++		};
++		if (!options.enabled || accountId !== "imagebot") return { shouldRepeat: false };
++		const isGroup = msg.chat?.type === "group" || msg.chat?.type === "supergroup";
++		if (options.groupOnly && !isGroup) return { shouldRepeat: false };
++		const botId = opts?.botInfo?.id ?? bot.botInfo?.id ?? msg?.via_bot?.id;
++		if (options.ignoreBotMessages && (msg.from?.is_bot === true || botId != null && msg.from?.id === botId)) return { shouldRepeat: false };
+ 		const item = resolvePreDropImagebotRepeatableItem(msg, options);
+-		if (shouldIgnorePreDropImagebotTextRepeaterMessage(msg, item, options, botUsername)) return { shouldRepeat: false };
++		if (shouldIgnorePreDropImagebotTextRepeaterMessage(msg, item, options, botUsername)) return clearPreDropImagebotTextRepeaterState();
+ 		const now = Date.now();
+ 		compactPreDropImagebotTextRepeaterState(now, options);
+-		const key = preDropImagebotRepeaterScopeKey(msg);
+ 		const previous = preDropImagebotTextRepeaterState.get(key);
+-		if (!previous || previous.itemKey !== item.key || now - previous.updatedAt > options.stateTtlMs) {
++		if (!previous || previous.itemKey !== item.key || now - previous.updatedAt > options.maxGapMs || now - previous.updatedAt > options.stateTtlMs) {
+ 			preDropImagebotTextRepeaterState.set(key, {
+ 				itemKey: item.key,
+ 				kind: item.kind,
+ 				text: item.text || "",
+ 				fileId: item.fileId || "",
++				senderKey: item.senderKey || "",
+ 				count: 1,
+ 				updatedAt: now,
+ 				lastMessageId: msg.message_id,
+@@ -4590,12 +4617,24 @@ const registerTelegramHandlers = ({ cfg, accountId, bot, opts, telegramTransport
+ 			return { shouldRepeat: false };
+ 		}
+ 		if (previous.lastMessageId === msg.message_id) return { shouldRepeat: false };
++		if (options.requireDifferentSenders && (!previous.senderKey || previous.senderKey === item.senderKey)) {
++			previous.senderKey = item.senderKey || "";
++			previous.count = 1;
++			previous.updatedAt = now;
++			previous.lastMessageId = msg.message_id;
++			previous.kind = item.kind;
++			previous.text = item.text || "";
++			previous.fileId = item.fileId || "";
++			preDropImagebotTextRepeaterState.set(key, previous);
++			return { shouldRepeat: false };
++		}
+ 		previous.count = Math.min(options.minCount, Number(previous.count || 1) + 1);
+ 		previous.updatedAt = now;
+ 		previous.lastMessageId = msg.message_id;
+ 		previous.kind = item.kind;
+ 		previous.text = item.text || "";
+ 		previous.fileId = item.fileId || "";
++		previous.senderKey = item.senderKey || "";
+ 		const cooledDown = previous.repeatedKey !== item.key || now - Number(previous.repeatedAt || 0) >= options.cooldownMs;
+ 		if (previous.count >= options.minCount && cooledDown) {
+ 			previous.repeatedAt = now;

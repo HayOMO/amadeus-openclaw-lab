@@ -1,0 +1,155 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index eff6e95..1e48a63 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -508,7 +508,7 @@ function parseImagebotAmpersonaCommand(text, cfg, options) {
+ }
+ function parseImagebotScriptControlCommand(text, cfg, options) {
+ 	const command = parseImagebotTextCommandParts(text, options);
+-	return command && ["amhelp", "amstatus", "amtools"].includes(command.name) ? command : null;
++	return command && ["amhelp", "amstatus", "amtools", "amroll", "amcoin", "amchoose", "amshuffle", "amsplit", "amstats", "amlinks"].includes(command.name) ? command : null;
+ }
+ function parseImagebotUnsupportedControlCommand(text, options) {
+ 	const command = parseImagebotTextCommandParts(text, options);
+@@ -575,6 +575,8 @@ function buildTelegramImagebotHelpText(args = "") {
+ 		"/amnew - open a clean chat window",
+ 		"/ammodel - model menu/status",
+ 		"/ampersona - persona menu/status",
++		"/amroll, /amcoin, /amchoose - tiny script commands",
++		"/amshuffle, /amsplit, /amstats, /amlinks - tiny script commands",
+ 		"",
+ 		"These control commands are handled before model context; ordinary chat still goes to the model only when triggered."
+ 	].join("\n");
+@@ -589,10 +591,120 @@ function buildTelegramImagebotToolsText(args = "") {
+ 		"- /ammodel: model menu and one-shot model switch",
+ 		"- /ampersona: persona menu and fresh persona window",
+ 		"- /amnew: clean window",
++		"- /amroll [NdS]: roll dice, for example /amroll 2d6",
++		"- /amcoin [count]: flip coins",
++		"- /amchoose a | b | c: pick one item",
++		"- /amshuffle a | b | c: shuffle items",
++		"- /amsplit 2 a b c d: split items into teams",
++		"- /amstats <text>: count text, or reply to a text message",
++		"- /amlinks <text>: extract links, or reply to a text message",
+ 		"",
+ 		"Maintenance scripts stay behind operator approval and are not executed directly from Telegram buttons."
+ 	].join("\n");
+ }
++function clampTelegramImagebotInteger(value, fallback, min, max) {
++	const number = Number(value);
++	if (!Number.isFinite(number)) return fallback;
++	return Math.max(min, Math.min(max, Math.trunc(number)));
++}
++function splitTelegramImagebotListArgs(args = "") {
++	const text = String(args || "").trim();
++	if (!text) return [];
++	const hasDelimiter = /[|,;\n]/.test(text);
++	const parts = hasDelimiter ? text.split(/\s*[|,;\n]\s*/g) : text.split(/\s+/g);
++	return parts.map((item) => item.trim()).filter(Boolean).slice(0, 50);
++}
++function shuffleTelegramImagebotItems(items) {
++	const copy = [...items];
++	for (let index = copy.length - 1; index > 0; index -= 1) {
++		const other = Math.floor(Math.random() * (index + 1));
++		[copy[index], copy[other]] = [copy[other], copy[index]];
++	}
++	return copy;
++}
++function buildTelegramImagebotRollText(args = "") {
++	const raw = String(args || "").trim();
++	const dice = raw.match(/^(\d{0,2})d(\d{1,5})$/i);
++	let count = dice ? clampTelegramImagebotInteger(dice[1] || 1, 1, 1, 20) : 1;
++	let sides = dice ? clampTelegramImagebotInteger(dice[2], 6, 2, 10000) : clampTelegramImagebotInteger(raw || 6, 6, 2, 10000);
++	if (!dice && /\s+/.test(raw)) {
++		const [first, second] = raw.split(/\s+/);
++		count = clampTelegramImagebotInteger(first, 1, 1, 20);
++		sides = clampTelegramImagebotInteger(second, 6, 2, 10000);
++	}
++	const rolls = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides));
++	const total = rolls.reduce((sum, value) => sum + value, 0);
++	return `roll ${count}d${sides}: ${rolls.join(", ")}${count > 1 ? ` | total=${total}` : ""}`;
++}
++function buildTelegramImagebotCoinText(args = "") {
++	const count = clampTelegramImagebotInteger(String(args || "").trim() || 1, 1, 1, 20);
++	const flips = Array.from({ length: count }, () => Math.random() < 0.5 ? "heads" : "tails");
++	const heads = flips.filter((item) => item === "heads").length;
++	const tails = flips.length - heads;
++	return `coin x${count}: ${flips.join(", ")}${count > 1 ? ` | heads=${heads} tails=${tails}` : ""}`;
++}
++function buildTelegramImagebotChooseText(args = "") {
++	const items = splitTelegramImagebotListArgs(args);
++	if (items.length < 2) return "usage: /amchoose option A | option B | option C";
++	const choice = items[Math.floor(Math.random() * items.length)];
++	return `picked: ${choice}`;
++}
++function buildTelegramImagebotShuffleText(args = "") {
++	const items = splitTelegramImagebotListArgs(args);
++	if (items.length < 2) return "usage: /amshuffle a | b | c";
++	return `shuffle:\n${shuffleTelegramImagebotItems(items).map((item, index) => `${index + 1}. ${item}`).join("\n")}`;
++}
++function buildTelegramImagebotSplitText(args = "") {
++	const raw = String(args || "").trim();
++	const match = raw.match(/^(\d{1,2})\s+([\s\S]+)$/);
++	const teamCount = clampTelegramImagebotInteger(match?.[1] || 2, 2, 2, 10);
++	const items = splitTelegramImagebotListArgs(match?.[2] || raw);
++	if (items.length < teamCount) return "usage: /amsplit 2 alice bob carol dave";
++	const teams = Array.from({ length: teamCount }, () => []);
++	for (const [index, item] of shuffleTelegramImagebotItems(items).entries()) teams[index % teamCount].push(item);
++	return teams.map((team, index) => `team ${index + 1}: ${team.join(", ")}`).join("\n");
++}
++function resolveTelegramImagebotTextPayload(msg, args = "") {
++	const direct = String(args || "").trim();
++	if (direct) return direct;
++	const reply = msg?.reply_to_message;
++	if (!reply) return "";
++	return getTelegramTextParts(reply).text || reply.caption || "";
++}
++function buildTelegramImagebotStatsText(msg, args = "") {
++	const text = resolveTelegramImagebotTextPayload(msg, args);
++	if (!text.trim()) return "usage: /amstats <text>, or reply /amstats to a text message";
++	const chars = Array.from(text).length;
++	const charsNoSpace = Array.from(text.replace(/\s/g, "")).length;
++	const lines = text.split(/\r?\n/).length;
++	const words = text.match(/[\p{L}\p{N}_]+/gu)?.length || 0;
++	const cjk = text.match(/[\u3400-\u9fff]/g)?.length || 0;
++	return [
++		"text stats:",
++		`chars=${formatTelegramImagebotNumber(chars)}`,
++		`chars_no_space=${formatTelegramImagebotNumber(charsNoSpace)}`,
++		`lines=${formatTelegramImagebotNumber(lines)}`,
++		`word_tokens=${formatTelegramImagebotNumber(words)}`,
++		`cjk_chars=${formatTelegramImagebotNumber(cjk)}`
++	].join("\n");
++}
++function buildTelegramImagebotLinksText(msg, args = "") {
++	const text = resolveTelegramImagebotTextPayload(msg, args);
++	if (!text.trim()) return "usage: /amlinks <text>, or reply /amlinks to a text message";
++	const links = [...new Set(Array.from(text.matchAll(/https?:\/\/[^\s<>"')\]]+/gi), (match) => match[0].replace(/[.,!?;:，。！？；：）)]+$/g, "")))].slice(0, 20);
++	if (!links.length) return "links: none";
++	return ["links:", ...links.map((link, index) => `${index + 1}. ${link}`)].join("\n");
++}
++function buildTelegramImagebotMicroCommandText(command, msg) {
++	if (command.name === "amroll") return buildTelegramImagebotRollText(command.args);
++	if (command.name === "amcoin") return buildTelegramImagebotCoinText(command.args);
++	if (command.name === "amchoose") return buildTelegramImagebotChooseText(command.args);
++	if (command.name === "amshuffle") return buildTelegramImagebotShuffleText(command.args);
++	if (command.name === "amsplit") return buildTelegramImagebotSplitText(command.args);
++	if (command.name === "amstats") return buildTelegramImagebotStatsText(msg, command.args);
++	if (command.name === "amlinks") return buildTelegramImagebotLinksText(msg, command.args);
++	return "";
++}
+ function buildTelegramImagebotScriptControlKeyboard() {
+ 	return buildInlineKeyboard([
+ 		[
+@@ -11209,6 +11321,11 @@ const createTelegramMessageProcessor = (deps) => {
+ 			await sendImagebotControlText(msg, buildTelegramImagebotToolsText(command.args), buildTelegramImagebotScriptControlKeyboard());
+ 			return true;
+ 		}
++		const microCommandText = buildTelegramImagebotMicroCommandText(command, msg);
++		if (microCommandText) {
++			await sendImagebotControlText(msg, microCommandText);
++			return true;
++		}
+ 		let target = null;
+ 		try {
+ 			target = resolveImagebotControlTarget(msg, freshCfg);

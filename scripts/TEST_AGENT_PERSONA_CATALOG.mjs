@@ -43,7 +43,7 @@ for (const persona of catalog.personas) {
 }
 
 const shared = catalog.shared;
-for (const tool of ["tool_manual_search", "knowledge_search", "memory_search"]) {
+for (const tool of ["tool_manual_search", "knowledge", "memory_search"]) {
   assert.ok(shared.tools.safeShared.includes(tool), `missing shared tool ${tool}`);
 }
 for (const tool of ["script_action", "model_config"]) {
@@ -54,12 +54,33 @@ for (const tool of ["sessions_spawn", "sessions_yield", "sessions_history", "sub
 }
 
 const modelCatalog = await readJson("scripts/IMAGEBOT_MODEL_PROFILES.json");
-for (const id of ["openai/gpt-5.5", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"]) {
+for (const id of ["openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5.4-mini", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"]) {
   assert.ok(modelCatalog.models.some((model) => model.id === id && model.enabled !== false), `missing enabled model ${id}`);
 }
-for (const id of ["balanced", "ds-fast", "ds-pro"]) {
+assert.equal(
+  modelCatalog.models.find((model) => model.id === "openai/gpt-5.3-codex-spark")?.enabled,
+  true,
+  "Spark should be available only through its chat-only model layer",
+);
+assert.equal(
+  modelCatalog.models.find((model) => model.id === "openai/gpt-5.3-codex-spark")?.toolPolicy,
+  "chat-only",
+  "Spark must keep OpenClaw tools disabled through chat-only policy",
+);
+for (const id of ["balanced", "gpt54", "mini", "ds-fast", "ds-pro"]) {
   assert.ok(modelCatalog.profiles.some((profile) => profile.id === id), `missing model profile ${id}`);
 }
+assert.equal(modelCatalog.profiles.find((profile) => profile.id === "spark")?.toolPolicy, "chat-only", "Spark profile must be chat-only");
+assert.equal(
+  modelCatalog.profiles.find((profile) => profile.id === "balanced")?.model,
+  "openai/gpt-5.5",
+  "GPT-5.5 model menu should keep a balanced profile for medium reasoning",
+);
+assert.equal(
+  modelCatalog.profiles.find((profile) => profile.id === "balanced")?.reasoningEffort,
+  "medium",
+  "GPT-5.5 balanced profile should use medium reasoning",
+);
 
 const overlayCatalog = await readJson("persona/persona_overlays.json");
 assert.equal(overlayCatalog.schema, 1);
@@ -73,6 +94,7 @@ assert.ok(defaultOverlay, "missing default Amaduse overlay");
 assert.equal(defaultOverlay.label, "Amaduse");
 assert.equal(defaultOverlay.cardPath, "persona/active_system.md", "default overlay must inject the base Amaduse card");
 assert.ok(defaultOverlay.aliases.includes("amaduse"), "default overlay needs Amaduse alias");
+assert.ok(defaultOverlay.aliases.includes("amadesu"), "default overlay needs Amadesu alias");
 
 const noneOverlay = overlayCatalog.personas.find((item) => item.id === "none");
 assert.ok(noneOverlay, "missing explicit no-persona overlay");
@@ -105,7 +127,7 @@ for (const overlay of overlayCatalog.personas) {
   if (overlay.cardPath) {
     assert.ok(await existsFile(overlay.cardPath), `missing persona profile file: ${overlay.cardPath}`);
     const card = await fs.readFile(path.join(repoRoot, overlay.cardPath), "utf8");
-    assert.match(card, /^# (?:Persona Card|Active Persona Card) - /, `${overlay.id} card must use persona card heading`);
+    assert.match(card, /^# (?:角色卡|活跃角色卡) - /, `${overlay.id} card must use Chinese persona card heading`);
     assert.ok(card.length < (overlay.id === "default" ? 5000 : 2500), `${overlay.id} card should stay lightweight`);
     assert.doesNotMatch(card, /Tool access|safety rules|safety boundaries|owner checks|memory provenance|Long-term memory is shared|private memory scope/i, `${overlay.id} card must not carry runtime boundary boilerplate`);
   }

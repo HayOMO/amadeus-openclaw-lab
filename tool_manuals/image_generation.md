@@ -1,6 +1,6 @@
 ---
 id: image_generation
-tools: image_generate, image, image_skill_lookup, image_skill_save_reference, image_skill_note_preference, generated_gallery_recent, generated_gallery_search, generated_gallery_resend, media_artifact_recent, media_artifact_lineage, explicit_web_text_search, web_image_search, reverse_image_search, download_image_url, download_image_urls, web_snapshot
+tools: image_generate, image, image_skill, image_skill_save_reference, image_skill_note_preference, generated_gallery, generated_gallery_resend, media_artifact, explicit_web_text_search, web_image_search, reverse_image_search, download_image_url, download_image_urls, web_snapshot
 keywords: draw, generate, image2, gpt-image-2, image model, edit image, reference image, redraw, prompt, character reference, 生图, 画图, 生成图片, 改图, 重画, 重新画, 参考图, 人设图, 官方人设, 原设画风, 上张图, 重新发, 串味
 when_to_read: Before using image_generate or deciding whether an image request is new generation, edit/reference generation, resend, or found-image search.
 ---
@@ -12,8 +12,8 @@ when_to_read: Before using image_generate or deciding whether an image request i
 - `image_generate`: new image, edit, redraw, derivative image.
 - `image`: inspect images only; it does not draw.
 - For complex image generation, use `prompt_library search` / `compose` before
-  `image_generate` when the request matches a known recipe such as academic
-  figure, anime character, Chinese/Asian social-media card, guofeng/hanfu board,
+  `image_generate` when the request explicitly matches a known recipe such as
+  academic figure, anime character scene, Chinese social-media card,
   wallpaper/poster, sticker, or targeted negative failures.
 - One user request -> at most one `image_generate` call.
 - If image generation fails/times out/aborts: retry once only when the same local reference images are still required and the failure looks like transport/input delivery. Otherwise stop and reply briefly. No downgrade loop.
@@ -23,7 +23,7 @@ when_to_read: Before using image_generate or deciding whether an image request i
 ## Resend Is Not Regenerate
 
 - User says resend / 上张图没出来 / 没发出来 / 再发一次:
-  1. `generated_gallery_recent` or `generated_gallery_search`
+  1. `generated_gallery action=recent` or `generated_gallery action=search`
   2. `generated_gallery_resend`
 - Do not call `image_generate` for pure resend.
 
@@ -33,11 +33,16 @@ when_to_read: Before using image_generate or deciding whether an image request i
 - Pass images only when current user text points to a specific current/replied/lineage media handle.
 - Fresh wording such as 重新画, 新图, 另画一张, start over means prompt-only unless a specific image is named.
 - Use media handles from `[Imagebot media handles]`, not raw old local paths.
+- `current.image.N` and `reply.image.N` are valid only when listed in the
+  current turn's `[Imagebot media handles]`. If the user refers to a recent
+  prior attachment that is not listed, call `media_artifact action=recent` and
+  use the selected result's `details.results[n].path` as the image reference, or
+  ask the user to resend it.
 
 ## Named Character / Person
 
 - For named characters, public people, VTubers, mascots, OCs, products, places, logos, or unfamiliar visual subjects:
-  1. `image_skill_lookup`
+  1. `image_skill action=lookup`
   2. public/current search if needed
   3. `web_image_search`
   4. inspect returned previews/localMedia
@@ -48,7 +53,7 @@ when_to_read: Before using image_generate or deciding whether an image request i
 
 ## Local Image Skills
 
-- `image_skill_lookup`: recall saved character/style references and user preferences.
+- `image_skill action=lookup`: recall saved character/style references and user preferences.
 - `image_skill_save_reference`: save a useful bot-local reference for future requests.
 - `image_skill_note_preference`: record lightweight user preference for a character/style.
 
@@ -65,20 +70,15 @@ when_to_read: Before using image_generate or deciding whether an image request i
 
 ## Prompt Library Recipes
 
-Use these prompt cards as on-demand skills, not permanent prompt text:
+Use these prompt cards as on-demand skills, not permanent prompt text. Trigger
+only on explicit user intent; broad aesthetic words alone are not enough.
 
 - `recipe.academic_figure`: scientific diagrams, visual abstracts, teaching
   figures, and readable infographics.
 - `recipe.anime_character_scene`: two-dimensional character scenes with
   reference-led identity.
-- `recipe.asian_anime_tag_order`: Japanese/Niji/NovelAI-style anime tag order
-  for identity, pose, full-body, and background control.
 - `recipe.xiaohongshu_douyin_visual_note`: 小红书/抖音/公众号 covers,
   Chinese social cards, and creator-note layouts.
-- `recipe.asian_social_portrait_grid`: 小红书/日系/韩系 portrait grids,
-  social profile photos, and four/nine-grid photo sets.
-- `recipe.guofeng_hanfu_moodboard`: 国风/汉服/妆造 proposal boards and
-  Chinese fashion moodboards.
 - `negative.chinese_asian_aesthetic_failures`: avoid western influencer/SaaS
   defaults, eurocentric face drift, generic oriental props, and unreadable
-  dense Chinese text when an Asian social or guofeng aesthetic is requested.
+  dense Chinese text when an Asian social aesthetic is explicitly requested.

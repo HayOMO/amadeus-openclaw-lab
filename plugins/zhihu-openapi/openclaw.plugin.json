@@ -12,6 +12,7 @@
   },
   "contracts": {
     "tools": [
+      "zhihu",
       "zhihu_search",
       "zhihu_global_search",
       "zhihu_hot_list"

@@ -1,0 +1,98 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index 83caeb4..f8a5403 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -2104,15 +2104,51 @@ function resolveTelegramImagebotStoredActiveWindow(store, chatId, ref) {
+ 	if (!ref || typeof ref !== "object") return null;
+ 	const ownerUserKey = normalizeOptionalString(ref.ownerUserKey)?.trim();
+ 	const windowId = normalizeOptionalString(ref.windowId)?.trim();
+-	if (windowId) {
+-		const storedWindow = resolveTelegramImagebotUsableWindow(store, chatId, { windowId }, ownerUserKey);
+-		if (storedWindow) return storedWindow;
+-	}
++	if (!ownerUserKey || !windowId) return null;
+ 	const activeWindow = ownerUserKey ? store.activeByUser?.[ownerUserKey] : null;
+ 	const usableActiveWindow = resolveTelegramImagebotUsableWindow(store, chatId, activeWindow, ownerUserKey);
+-	if (usableActiveWindow && (!windowId || usableActiveWindow.windowId === windowId)) return usableActiveWindow;
++	if (usableActiveWindow && usableActiveWindow.windowId === windowId) return usableActiveWindow;
+ 	return null;
+ }
++function collectTelegramImagebotActiveWindowIds(store) {
++	const activeWindowIds = /* @__PURE__ */ new Set();
++	for (const [ownerUserKey, activeRef] of Object.entries(store.activeByUser ?? {})) {
++		if (!activeRef || typeof activeRef !== "object") continue;
++		const windowId = normalizeOptionalString(activeRef.windowId)?.trim();
++		if (!windowId) continue;
++		const candidate = store.windows?.[windowId] ?? activeRef;
++		if (!candidate || typeof candidate !== "object") continue;
++		if (candidate.closedAt) continue;
++		if (normalizeOptionalString(candidate.ownerUserKey)?.trim() !== ownerUserKey) continue;
++		activeWindowIds.add(windowId);
++	}
++	return activeWindowIds;
++}
++function closeTelegramImagebotInactiveWindows(store, now = Date.now(), reason = "inactive-window-routing-pruned") {
++	if (!store || typeof store !== "object") return false;
++	const activeWindowIds = collectTelegramImagebotActiveWindowIds(store);
++	const iso = new Date(now).toISOString();
++	let changed = false;
++	for (const [windowId, entry] of Object.entries(store.windows ?? {})) {
++		if (!entry || typeof entry !== "object") continue;
++		const id = normalizeOptionalString(entry.windowId)?.trim() || windowId;
++		if (!activeWindowIds.has(id) && !entry.closedAt) {
++			entry.closedAt = iso;
++			entry.closedReason = normalizeOptionalString(entry.closedReason)?.trim() || reason;
++			store.windows[windowId] = entry;
++			changed = true;
++		}
++	}
++	for (const [messageKey, ref] of Object.entries(store.byBotMessage ?? {})) {
++		const windowId = normalizeOptionalString(ref?.windowId)?.trim();
++		const windowEntry = windowId ? store.windows?.[windowId] : null;
++		if (!windowId || !activeWindowIds.has(windowId) || windowEntry?.closedAt) {
++			delete store.byBotMessage[messageKey];
++			changed = true;
++		}
++	}
++	return changed;
++}
+ function noteTelegramImagebotKnownWindowUser(store, userKey, senderId, senderName, now = Date.now()) {
+ 	if (!userKey) return;
+ 	const previousUser = store.users[userKey] && typeof store.users[userKey] === "object" ? store.users[userKey] : {};
+@@ -2224,6 +2260,7 @@ function resolveTelegramImagebotWindowContext(params) {
+ 			changed = true;
+ 		}
+ 	}
++	if (closeTelegramImagebotInactiveWindows(store, now)) changed = true;
+ 	let windowEntry = null;
+ 	let source = "sender";
+ 	const replyMessage = params.msg?.reply_to_message;
+@@ -2442,6 +2479,7 @@ function openTelegramImagebotWindow(params) {
+ 	};
+ 	store.activeByUser[userKey] = entry;
+ 	store.windows[windowId] = entry;
++	closeTelegramImagebotInactiveWindows(store, now);
+ 	writeTelegramImagebotWindowStore(params.cfg, params.agentId, store);
+ 	setTelegramImagebotSessionPersona({
+ 		cfg: params.cfg,
+@@ -2643,13 +2681,16 @@ function resolveTelegramImagebotAmmodelTarget(params) {
+ 	let untrustedCallback = false;
+ 	if (params.isGroup) {
+ 		const store = readTelegramImagebotWindowStore(params.cfg, route.agentId);
++		if (closeTelegramImagebotInactiveWindows(store)) writeTelegramImagebotWindowStore(params.cfg, route.agentId, store);
+ 		const callbackMessageId = params.msg?.__imagebotAmmodelCallback?.messageId ?? params.msg?.__imagebotAmpersonaCallback?.messageId;
+ 		const mapped = callbackMessageId != null ? store.byBotMessage?.[telegramImagebotMessageKey(params.chatId, callbackMessageId)] : null;
+ 		if (mapped?.sessionKey) {
+-			sessionKey = mapped.sessionKey;
+-			ownerUserKey = normalizeOptionalString(mapped.ownerUserKey)?.trim() || ownerUserKey;
+-			if (mapped.windowId) {
+-				const mappedWindow = resolveTelegramImagebotUsableWindow(store, params.chatId, { windowId: mapped.windowId });
++			const mappedWindow = mapped.windowId ? resolveTelegramImagebotStoredActiveWindow(store, params.chatId, mapped) : null;
++			if (mapped.windowId && !mappedWindow) {
++				untrustedCallback = true;
++			} else {
++				sessionKey = normalizeOptionalString(mappedWindow?.sessionKey)?.trim() || mapped.sessionKey;
++				ownerUserKey = normalizeOptionalString(mapped.ownerUserKey)?.trim() || ownerUserKey;
+ 				if (mappedWindow) targetWindow = formatTelegramImagebotAmmodelTargetWindow(mappedWindow);
+ 			}
+ 		} else if (callbackMessageId != null) {

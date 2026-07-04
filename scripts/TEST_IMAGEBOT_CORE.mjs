@@ -13,6 +13,7 @@ const tests = [
   ["node", ["scripts/TEST_RUNTIME_PATCH_MANIFEST.mjs"]],
   ["node", ["scripts/TEST_RUNTIME_PATCH_GOVERNANCE.mjs"]],
   ["node", ["scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"]],
+  ["node", ["scripts/TEST_TELEGRAM_AMMODEL_RUNTIME.mjs"]],
   ["node", ["scripts/TEST_IMAGEBOT_MULTIMODAL_ROUTE.mjs"]],
   ["node", ["scripts/TEST_IMAGEBOT_WINDOW_ROUTING.mjs"]],
   ["node", ["scripts/TEST_INTERACTION_CORE_PLUGIN.mjs"]],

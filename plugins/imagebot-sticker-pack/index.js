@@ -10,13 +10,16 @@ import {
   hasModelSuppliedApprovalFlag,
   hasTrustedMutationApproval,
   mutationTargetFingerprint,
+  newMutationApprovalCode,
   newMutationPlanId,
   requireTrustedActorContext,
   requireTrustedMutationApproval,
-  trustedMutationContext
+  trustedMutationContext,
+  verifyMutationPlanApproval
 } from "../imagebot-shared/mutation-authorization.mjs";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
-import { mediaUriToLocalPath, stripMediaUriDecorations } from "../imagebot-shared/media-uri.mjs";
+import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
+import { withStateFileLock, writeJsonAtomic } from "../imagebot-shared/state-file.mjs";
 
 const TOOL_NAME = "sticker_pack";
 const MAX_INPUT_BYTES = 20 * 1024 * 1024;
@@ -45,7 +48,7 @@ const SOURCE_SEARCH_REQUEST_TIMEOUT_MS = 15_000;
 const MANAGED_SET_REGISTRY_VERSION = 1;
 const TOOL_CONTEXT_TTL_MS = 10 * 60_000;
 const DIRECT_IMPORT_APPROVAL_ERROR =
-  "copy_set/import_set dryRun:false requires plan_id, trusted runtime mutation approval, or explicitly enabled trustedDirectMutations; model-supplied approval flags are ignored.";
+  "copy_set/import_set dryRun:false requires the current Telegram sender to match userId/ownerUserId, a plan_id, or trusted runtime mutation approval; model-supplied approval flags are ignored.";
 const EXPOSED_STICKER_ACTIONS = [
   "plan",
   "prepare",
@@ -332,8 +335,7 @@ function tokenFile(config = {}) {
 }
 
 async function writeJson(file, value) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await writeJsonAtomic(file, value, { space: 2 });
 }
 
 async function readJson(file) {
@@ -362,11 +364,7 @@ function isInside(root, target) {
 }
 
 function readMediaPath(raw, config = {}) {
-  const unwrapped = stripMediaUriDecorations(raw);
-  const localMediaPath = mediaUriToLocalPath(unwrapped, config);
-  if (localMediaPath) return localMediaPath;
-  if (/^file:\/\//i.test(unwrapped)) return decodeURIComponent(unwrapped.replace(/^file:\/\//i, ""));
-  return unwrapped;
+  return mediaReferenceToLocalPath(raw, config);
 }
 
 async function resolveAllowedFile(config, raw, { sticker = false } = {}) {
@@ -740,6 +738,18 @@ function assertOwnerMatchesContext(ownerUserId, ctx = {}, { dryRun = true, actio
   }
 }
 
+function ownerMatchesCurrentRequester(ownerUserId, ctx = {}) {
+  const owner = normalizeOwnerUserId(ownerUserId, ctx);
+  const requester = contextRequesterUserId(ctx);
+  return Boolean(owner && requester && owner === requester);
+}
+
+function addDefaultsToRealMutation(params = {}, ctx = {}) {
+  if (params.dryRun !== undefined) return false;
+  const owner = readString(params, "userId") || readString(params, "ownerUserId");
+  return ownerMatchesCurrentRequester(owner, ctx);
+}
+
 function trustedDirectMutationActions(config = {}) {
   const raw = isRecord(config.trustedDirectMutations) ? config.trustedDirectMutations : {};
   const configured = Array.isArray(raw.actions)
@@ -953,23 +963,26 @@ async function makeStickerMutationPlan(config = {}, params = {}, ctx = {}) {
   if (!targetAction || !STICKER_REMOTE_MUTATION_ACTIONS.has(targetAction)) {
     throw new Error("sticker_pack plan requires targetAction for a Telegram mutation action");
   }
-  const plans = await loadStickerPlans(config);
-  const plan = bindMutationPlanToContext({
-    id: newMutationPlanId("sticker_plan"),
-    kind: "sticker_pack",
-    targetAction,
-    t: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
-    reason: clip(readString(params, "reason"), 500),
-    fingerprint: stickerMutationFingerprint(targetAction, params),
-    targetParams: stickerMutationTargetParams(targetAction, params),
-    used: false
-  }, ctx, { label: "sticker_pack plan" });
-  plans.plans[plan.id] = plan;
-  const entries = Object.entries(plans.plans).filter(([, entry]) => Date.parse(entry.expiresAt || 0) > Date.now() && entry.used !== true);
-  plans.plans = Object.fromEntries(entries.slice(-120));
-  await saveStickerPlans(config, plans);
-  return plan;
+  return await withStateFileLock(stickerPlansPath(config), async () => {
+    const plans = await loadStickerPlans(config);
+    const plan = bindMutationPlanToContext({
+      id: newMutationPlanId("sticker_plan"),
+      kind: "sticker_pack",
+      targetAction,
+      t: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
+      reason: clip(readString(params, "reason"), 500),
+      fingerprint: stickerMutationFingerprint(targetAction, params),
+      targetParams: stickerMutationTargetParams(targetAction, params),
+      ...(targetAction === "delete_sticker" ? { approvalCode: newMutationApprovalCode("DELETE-STICKER") } : {}),
+      used: false
+    }, ctx, { label: "sticker_pack plan" });
+    plans.plans[plan.id] = plan;
+    const entries = Object.entries(plans.plans).filter(([, entry]) => Date.parse(entry.expiresAt || 0) > Date.now() && entry.used !== true);
+    plans.plans = Object.fromEntries(entries.slice(-120));
+    await saveStickerPlans(config, plans);
+    return plan;
+  });
 }
 
 async function planStickerMutation(config = {}, params = {}, ctx = {}) {
@@ -980,6 +993,7 @@ async function planStickerMutation(config = {}, params = {}, ctx = {}) {
     planId: plan.id,
     targetAction: plan.targetAction,
     expiresAt: plan.expiresAt,
+    approvalCode: plan.approvalCode,
     fingerprint: plan.fingerprint,
     dryRun: true
   };
@@ -1004,29 +1018,40 @@ function verifyTrustedStickerPlanActor(plan = {}, ctx = {}, label = "sticker_pac
 async function consumeStickerMutationPlan(config = {}, action = "", params = {}, ctx = {}) {
   const planId = readString(params, "plan_id") || readString(params, "planId");
   if (!planId) return { ok: false, reason: `${action} dryRun:false requires confirmation plan_id or trusted runtime mutation approval` };
-  const plans = await loadStickerPlans(config);
-  const plan = plans.plans[planId];
-  if (!plan || plan.kind !== "sticker_pack") return { ok: false, reason: "No matching active sticker_pack mutation plan." };
-  if (plan.used === true || Date.parse(plan.expiresAt || 0) <= Date.now()) return { ok: false, reason: "Sticker mutation plan expired or already used." };
-  if (plan.targetAction !== action) return { ok: false, reason: "Sticker mutation plan does not match the requested action." };
-  if (plan.fingerprint !== stickerMutationFingerprint(action, params)) {
-    return { ok: false, reason: "Sticker mutation plan does not match the requested target." };
-  }
-  const approval = verifyTrustedStickerPlanActor(plan, ctx, "sticker_pack");
-  if (!approval.ok) return approval;
-  plan.used = true;
-  plan.usedAt = new Date().toISOString();
-  plan.usedBy = approval.context ? {
-    accountId: approval.context.accountId,
-    chatId: approval.context.chatId,
-    threadId: approval.context.threadId,
-    sessionKey: approval.context.sessionKey,
-    windowId: approval.context.windowId,
-    senderId: approval.context.senderId,
-    messageId: approval.context.messageId
-  } : undefined;
-  await saveStickerPlans(config, plans);
-  return { ok: true, plan };
+  return await withStateFileLock(stickerPlansPath(config), async () => {
+    const plans = await loadStickerPlans(config);
+    const plan = plans.plans[planId];
+    if (!plan || plan.kind !== "sticker_pack") return { ok: false, reason: "No matching active sticker_pack mutation plan." };
+    if (plan.used === true || Date.parse(plan.expiresAt || 0) <= Date.now()) return { ok: false, reason: "Sticker mutation plan expired or already used." };
+    if (plan.targetAction !== action) return { ok: false, reason: "Sticker mutation plan does not match the requested action." };
+    if (plan.fingerprint !== stickerMutationFingerprint(action, params)) {
+      return { ok: false, reason: "Sticker mutation plan does not match the requested target." };
+    }
+    const approval = action === "delete_sticker"
+      ? (plan.approvalCode
+          ? verifyMutationPlanApproval({
+              plan,
+              ctx,
+              approvalCode: plan.approvalCode,
+              label: "sticker delete"
+            })
+          : { ok: false, reason: "delete_sticker approval plan is missing an approval code; create a new delete plan" })
+      : verifyTrustedStickerPlanActor(plan, ctx, "sticker_pack");
+    if (!approval.ok) return approval;
+    plan.used = true;
+    plan.usedAt = new Date().toISOString();
+    plan.usedBy = approval.context ? {
+      accountId: approval.context.accountId,
+      chatId: approval.context.chatId,
+      threadId: approval.context.threadId,
+      sessionKey: approval.context.sessionKey,
+      windowId: approval.context.windowId,
+      senderId: approval.context.senderId,
+      messageId: approval.context.messageId
+    } : undefined;
+    await saveStickerPlans(config, plans);
+    return { ok: true, plan };
+  });
 }
 
 async function hydrateStickerParamsFromPlan(config = {}, action = "", params = {}) {
@@ -1047,6 +1072,13 @@ async function requireDirectApproval(config = {}, params = {}, keys = [], label 
   }
   if (allowsTrustedDirectMutation(config, label, ctx)) {
     return { ok: true, plan: null, directTrusted: true };
+  }
+  if (label !== "delete_sticker") {
+    requireTrustedActorContext(ctx, { label });
+    if (hasLegacyFlag) {
+      throw new Error(`${label} dryRun:false ignores model-supplied approval flags (${keys.join(", ")}); userId/ownerUserId must match the current Telegram sender`);
+    }
+    return { ok: true, plan: null, userAligned: true };
   }
   if (hasTrustedMutationApproval(ctx)) {
     requireTrustedMutationApproval(ctx, { label });
@@ -1208,37 +1240,39 @@ function publicManagedSet(entry = {}) {
 async function rememberManagedSet(config = {}, entry = {}, options = {}) {
   const name = readStickerSetName(readString(entry, "name") || readString(entry, "setName"));
   if (!name) throw new Error("managed sticker set name is required");
-  const state = await readManagedSets(config);
-  const now = new Date().toISOString();
-  const previous = isRecord(state.sets[name]) ? state.sets[name] : {};
-  const ownerUserId = normalizeOwnerUserId(
-    readString(entry, "ownerUserId") || readString(entry, "userId") || previous.ownerUserId || ""
-  );
-  const stickerType = normalizeStickerType(readString(entry, "stickerType") || previous.stickerType || "regular");
-  const createdByBot = entry.createdByBot === undefined
-    ? Boolean(previous.createdByBot)
-    : Boolean(entry.createdByBot);
-  const permissionSource = readString(entry, "permissionSource") ||
-    previous.permissionSource ||
-    (createdByBot ? "created_by_this_bot" : "local_record_only");
-  const next = {
-    name,
-    title: clip(readString(entry, "title") || previous.title || "", 64),
-    ownerUserId,
-    stickerType,
-    link: readString(entry, "link") || previous.link || `https://t.me/addstickers/${name}`,
-    createdByBot,
-    permissionSource,
-    addedAt: previous.addedAt || now,
-    updatedAt: now,
-    lastAction: readString(entry, "lastAction") || previous.lastAction || ""
-  };
-  state.sets[name] = next;
-  if (options.makeDefault && ownerUserId) {
-    state.defaults[managedDefaultKey(ownerUserId, stickerType)] = name;
-  }
-  const written = await writeManagedSets(config, state);
-  return publicManagedSet(written.sets[name]);
+  return await withStateFileLock(managedSetsPath(config), async () => {
+    const state = await readManagedSets(config);
+    const now = new Date().toISOString();
+    const previous = isRecord(state.sets[name]) ? state.sets[name] : {};
+    const ownerUserId = normalizeOwnerUserId(
+      readString(entry, "ownerUserId") || readString(entry, "userId") || previous.ownerUserId || ""
+    );
+    const stickerType = normalizeStickerType(readString(entry, "stickerType") || previous.stickerType || "regular");
+    const createdByBot = entry.createdByBot === undefined
+      ? Boolean(previous.createdByBot)
+      : Boolean(entry.createdByBot);
+    const permissionSource = readString(entry, "permissionSource") ||
+      previous.permissionSource ||
+      (createdByBot ? "created_by_this_bot" : "local_record_only");
+    const next = {
+      name,
+      title: clip(readString(entry, "title") || previous.title || "", 64),
+      ownerUserId,
+      stickerType,
+      link: readString(entry, "link") || previous.link || `https://t.me/addstickers/${name}`,
+      createdByBot,
+      permissionSource,
+      addedAt: previous.addedAt || now,
+      updatedAt: now,
+      lastAction: readString(entry, "lastAction") || previous.lastAction || ""
+    };
+    state.sets[name] = next;
+    if (options.makeDefault && ownerUserId) {
+      state.defaults[managedDefaultKey(ownerUserId, stickerType)] = name;
+    }
+    const written = await writeManagedSets(config, state);
+    return publicManagedSet(written.sets[name]);
+  });
 }
 
 async function listManagedStickerSets(config = {}, params = {}, ctx = {}) {
@@ -1300,34 +1334,36 @@ async function forgetManagedSet(config = {}, params = {}, ctx = {}) {
   const owner = normalizeOwnerUserId(readString(params, "userId") || readString(params, "ownerUserId"), ctx);
   const dryRun = readBoolean(params, "dryRun", false);
   assertOwnerMatchesContext(owner, ctx, { dryRun, action: "forget_managed_set" });
-  const state = await readManagedSets(config);
-  const existing = state.sets[name] || null;
-  if (owner && existing?.ownerUserId && existing.ownerUserId !== owner) {
-    throw new Error("forget_managed_set owner-check failed: recorded owner does not match userId/ownerUserId");
-  }
-  if (dryRun) {
+  return await withStateFileLock(managedSetsPath(config), async () => {
+    const state = await readManagedSets(config);
+    const existing = state.sets[name] || null;
+    if (owner && existing?.ownerUserId && existing.ownerUserId !== owner) {
+      throw new Error("forget_managed_set owner-check failed: recorded owner does not match userId/ownerUserId");
+    }
+    if (dryRun) {
+      return {
+        status: "forget_managed_dry_run",
+        registryPath: managedSetsPath(config),
+        name,
+        ownerUserId: owner,
+        found: Boolean(existing),
+        dryRun
+      };
+    }
+    delete state.sets[name];
+    for (const [key, value] of Object.entries(state.defaults)) {
+      if (value === name && (!owner || key.startsWith(`${owner}:`))) delete state.defaults[key];
+    }
+    await writeManagedSets(config, state);
     return {
-      status: "forget_managed_dry_run",
+      status: "managed_set_forgotten",
       registryPath: managedSetsPath(config),
       name,
       ownerUserId: owner,
       found: Boolean(existing),
-      dryRun
+      dryRun: false
     };
-  }
-  delete state.sets[name];
-  for (const [key, value] of Object.entries(state.defaults)) {
-    if (value === name && (!owner || key.startsWith(`${owner}:`))) delete state.defaults[key];
-  }
-  await writeManagedSets(config, state);
-  return {
-    status: "managed_set_forgotten",
-    registryPath: managedSetsPath(config),
-    name,
-    ownerUserId: owner,
-    found: Boolean(existing),
-    dryRun: false
-  };
+  });
 }
 
 async function resolveManagedSetForAdd(config = {}, params = {}, ownerUserId = "", stickerType = "regular") {
@@ -2122,8 +2158,13 @@ async function createStickerSetBatch(config, params, ctx) {
 async function addSticker(config, params, ctx) {
   const owner = normalizeOwnerUserId(readString(params, "userId") || readString(params, "ownerUserId"), ctx);
   if (!owner) throw new Error("userId/ownerUserId is required to add a sticker");
-  const name = readString(params, "name") || readString(params, "setName");
-  if (!name) throw new Error("name/setName is required");
+  const stickerType = normalizeStickerType(readString(params, "stickerType"));
+  let name = readString(params, "name") || readString(params, "setName");
+  let managed = null;
+  if (!name) {
+    managed = await resolveManagedSetForAdd(config, params, owner, stickerType);
+    name = managed.name;
+  }
   const sticker = await stickerFileForInput(config, params);
   const body = {
     user_id: Number(owner),
@@ -2136,7 +2177,7 @@ async function addSticker(config, params, ctx) {
   } else {
     body.sticker = inputSticker(sticker.fileId, { ...params, stickerFormat: sticker.format });
   }
-  const dryRun = params.dryRun === undefined ? true : readBoolean(params, "dryRun", true);
+  const dryRun = params.dryRun === undefined ? !addDefaultsToRealMutation(params, ctx) : readBoolean(params, "dryRun", true);
   assertOwnerMatchesContext(owner, ctx, { dryRun, action: "add" });
   if (!dryRun) {
     await requireDirectApproval(config, params, ["addApproved", "directUploadApproved", "explicitUserApproval"], "add", ctx);
@@ -2144,7 +2185,7 @@ async function addSticker(config, params, ctx) {
     await rememberManagedSet(config, {
       ownerUserId: owner,
       name,
-      stickerType: normalizeStickerType(readString(params, "stickerType")),
+      stickerType,
       link: `https://t.me/addstickers/${name}`,
       createdByBot: true,
       permissionSource: "bot_api_add_succeeded",
@@ -2156,7 +2197,8 @@ async function addSticker(config, params, ctx) {
     name,
     link: `https://t.me/addstickers/${name}`,
     dryRun,
-    stickerFormat: sticker.format
+    stickerFormat: sticker.format,
+    ...(managed ? { managedSet: managed.name, defaultUsed: managed.fromDefault } : {})
   };
 }
 
@@ -2187,7 +2229,7 @@ async function addStickerBatch(config, params, ctx) {
   const items = readInputItems(params, { limit: MAX_ADD_BATCH_ITEMS, label: "add_batch" });
   if (!items.length) throw new Error("items/inputs are required for add_batch");
   const concurrency = readNumber(params, "apiConcurrency", 1, 1, 2);
-  const dryRun = params.dryRun === undefined ? true : readBoolean(params, "dryRun", true);
+  const dryRun = params.dryRun === undefined ? !addDefaultsToRealMutation(params, ctx) : readBoolean(params, "dryRun", true);
   const results = await mapLimit(items, concurrency, async (item, index) => {
     try {
       const result = await addSticker(config, { ...params, ...item, input: item.input, dryRun }, ctx);
@@ -2858,30 +2900,37 @@ async function deleteSticker(config, params, ctx = {}) {
 async function setStickerKeywords(config, params, ctx = {}) {
   const sticker = readString(params, "fileId") || readString(params, "sticker");
   if (!sticker) throw new Error("fileId/sticker is required");
+  const owner = normalizeOwnerUserId(readString(params, "userId") || readString(params, "ownerUserId"), ctx);
   const keywords = normalizeKeywords(params);
   const dryRun = params.dryRun === undefined ? true : readBoolean(params, "dryRun", true);
   if (!dryRun) {
+    if (!owner) throw new Error("userId/ownerUserId is required to edit sticker keywords");
+    assertOwnerMatchesContext(owner, ctx, { dryRun, action: "set_keywords" });
     await requireDirectApproval(config, params, ["directManagementApproved", "setKeywordsApproved", "explicitUserApproval"], "set_keywords", ctx);
     await botApi(config, "setStickerKeywords", { sticker, keywords });
   }
-  return { status: dryRun ? "set_keywords_dry_run" : "ok", fileId: sticker, keywords, dryRun };
+  return { status: dryRun ? "set_keywords_dry_run" : "ok", ownerUserId: owner, fileId: sticker, keywords, dryRun };
 }
 
 async function setStickerEmojiList(config, params, ctx = {}) {
   const sticker = readString(params, "fileId") || readString(params, "sticker");
   if (!sticker) throw new Error("fileId/sticker is required");
+  const owner = normalizeOwnerUserId(readString(params, "userId") || readString(params, "ownerUserId"), ctx);
   const emojiList = normalizeEmojiList(params);
   const dryRun = params.dryRun === undefined ? true : readBoolean(params, "dryRun", true);
   if (!dryRun) {
+    if (!owner) throw new Error("userId/ownerUserId is required to edit sticker emoji list");
+    assertOwnerMatchesContext(owner, ctx, { dryRun, action: "set_emoji_list" });
     await requireDirectApproval(config, params, ["directManagementApproved", "setEmojiApproved", "explicitUserApproval"], "set_emoji_list", ctx);
     await botApi(config, "setStickerEmojiList", { sticker, emoji_list: emojiList });
   }
-  return { status: dryRun ? "set_emoji_list_dry_run" : "ok", fileId: sticker, emojiList, dryRun };
+  return { status: dryRun ? "set_emoji_list_dry_run" : "ok", ownerUserId: owner, fileId: sticker, emojiList, dryRun };
 }
 
 function formatResult(action, result) {
   const lines = [`STICKER_PACK ${action} ${result.status || "ok"}`];
   if (result.planId) lines.push(`plan_id: ${result.planId}`);
+  if (result.approvalCode) lines.push(`approval_code: ${result.approvalCode}`);
   if (result.targetAction) lines.push(`target_action: ${result.targetAction}`);
   if (result.expiresAt) lines.push(`expires_at: ${result.expiresAt}`);
   if (result.draftId) lines.push(`draft_id: ${result.draftId}`);
@@ -3009,17 +3058,17 @@ async function imageBlockForPath(filePath, mimeType = "image/webp") {
 const stickerPackTool = {
   name: TOOL_NAME,
   label: "Sticker Pack",
-  description: "Telegram sticker-set workbench: prepare files, draft/review/publish bot-created sets, inspect/download known sets, copy/import on request, and add sent stickers to managed sets.",
+  description: "Telegram sticker-set workbench: prepare files, draft/review/publish bot-created sets, inspect/download known sets, copy/import on request, add ordinary image media, and add already sent Telegram stickers by file_id.",
   parameters: {
     type: "object",
     additionalProperties: true,
     properties: {
-      action: { type: "string", enum: EXPOSED_STICKER_ACTIONS, description: "Operation name. Read the sticker_pack manual for nontrivial workflows." },
+      action: { type: "string", enum: EXPOSED_STICKER_ACTIONS, description: "Operation name. Replied Telegram sticker: use add_from_sticker with a Telegram sticker file_id/sticker object. Ordinary image media: use add; default set may omit name/setName." },
       targetAction: { type: "string", description: "For action=plan, the Telegram mutation action to confirm. Prefer this only for delete_sticker." },
       plan_id: { type: "string", description: "Sticker mutation plan id returned by action=plan." },
       confirmation_text: { type: "string", description: "Legacy hint only; confirmation is inferred from the trusted chat turn, not from this field." },
-      input: { type: "string", description: "Bot-local image/sticker path or MEDIA line." },
-      inputs: { type: "array", items: { type: "string" }, description: "Bot-local paths or MEDIA lines for batch operations." },
+      input: { type: "string", description: "Bot-local image/sticker path, MEDIA line, media:// URI, or current/reply media handle resolved by runtime." },
+      inputs: { type: "array", items: { type: "string" }, description: "Bot-local paths, MEDIA lines, media:// URIs, or current/reply media handles for batch operations." },
       items: {
         type: "array",
         items: {
@@ -3040,10 +3089,16 @@ const stickerPackTool = {
         },
         description: "Per-sticker inputs or review decisions. Extra aliases are accepted; see manual."
       },
-      fileId: { type: "string", description: "Telegram sticker file_id." },
+      fileId: { type: "string", description: "Telegram sticker file_id; preferred for add_from_sticker when the source is an already sent/replied sticker." },
+      telegramSticker: { type: "object", additionalProperties: true, description: "Telegram Sticker object from current/reply context. add_from_sticker extracts file_id, emoji, set_name, is_animated, and is_video." },
+      stickerObject: { type: "object", additionalProperties: true, description: "Alias for telegramSticker." },
+      sticker: {
+        anyOf: [{ type: "object", additionalProperties: true }, { type: "string" }],
+        description: "Telegram Sticker object for add_from_sticker, or a sticker file_id/local sticker path where the action accepts one."
+      },
       userId: { type: "string", description: "Telegram owner user id for publishing." },
-      name: { type: "string", description: "Sticker set name or base name." },
-      setName: { type: "string", description: "Sticker set name alias." },
+      name: { type: "string", description: "Sticker set name or base name. add/add_from_sticker can omit this when the user has a managed default set." },
+      setName: { type: "string", description: "Sticker set name alias. add/add_from_sticker can omit this when the user has a managed default set." },
       sourceSet: { type: "string", description: "Existing Telegram set name or addstickers URL." },
       targetName: { type: "string", description: "Target sticker set name for copy_set/import_set." },
       title: { type: "string", description: "Sticker set title." },
@@ -3068,7 +3123,7 @@ const stickerPackTool = {
       mode: { type: "string", enum: ["create", "add"], description: "Create new set or add to existing set." },
       contactSheet: { type: "boolean", description: "Return contact sheet where supported." },
       autoPrepare: { type: "boolean", description: "Prepare ordinary images before upload." },
-      dryRun: { type: "boolean", description: "Do not mutate Telegram when true." }
+      dryRun: { type: "boolean", description: "Do not mutate Telegram when true. For user-aligned add/add_from_sticker/add_batch, omit or set false to perform the requested add; set true for preview only." }
     },
     required: ["action"]
   },
@@ -3186,7 +3241,7 @@ export const __testing = {
 export default {
   id: "imagebot-sticker-pack",
   name: "Imagebot Sticker Pack",
-  description: "Telegram sticker-file preparation and bot-created sticker-set management for already selected local media.",
+  description: "Telegram sticker-file preparation and bot-created sticker-set management for selected Telegram/bot media. Sent sticker copying uses Telegram file_id directly; ordinary images use local media paths or handles.",
   register(api) {
     stickerPackTool.config = api.config || {};
     api.registerTool(stickerPackTool, { name: TOOL_NAME });

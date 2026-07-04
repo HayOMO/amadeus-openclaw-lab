@@ -1,6 +1,6 @@
 ---
 id: image_skills
-tools: image_skill_lookup, image_skill_save_reference, image_skill_note_preference, image_skill_recent, image_generate, download_image_url, web_image_search
+tools: image_skill, image_skill_save_reference, image_skill_note_preference, image_generate, download_image_url, web_image_search
 keywords: image skill, character cache, reference cache, local reference, reuse reference, official character, style memory, 角色参考, 本地参考, 画过的角色, 角色缓存
 when_to_read: Before generating a named character/style that may already have local references or when saving useful references/preferences for future image generation.
 ---
@@ -20,7 +20,7 @@ They are not a heavy skill framework and do not replace `image_generate`.
 
 ## Lookup
 
-Use `image_skill_lookup` before searching the web when the user asks for a named
+Use `image_skill action=lookup` before searching the web when the user asks for a named
 character, repeated style, or subject the bot has drawn/referenced before.
 
 Lookup uses aliases plus lightweight fuzzy/CJK token matching. Short Chinese
@@ -58,5 +58,5 @@ not override the user's current request.
 
 ## Recent
 
-Use `image_skill_recent` for debugging or when the user asks what image skills
+Use `image_skill action=recent` for debugging or when the user asks what image skills
 are currently saved.
