@@ -41,6 +41,20 @@ function Move-FileWithRetry {
   throw $lastError
 }
 
+function Get-Sha256Hex {
+  param([string]$Path)
+  $stream = [System.IO.File]::OpenRead($Path)
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $hash = $sha256.ComputeHash($stream)
+    return ([System.BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant()
+  }
+  finally {
+    $sha256.Dispose()
+    $stream.Dispose()
+  }
+}
+
 $stateRoot = Resolve-StateDir $StateDir
 $runtimeRoot = Join-Path $stateRoot 'runtime\ffmpeg'
 $targetDir = Assert-ChildPath $runtimeRoot (Join-Path $runtimeRoot $Version)
@@ -80,7 +94,7 @@ if (-not (Test-Path -LiteralPath $targetDir)) {
       Move-FileWithRetry -Source $partialArchivePath -Destination $archivePath
     }
   }
-  $actual = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $actual = Get-Sha256Hex -Path $archivePath
   if ($actual -ne $expected) {
     throw "FFmpeg SHA-256 mismatch: expected $expected, got $actual"
   }

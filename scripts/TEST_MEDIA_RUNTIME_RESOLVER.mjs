@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolveFfmpeg, resolveFfprobe } from "../plugins/imagebot-shared/media-runtime.mjs";
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const installer = await fs.readFile(path.join(scriptDir, "INSTALL_FFMPEG_RUNTIME.ps1"), "utf8");
+assert.match(installer, /System\.Security\.Cryptography\.SHA256/, "installer must hash archives without optional PowerShell modules");
+assert.ok(!installer.includes("Get-FileHash"), "installer must work when Get-FileHash is unavailable on CI runners");
 
 const previousStateDir = process.env.OPENCLAW_STATE_DIR;
 const previousFfmpeg = process.env.IMAGEBOT_FFMPEG_PATH;
