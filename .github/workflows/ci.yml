@@ -46,6 +46,12 @@ jobs:
         shell: pwsh
         run: .\scripts\INSTALL_IMAGEBOT_PLUGIN_DEPS.ps1 -Force
 
+      - name: Install managed media runtime
+        run: npm run setup:media
+
+      - name: Verify managed media runtime
+        run: npm run verify:media
+
       - name: Plugin dependency audit
         run: npm run audit:plugins
 
