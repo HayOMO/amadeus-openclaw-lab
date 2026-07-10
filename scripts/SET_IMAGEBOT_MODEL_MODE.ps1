@@ -7,7 +7,7 @@ param(
 
   [string]$TextVerbosity = '',
 
-  # Kept for backward-compatible old callers. Chat output caps are no longer written by this script.
+  # 0 leaves chat output uncapped by local config; positive values write an explicit cap.
   [int]$MaxTokens = 0,
 
   [string]$ModelStatePath = '',
@@ -89,6 +89,9 @@ if (@('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max') -notcontains $e
 if (@('low', 'medium', 'high') -notcontains $effectiveVerbosity) {
   throw "Invalid text verbosity '$effectiveVerbosity'."
 }
+if ($MaxTokens -ne 0 -and ($MaxTokens -lt 256 -or $MaxTokens -gt 8192)) {
+  throw "Invalid max tokens '$MaxTokens'. Use 0 to leave unset, or an integer between 256 and 8192."
+}
 
 $knownModel = @($catalog.models | Where-Object { $_.id -eq $effectiveModel })[0]
 if ($knownModel -and $knownModel.enabled -eq $false) {
@@ -124,6 +127,9 @@ $modelState = [ordered]@{
   updatedAt = (Get-Date).ToUniversalTime().ToString('o')
   source = 'SET_IMAGEBOT_MODEL_MODE.ps1'
 }
+if ($MaxTokens -gt 0) {
+  $modelState.maxTokens = $MaxTokens
+}
 $modelStateJson = $modelState | ConvertTo-Json -Depth 6
 $modelStateUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($modelStatePath, $modelStateJson + [Environment]::NewLine, $modelStateUtf8NoBom)
@@ -140,9 +146,12 @@ $ops = @(
   @{ path = 'agents.list[0].params.textVerbosity'; value = $effectiveVerbosity },
   @{ path = ('agents.defaults.models["' + $effectiveModel + '"]'); value = @{} },
   @{ path = ('agents.list[0].models["' + $effectiveModel + '"]'); value = @{} },
-  @{ path = 'agents.defaults.imageModel'; value = @{ primary = 'openai/gpt-5.5' } },
+  @{ path = 'agents.defaults.imageModel'; value = @{ primary = 'openai/gpt-5.6-sol' } },
   @{ path = 'agents.defaults.imageGenerationModel'; value = $imageGenerationConfig }
 )
+if ($MaxTokens -gt 0) {
+  $ops += @{ path = 'agents.list[0].params.maxTokens'; value = $MaxTokens }
+}
 
 $profilesByModel = @{}
 foreach ($item in @($catalog.profiles)) {
@@ -180,6 +189,20 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($batchPath, $json, $utf8NoBom)
 
 openclaw config set --batch-file $batchPath
+if ($MaxTokens -le 0) {
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $unsetOutput = & openclaw config unset 'agents.list[0].params.maxTokens' 2>&1
+    $unsetExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  $unsetText = ($unsetOutput | Out-String).Trim()
+  if ($unsetExitCode -ne 0 -and $unsetText -notmatch 'Config path not found') {
+    throw "openclaw config unset agents.list[0].params.maxTokens failed with exit code $unsetExitCode`n$unsetText"
+  }
+}
 foreach ($item in @($catalog.models)) {
   if ($item.enabled -ne $false) { continue }
   $disabledModelId = [string]$item.id
@@ -211,6 +234,7 @@ $result = [ordered]@{
   model = $effectiveModel
   reasoningEffort = $effectiveReasoning
   textVerbosity = $effectiveVerbosity
+  maxTokens = $MaxTokens
   configWritten = $true
   modelStatePath = $modelStatePath
   batchPath = $batchPath

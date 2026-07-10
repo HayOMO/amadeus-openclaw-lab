@@ -85,6 +85,42 @@ async function makeManager(name, config = {}) {
 }
 
 {
+  const { manager } = await makeManager("imagebot-bg-retry-policy", { maxConcurrent: 1 });
+  let mutationRuns = 0;
+  const mutation = await manager.enqueue({
+    kind: "mutation",
+    attempts: 3,
+    backoffMs: 1,
+    handler: async () => {
+      mutationRuns += 1;
+      throw new Error("mutation failed");
+    }
+  });
+  const mutationFinal = await manager.waitForJob(mutation.job.id, 2000);
+  assert.equal(mutationFinal.state, "failed");
+  assert.equal(mutationFinal.attempts, 1, "background mutations must not retry implicitly");
+  assert.equal(mutationFinal.retryClass, "none");
+  assert.equal(mutationRuns, 1);
+
+  let readRuns = 0;
+  const idempotentRead = await manager.enqueue({
+    kind: "idempotent-read",
+    retryClass: "idempotent",
+    attempts: 3,
+    backoffMs: 1,
+    handler: async () => {
+      readRuns += 1;
+      if (readRuns < 3) throw new Error("temporary read failure");
+      return { ok: true };
+    }
+  });
+  const readFinal = await manager.waitForJob(idempotentRead.job.id, 2000);
+  assert.equal(readFinal.state, "completed");
+  assert.equal(readFinal.attempt, 3);
+  assert.equal(readFinal.retryClass, "idempotent");
+}
+
+{
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-bg-tool-"));
   const tools = new Map();
   const hooks = [];

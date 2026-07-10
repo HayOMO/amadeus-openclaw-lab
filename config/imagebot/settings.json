@@ -46,8 +46,7 @@
   "commandCatalogPath": "scripts/IMAGEBOT_COMMANDS.json",
   "promptSegments": [
     "config/imagebot/prompt/20-default-behavior.md",
-    "config/imagebot/prompt/30-tool-index.md",
-    "config/imagebot/prompt/40-workflows.md"
+    "config/imagebot/prompt/30-tool-index.md"
   ],
   "mentionPatterns": [
     "^@?YOUR_BOT_USERNAME\\b",
@@ -147,6 +146,7 @@
     "generated_gallery_resend",
     "group_adventure",
     "media_artifact",
+    "browser",
     "web_snapshot",
     "web_card",
     "media_transform",
@@ -223,6 +223,23 @@
     "cap": 12,
     "drop": "summarize"
   },
+  "telegramRuntime": {
+    "streaming": {
+      "mode": "progress",
+      "label": "处理中",
+      "maxLines": 4,
+      "maxLineChars": 120,
+      "toolProgress": true,
+      "commandText": "status",
+      "commentary": false
+    },
+    "retry": {
+      "attempts": 3,
+      "minDelayMs": 400,
+      "maxDelayMs": 30000,
+      "jitter": 0.1
+    }
+  },
   "textRepeater": {
     "enabled": true,
     "groupOnly": true,
@@ -267,31 +284,6 @@
     "maxPages": 6,
     "idleMs": 900000
   },
-  "accountBrowserRisk": {
-    "enabled": true,
-    "loginBackoffMs": 300000,
-    "verificationBackoffMs": 1800000,
-    "tiers": {
-      "read": {
-        "minIntervalMs": 5000,
-        "hourlyLimit": 48,
-        "dailyLimit": 160,
-        "actionLimit": 0
-      },
-      "light": {
-        "minIntervalMs": 9000,
-        "hourlyLimit": 32,
-        "dailyLimit": 120,
-        "actionLimit": 2
-      },
-      "interactive": {
-        "minIntervalMs": 15000,
-        "hourlyLimit": 18,
-        "dailyLimit": 80,
-        "actionLimit": 4
-      }
-    }
-  },
   "gachaArchive": {
     "channelChatId": "-1000000000002",
     "telegramTimeoutMs": 30000,
@@ -316,7 +308,7 @@
     ],
     "requiredSubstrings": [
       "telegram_media_spoiler",
-      "只负责交付标记"
+      "生成 Telegram 媒体交付标记"
     ]
   }
 }

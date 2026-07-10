@@ -9,7 +9,7 @@ const repoRoot = path.resolve(scriptDir, "..");
 const contractPath = path.join(repoRoot, "policy", "agent_architecture_contract.json");
 const settingsPath = path.join(repoRoot, "config", "imagebot", "settings.json");
 
-const BUILTIN_TOOLS = new Set(["image", "image_generate", "message"]);
+const BUILTIN_TOOLS = new Set(["browser", "image", "image_generate", "message"]);
 
 async function readText(relativePath) {
   return fs.readFile(path.join(repoRoot, relativePath), "utf8");
@@ -167,6 +167,14 @@ for (const [toolName, spec] of Object.entries(contract.longTaskTools)) {
     const source = await readText(`plugins/${baseTool === "script_action" ? "imagebot-creative-ops" : "imagebot-background-jobs"}/index.js`);
     assert.ok(source.includes(spec.checkpoint), `${toolName} must persist checkpoint ${spec.checkpoint}`);
   }
+}
+
+const retrySource = await readText(contract.retryPolicy.backgroundQueueSource);
+assert.equal(contract.retryPolicy.defaultAttempts, 1, "background work must default to one attempt");
+assert.equal(contract.retryPolicy.mutationAutoRetry, false, "mutating jobs must not retry implicitly");
+assert.ok(contract.retryPolicy.idempotentMaxAttempts <= 3, "idempotent retries must stay bounded");
+for (const evidence of contract.retryPolicy.sourceEvidence) {
+  assert.ok(retrySource.includes(evidence), `background retry policy missing evidence: ${evidence}`);
 }
 
 const memoryDoc = await readText(contract.memory.doc);

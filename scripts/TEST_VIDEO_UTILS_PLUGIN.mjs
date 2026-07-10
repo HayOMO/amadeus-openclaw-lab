@@ -3,9 +3,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { createRequire } from "node:module";
 import plugin, { __testing } from "../plugins/imagebot-video-utils/index.js";
 import { getBackgroundJobManager } from "../plugins/imagebot-background-jobs/index.js";
+import { resolveFfmpeg } from "../plugins/imagebot-shared/media-runtime.mjs";
 
 const mediaRoot = path.join(os.homedir(), ".openclaw", "media");
 const inbound = path.join(mediaRoot, "inbound", "clip.mp4");
@@ -36,8 +36,7 @@ const testDir = path.join(mediaRoot, "inbound", "video-utils-test");
 await fs.mkdir(testDir, { recursive: true });
 const videoPath = path.join(testDir, "unit-bg.mp4");
 const videoStickerPath = path.join(testDir, "unit-video-sticker.webm");
-const require = createRequire(path.resolve("plugins/imagebot-video-utils/index.js"));
-const ffmpeg = require("@ffmpeg-installer/ffmpeg").path;
+const ffmpeg = resolveFfmpeg(import.meta.url);
 const madeVideo = spawnSync(ffmpeg, [
   "-hide_banner",
   "-loglevel", "error",

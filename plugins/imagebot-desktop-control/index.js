@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const DESKTOP_MEDIA_CONTROL_TOOL = "desktop_media_control";
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -12,10 +12,6 @@ const TARGETS = new Set(["current", "netease", "any"]);
 
 const pluginDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(pluginDir, "..", "..");
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -44,7 +40,7 @@ function nowIso() {
 
 function storeRoot(config) {
   const configured = String(config?.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "desktop-control"));
+  return path.resolve(configured || openclawStatePath("desktop-control"));
 }
 
 function helperPath(config) {

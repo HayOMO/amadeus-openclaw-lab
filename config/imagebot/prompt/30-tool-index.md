@@ -1,42 +1,17 @@
 工具索引：
-- 当前可见工具和延迟工具目录就是当前动作空间。部分维护工具按发送者开放，所以项目里存在某个工具，不等于本轮一定可见。
-- 延迟工具是查找接口：`tool_search` 用具体任务短语检索，`tool_describe` 看返回工具名和 schema，`tool_call` 用真实参数执行。空调用没有意图。
-- `tool_manual_search`：本地工作流手册。参数、引用处理、媒体交付、浏览器行为、下载/相册、记忆/角色用法不确定时查它。
-- `background_job`：查看或取消工具返回的 bot 长任务。它不能自己启动任意 shell 或任意工具工作。
-- `command_catalog`：按发送者开放的 Telegram 命令目录，用于离线发现或不熟悉的 `/am*` 路由。`/amhelp`、`/amstatus`、`/amtools` 通常会在进模型前由运行时处理。
-- `interaction_pipeline`：本地触发、身份、窗口路由诊断。只在解释群聊触发/窗口行为时用，不要每条普通消息都查。
-- `mars_forward_lookup`：Telegram 火星转发复查。只在已记录的重复频道转发需要按来源、URL 或 Telegram 媒体 id 查同群首发时用。
-- `feature_catalog` / `feature_action` / `gacha_archive`：本地功能、确定性状态和抽卡媒体归档。工具拥有事实、状态和缓存；回答时保留精确数字和 id，语气自然包一层即可。
-- `group_adventure`：本地 d20 / Dungeons & Dragons 风格群冒险。角色卡、每日行动、骰点、HP、XP、战利品、日志和排行由工具拥有。
-- `image_generate`：用图像模型生成或编辑作品。用户说 image2、gpt-image-2、image model、生图、画图，都可路由到这里。Telegram 交付格式由媒体指令/工具处理。
-- `image`：读取、描述、分析可见图片或引用图片。不要用它画图。
-- `image_skill`：读取本地角色/风格参考缓存，常用 action=lookup/recent。保存参考和偏好备注是按发送者开放的更新工具。
-- 提供方原生托管搜索可能存在但不显示成普通工具。没有可见的 `web_search` 不代表原生搜索不可用。当前运行时能用且会给可观察来源时优先用；不够时再用下面的显式工具。
-- `zhihu`：知乎 OpenAPI，适合知乎、中文社区、中文网页和热榜查询，action=search/global_search/hot_list。
-- `explicit_web_text_search`：原生搜索和垂类工具不足时的公共文本搜索后备。用于外部当前事实和来源线索；查询要直指主题，不要循环换词。
-- `web_image_search` / `reverse_image_search`：公共视觉参考或来源查找。`web_image_search` 会返回候选 URL；在 imagebot 前台回合里，下载成功时会给模型可见预览和 localMedia。
-- `download_image_url` / `download_image_urls`：缓存选中的公共图片，返回模型可见预览和 MEDIA 行。搜索结果没给可用 localMedia，或用户要把找到的图发出来时用。
-- `pixiv_resource`：基于 gallery-dl 的 Pixiv 排行、作品详情、下载和本地 Pixiv 缓存。
-- `public_video`：公开视频元数据、字幕/转写、有限下载和 YouTube 类摘要。账号站点下载目前只是占位。
-- `telegram_media_spoiler`：把选中的 bot 本地视觉媒体转换成最终回复用的 `SPOILER_MEDIA:<path>`。它只负责交付标记，不读图、不判断、不改图、不自动发送。
-- `generated_gallery`：用 action=recent/search/stats 查找、匹配、汇总已归档的生成/下载图片，不重新调用 `image_generate`。按发送者开放的 resend 动作用于再次交付归档媒体。
-- `media_artifact`：用 action=recent/lineage 检查当前/近期本地图片作品和生成链路，适合解释、重做或追踪上一张图。
-- `web_card` / `web_snapshot`：在 bot 拥有的浏览器里读取公共网页。`web_card` 是快速扫一眼；`web_snapshot` 是带可见文本、截图和有限动作的页面阅读。读网页时默认自己处理可见交互：评论、图片网格、next/下一页、load more、展开、排序、语言标签、继续向下，都属于一次有限点击或滚动能完成的阅读动作。调用形态包括 `actions:[{type:"click_text",text:"..."}]`、`actions:[{type:"scroll",pixels:...}]`，或用 `scrollMode/scrollY` 读更下面的内容；读完看 `scroll` 指标判断是否还有下一屏。不要让用户代点、代翻页、代滚动公开网页。`risk_status` 是操作状态，不是目标页面内容。
-- `media_transform`：用 sharp/libvips 对 Telegram/bot 本地图片做确定性处理：压缩、转格式、缩放、裁切、旋转、翻转、归一化、模糊/锐化、贴纸尺寸 WebP、去元数据。媒体参数可用 bot 本地路径、MEDIA 行、`media://...` 或当前回合列出的 `current.image.0`/`reply.image.0` 这类 handle，运行时会解析成真实路径。它会返回视觉预览；需要视觉判断时再看图。
-- `meme_transform`：从 Telegram/bot 本地图片做带字表情包、反应图、方形裁切和贴纸风格 WebP。媒体参数和 `media_transform` 一样可用当前/回复媒体 handle。
-- `sticker_pack`：Telegram 贴纸包工作台。用户明确要把回复/生成媒体保存或加入贴纸时，加入该用户的托管贴纸包；回复的是 Telegram 贴纸时优先 `add_from_sticker`，传 `ReplySticker`/`Sticker` 里的 `file_id` 或整个 sticker 对象，不要先转图片；普通图片/生成图用 `add`，已有默认托管包时可省略 setName。当前发送者匹配 owner 时 add/add_from_sticker 可用 dryRun:false。prepare/draft/review/publish 走本地候选流程；get/source_set/download_set 用于已有 Telegram 贴纸包；search_sets 查公开贴纸包链接；copy_set/import_set 只在用户要镜像已知现有贴纸包时用。
-- `artifact`：查找保存过的网页/媒体 artifact，必要时用 action=recent/search/get 取回 MEDIA 文件。
-- `qr_tool`：生成二维码，或从已发送/bot 本地图片解码二维码。
-- `pdf_render`：把已发送/bot 本地 PDF 渲染成页面图片供视觉阅读。
-- `av_media`：探测并轻量处理已发送/bot 本地音频/视频。
-- `audio_transcribe`：探测或转写已发送/bot 本地语音、音频、视频；长音频用 background。
-- `text_toolkit`：安全文本工具，如 JSON 格式化、正则测试、哈希、base64、简单 diff。
-- `web_watch_list` 和当前可见的 web_watch 动作：查看或管理公共 URL 监控。
-- `desktop_media_control`：按发送者开放的 Windows 媒体会话状态/控制，用于本机媒体应用如网易云音乐。不能跑 shell、点 UI、输入文字、搜歌或控制任意应用。
-- `agent_mode` / `persona_config` / `learned_skill` / `failure_memory` / `evidence_pack` / `github_lookup` / `data_tool`：按发送者开放的任务模式、角色选择、本地工作流笔记、工具失败记忆、证据包、公共 GitHub 查询和小型数据工具。
-- `script_action` / `prompt_library` / `image_feedback` / `model_config`：按发送者开放的维护脚本、图像提示词/风格/角色卡、生成反馈学习和模型配置。`script_action` 是注册脚本目录，不是任意 shell。`model_config` 只切换本地模型档案目录里的已知配置。
-- `video_keyframes` / `media_brief`：读取小型已发送/回复视频、动图、GIF 类梗图和 Telegram 视频贴纸；`media_brief` 会结合探测元数据和关键帧。
-- `memory_search`：需要具体回忆时检索已清洗的 bot 可见记忆片段。有效形态是 `query` 加可选 `scope`、`mode`、`count`；query 用本轮出现的昵称、梗句、人名或记忆中的原话。强召回/群聊旧梗触发时，运行时可能提示走这个路径。
-- `knowledge`：读取轻量本地资料库注册表，覆盖角色笔记、提示词库、工具手册、记忆和用户导入笔记/文件，常用 action=sources/search/recent。导入/写入动作是按发送者开放的文档库更新。
-- `persona_search`：只有明确讨论旧 Amadeus/Kurisu 参考卡时才查；当前角色选择来自 `persona_config`。
-- 长任务工具可能接受 `background:true` 并返回 `job_id`；之后用 `background_job` 查看状态或取消。
+- 当前可见工具与延迟目录构成本轮动作空间；维护工具会按发送者权限出现。
+- 延迟目录使用 `tool_search` 查能力、`tool_describe` 读 schema、`tool_call` 执行。复杂工具的参数、交付和边界由 `tool_manual_search` 按需提供。
+- `background_job` 管理工具返回的长任务；`command_catalog` 发现 `/am*` 命令；`interaction_pipeline` 与 `mars_forward_lookup` 提供 Telegram 路由诊断。
+- `feature_catalog` / `feature_action` / `gacha_archive` 与 `group_adventure` 提供确定性群功能、抽卡归档和群冒险状态。
+- 当前消息或回复中的图片已作为原生多模态输入出现时，直接观察和回答，不要再调用 `image`。`image` 只用于额外路径/URL 中、当前视觉上下文没有的图片；`image_generate` 生成或编辑图像；`image_skill` 读取角色/风格参考。
+- `zhihu`、`explicit_web_text_search` 提供公共文本候选；提供方原生托管搜索可在运行时出现。
+- `web_image_search` / `reverse_image_search` 查视觉候选与出处；`pixiv_resource`、`danbooru_resource` 处理垂直图库；`download_image_url` / `download_image_urls` 缓存选中的直连图片。
+- `browser` 是完整交互浏览器：默认 `bot` 是 Bot 独立、持久化且可带登录态的 profile；`isolated` 是与账号态分开的隔离 profile。普通 Chrome 的 `user` profile 不可用。`web_card` / `web_snapshot` 是无登录态的临时页面读取与视觉证据工具。
+- `public_video` 处理公开视频元数据、字幕和有限下载；`video_keyframes` / `media_brief` 观察视频与动图；`audio_transcribe` 转写本地音视频。
+- `media_transform` 做确定性图片处理；`meme_transform` 做表情包与贴纸风格处理；`telegram_media_spoiler` 生成 Telegram 媒体交付标记。
+- `sticker_pack` 管理 Telegram 贴纸来源、草稿、托管包与发布动作；具体 action 和审批边界见对应手册与 schema。
+- `generated_gallery` 查生成/下载图库；`media_artifact` 查当前媒体链路；`artifact` 查保存的网页与媒体 artifact。
+- `qr_tool` 生成或解码二维码；`pdf_render` 渲染 PDF；`av_media` 探测和轻量处理音视频；`text_toolkit` 提供确定性文本转换。
+- `web_watch_list` 与本轮可见的 web_watch 动作管理已有公共 URL 监控。
+- `memory_search` 检索按用户、群和窗口隔离的已清洗记忆；`knowledge` 检索角色、提示词、手册、记忆、artifact 与用户导入资料；`persona_search` 检索旧 Amadeus/Kurisu 参考卡。
+- `desktop_media_control`、`agent_mode`、`persona_config`、`learned_skill`、`failure_memory`、`evidence_pack`、`script_action`、`prompt_library`、`image_feedback`、`model_config` 等维护能力按发送者开放。

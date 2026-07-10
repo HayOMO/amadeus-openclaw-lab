@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
@@ -14,6 +13,7 @@ import {
   verifyMutationPlanApproval
 } from "../imagebot-shared/mutation-authorization.mjs";
 import { appendFileLocked, withStateFileLock, writeJsonAtomic as writeSharedJsonAtomic } from "../imagebot-shared/state-file.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const SOURCES_TOOL = "knowledge_sources";
 const SEARCH_TOOL = "knowledge_search";
@@ -33,6 +33,8 @@ const CHUNK_OVERLAP = 140;
 const MAX_CHUNKS_PER_DOC = 36;
 const MIN_SEMANTIC_SCORE = 0.18;
 const INGEST_PLAN_TTL_MS = 15 * 60 * 1000;
+const KNOWLEDGE_FILE_INVENTORY_CACHE_MS = 1000;
+const KNOWLEDGE_FILE_TEXT_CACHE_MAX_ENTRIES = 256;
 
 const pluginDir = path.dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = path.resolve(pluginDir, "..", "..");
@@ -41,10 +43,11 @@ let cachedSemanticIndex = null;
 let cachedSemanticIndexMtimeMs = 0;
 let semanticBuildPromise = null;
 let lastSemanticBuildError = null;
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
+const knowledgeFileInventoryCache = new Map();
+const knowledgeFileInventoryPromises = new Map();
+const knowledgeFileTextCache = new Map();
+let knowledgeFileTextCacheHits = 0;
+let knowledgeFileTextCacheMisses = 0;
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -103,7 +106,7 @@ function repoRoot(config = {}) {
 
 function storeRoot(config = {}) {
   const configured = String(config.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "knowledge-library"));
+  return path.resolve(configured || openclawStatePath("knowledge-library"));
 }
 
 function userDocsRoot(config = {}) {
@@ -123,11 +126,11 @@ function semanticIndexPath(config = {}) {
 }
 
 function semanticCacheDir() {
-  return path.join(homeDir(), ".openclaw", "models", "transformers");
+  return openclawStatePath("models", "transformers");
 }
 
 function memoryRoot() {
-  return path.join(homeDir(), ".openclaw", "agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-memory");
+  return openclawStatePath("agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-memory");
 }
 
 function sourceDefinitions(config = {}) {
@@ -189,7 +192,35 @@ function normalizeMode(value) {
   return new Set(["hybrid", "semantic", "keyword"]).has(mode) ? mode : "hybrid";
 }
 
-async function walkFiles(root, { exts = [], limit = 200 } = {}) {
+function cloneFileList(files) {
+  return files.map((file) => ({ ...file }));
+}
+
+function fileInventoryCacheKey(root, { exts = [], limit = 200 } = {}) {
+  return JSON.stringify({
+    root: path.resolve(root),
+    exts: [...exts].map((ext) => ext.toLowerCase()).sort(),
+    limit
+  });
+}
+
+async function walkFiles(root, options = {}) {
+  const key = fileInventoryCacheKey(root, options);
+  const now = Date.now();
+  const cached = knowledgeFileInventoryCache.get(key);
+  if (cached && now - cached.checkedAt < KNOWLEDGE_FILE_INVENTORY_CACHE_MS) return cloneFileList(cached.files);
+  if (knowledgeFileInventoryPromises.has(key)) return cloneFileList(await knowledgeFileInventoryPromises.get(key));
+  const promise = walkFilesUncached(root, options).then((files) => {
+    knowledgeFileInventoryCache.set(key, { checkedAt: now, files: cloneFileList(files) });
+    return files;
+  }).finally(() => {
+    knowledgeFileInventoryPromises.delete(key);
+  });
+  knowledgeFileInventoryPromises.set(key, promise);
+  return cloneFileList(await promise);
+}
+
+async function walkFilesUncached(root, { exts = [], limit = 200 } = {}) {
   const out = [];
   const stack = [root];
   const extSet = new Set(exts.map((ext) => ext.toLowerCase()));
@@ -222,12 +253,28 @@ async function walkFiles(root, { exts = [], limit = 200 } = {}) {
 async function safeRead(filePath, maxBytes = MAX_FILE_BYTES) {
   const stat = await fs.stat(filePath);
   if (!stat.isFile()) return "";
+  const cacheKey = `${path.resolve(filePath)}:${stat.size}:${Math.trunc(stat.mtimeMs)}:${maxBytes}`;
+  const cached = knowledgeFileTextCache.get(cacheKey);
+  if (cached !== undefined) {
+    knowledgeFileTextCacheHits++;
+    knowledgeFileTextCache.delete(cacheKey);
+    knowledgeFileTextCache.set(cacheKey, cached);
+    return cached;
+  }
+  knowledgeFileTextCacheMisses++;
   const length = Math.min(stat.size, maxBytes);
   const handle = await fs.open(filePath, "r");
   try {
     const buffer = Buffer.alloc(length);
     await handle.read(buffer, 0, length, 0);
-    return buffer.toString("utf8");
+    const text = buffer.toString("utf8");
+    knowledgeFileTextCache.set(cacheKey, text);
+    while (knowledgeFileTextCache.size > KNOWLEDGE_FILE_TEXT_CACHE_MAX_ENTRIES) {
+      const oldest = knowledgeFileTextCache.keys().next().value;
+      if (!oldest) break;
+      knowledgeFileTextCache.delete(oldest);
+    }
+    return text;
   } finally {
     await handle.close();
   }
@@ -683,12 +730,44 @@ async function knowledgeRecent(config = {}, params = {}, ctx = {}) {
   };
 }
 
+function clearKnowledgeFileInventoryCache() {
+  knowledgeFileInventoryCache.clear();
+  knowledgeFileInventoryPromises.clear();
+}
+
+function clearKnowledgeFileTextCache() {
+  knowledgeFileTextCache.clear();
+  knowledgeFileTextCacheHits = 0;
+  knowledgeFileTextCacheMisses = 0;
+}
+
+function clearKnowledgeCaches() {
+  clearKnowledgeFileInventoryCache();
+  clearKnowledgeFileTextCache();
+}
+
+function knowledgeFileInventoryCacheStats() {
+  return {
+    entries: knowledgeFileInventoryCache.size,
+    pending: knowledgeFileInventoryPromises.size,
+    recheckMs: KNOWLEDGE_FILE_INVENTORY_CACHE_MS
+  };
+}
+
+function knowledgeFileTextCacheStats() {
+  return {
+    entries: knowledgeFileTextCache.size,
+    hits: knowledgeFileTextCacheHits,
+    misses: knowledgeFileTextCacheMisses,
+    maxEntries: KNOWLEDGE_FILE_TEXT_CACHE_MAX_ENTRIES
+  };
+}
+
 function allowedIngestRoots(config = {}) {
-  const home = homeDir();
   const defaults = [
-    path.join(home, ".openclaw", "media", "inbound"),
-    path.join(home, ".openclaw", "media", "downloaded"),
-    path.join(home, ".openclaw", "media", "practical-tools"),
+    openclawStatePath("media", "inbound"),
+    openclawStatePath("media", "downloaded"),
+    openclawStatePath("media", "practical-tools"),
     userDocsRoot(config)
   ];
   const extra = Array.isArray(config.allowedFileRoots) ? config.allowedFileRoots : [];
@@ -861,6 +940,7 @@ async function writeIngestPayload(config = {}, payload = {}, auth = {}) {
     contentHash: payload.contentHash || fullHash(payload.text || ""),
     size: Buffer.byteLength(body, "utf8")
   });
+  clearKnowledgeCaches();
   return {
     content: [{ type: "text", text: `KNOWLEDGE_INGEST ok\nid: ${id}\ntitle: ${title}\nsource: user_docs` }],
     details: { status: "ok", id, title, path: outPath, sourceId: "user_docs" }
@@ -981,6 +1061,7 @@ async function deleteIngestedTool(config = {}, params = {}, ctx = {}) {
       messageId: context.messageId || ""
     }
   });
+  clearKnowledgeCaches();
   return { content: [{ type: "text", text: `KNOWLEDGE_INGEST delete ok\nid: ${id}` }], details: { status: "ok", id } };
 }
 
@@ -1091,6 +1172,11 @@ export const __testing = {
   knowledgeSearch,
   knowledgeRecent,
   knowledgeIngest,
+  clearKnowledgeCaches,
+  clearKnowledgeFileInventoryCache,
+  clearKnowledgeFileTextCache,
+  knowledgeFileInventoryCacheStats,
+  knowledgeFileTextCacheStats,
   extractTerms,
   normalizeMode,
   chunkText,

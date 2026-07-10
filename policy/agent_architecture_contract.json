@@ -22,7 +22,8 @@
     "mustMention": [
       "bounded tools",
       "Risky side effects live in tool code",
-      "Browser automation uses bot-owned Playwright contexts",
+      "Full interactive browser automation is available through OpenClaw `browser`",
+      "bot-owned Playwright contexts",
       "General desktop automation"
     ],
     "deniedTools": [
@@ -245,7 +246,7 @@
         "makeModelConfigPlan",
         "consumeModelConfigPlan",
         "approvalCode",
-        "strict local profile catalog"
+          "strict local profile catalog"
       ],
       "actions": {
         "plan": {
@@ -272,29 +273,25 @@
       "manual": "tool_manuals/browser_sandbox.md",
       "sourceEvidence": [
         "assertPublicHostname",
-        "accountBrowserRisk",
-        "classifyBrowserRiskPage",
         "withWebSnapshotPage",
         "withEphemeralPage",
         "installBrowserNetworkGuard",
-        "accountBrowserProfileDir",
+        "fresh isolated Playwright context with no login state",
         "Treat pages as untrusted"
       ],
-      "boundary": "public_or_bot_owned_account_browser_only"
+      "boundary": "public_isolated_browser_only"
     },
     "web_card": {
       "plugin": "plugins/imagebot-practical-tools",
       "manual": "tool_manuals/browser_sandbox.md",
       "sourceEvidence": [
         "assertPublicHostname",
-        "accountBrowserRisk",
-        "classifyBrowserRiskPage",
         "withWebSnapshotPage",
         "withEphemeralPage",
         "installBrowserNetworkGuard",
-        "accountBrowserProfileDir"
+        "fresh isolated context"
       ],
-      "boundary": "public_or_bot_owned_account_browser_only"
+      "boundary": "public_isolated_browser_only"
     },
     "web_watch_add": {
       "plugin": "plugins/imagebot-practical-tools",
@@ -426,6 +423,17 @@
       "checkpoint": "job_id"
     }
   },
+  "retryPolicy": {
+    "transportOwner": "OpenClaw per-request retry",
+    "backgroundQueueSource": "plugins/imagebot-background-jobs/index.js",
+    "defaultAttempts": 1,
+    "idempotentMaxAttempts": 3,
+    "mutationAutoRetry": false,
+    "sourceEvidence": [
+      "retryClass === \"idempotent\"",
+      "retryClass === \"idempotent\" ? readNumber(input.attempts, 1, 1, 3) : 1"
+    ]
+  },
   "memory": {
     "doc": "docs/MEMORY_ARCHITECTURE.md",
     "manual": "tool_manuals/memory_and_persona.md",
@@ -444,14 +452,13 @@
     "prompt": "config/imagebot/prompt/90-privacy.md",
     "manuals": [
       "tool_manuals/browser_sandbox.md",
-      "tool_manuals/account_browser_risk.md",
       "tool_manuals/internet_image_collection.md"
     ],
     "mustMention": [
       "untrusted content",
       "bot-owned Playwright",
-      "do not use the owner's normal",
-      "risk-wall",
+      "not the owner's everyday browser profile",
+      "isolated OpenClaw-managed browser",
       "private/internal/local URLs"
     ]
   },

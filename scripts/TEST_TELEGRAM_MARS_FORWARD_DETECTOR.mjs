@@ -94,7 +94,7 @@ const context = {
 vm.createContext(context);
 vm.runInContext(`${bot.source.slice(start, end)}\nglobalThis.__mars = { resolveTelegramMarsForwardConfig, resolveTelegramMarsForwardFingerprints, resolveTelegramMarsForwardFingerprint, trackTelegramMarsForwardCandidate, buildTelegramMarsForwardReviewPrompt, maybeReactToTelegramMarsForward };`, context);
 
-const generated = await buildImagebotConfig({ write: false });
+const generated = await buildImagebotConfig({ write: false, template: true });
 const interactionConfig = generated.configOps.find((op) => op.path === "plugins.entries.imagebot-interaction-core.config")?.value;
 assert.equal(interactionConfig?.marsForwardDetector?.enabled, true);
 assert.deepEqual(interactionConfig?.marsForwardDetector?.scriptReactKinds, ["channel_message", "canonical_url", "telegram_file"]);

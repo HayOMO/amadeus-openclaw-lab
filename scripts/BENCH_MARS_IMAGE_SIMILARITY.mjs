@@ -1,15 +1,15 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { performance } from "node:perf_hooks";
+import { openclawStatePath } from "../plugins/imagebot-shared/openclaw-paths.mjs";
 
 const scriptDir = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 const repoRoot = path.resolve(scriptDir, "..");
 const require = createRequire(import.meta.url);
 const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
-const DEFAULT_ROOT = path.join(os.homedir(), ".openclaw", "media", "archive");
+const DEFAULT_ROOT = openclawStatePath("media", "archive");
 const DEFAULT_LIMIT = 512;
 const DEFAULT_CONCURRENCY = 4;
 const HASH_MAX_DISTANCE = 192;
@@ -230,7 +230,7 @@ const limit = readNumberArg("--limit", DEFAULT_LIMIT, 1, 100_000);
 const concurrency = readNumberArg("--concurrency", DEFAULT_CONCURRENCY, 1, 32);
 const queryCount = readNumberArg("--queries", 20, 1, 1000);
 const includePhash = !process.argv.includes("--no-phash");
-const outputPath = path.resolve(argValue("--output", path.join(os.homedir(), ".openclaw", "imagebot", "mars-image-sim-benchmark.json")));
+const outputPath = path.resolve(argValue("--output", openclawStatePath("imagebot", "mars-image-sim-benchmark.json")));
 
 const sharp = loadSharp();
 const files = await listImages(root, limit);

@@ -1,11 +1,11 @@
 import fs from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
 import { appendFileLocked, withStateFileLock, writeJsonAtomic as writeSharedJsonAtomic } from "../imagebot-shared/state-file.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const FEATURE_CATALOG_TOOL = "feature_catalog";
 const FEATURE_ACTION_TOOL = "feature_action";
@@ -31,10 +31,6 @@ const ARCHIVE_MIME = new Map([
 
 const pluginDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(pluginDir, "..", "..");
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -94,7 +90,7 @@ function hash(value, len = 16) {
 
 function storeRoot(config) {
   const configured = String(config?.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "feature-core"));
+  return path.resolve(configured || openclawStatePath("feature-core"));
 }
 
 function featuresRoot(config) {
@@ -136,7 +132,7 @@ function gachaArchiveConfigFromOpenClawConfig() {
   if (cachedOpenClawGachaArchiveConfig !== undefined) return cachedOpenClawGachaArchiveConfig;
   cachedOpenClawGachaArchiveConfig = {};
   try {
-    const configPath = path.join(homeDir(), ".openclaw", "openclaw.json");
+    const configPath = openclawStatePath("openclaw.json");
     const rootConfig = JSON.parse(readFileSync(configPath, "utf8"));
     const pluginConfig = rootConfig?.plugins?.entries?.["imagebot-feature-core"]?.config;
     if (isRecord(pluginConfig?.gachaArchive)) cachedOpenClawGachaArchiveConfig = pluginConfig.gachaArchive;
@@ -163,7 +159,7 @@ function gachaArchiveRoot(config) {
 function gachaArchiveSendRoot(config) {
   const archiveConfig = gachaArchiveConfig(config);
   const configured = String(archiveConfig.sendDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "media", "gacha-archive"));
+  return path.resolve(configured || openclawStatePath("media", "gacha-archive"));
 }
 
 function gachaArchiveIndexPath(config) {
@@ -214,13 +210,12 @@ function readMediaPath(value) {
 }
 
 function allowedArchiveMediaRoots(config) {
-  const home = homeDir();
   const defaults = [
-    path.join(home, ".openclaw", "media", "inbound"),
-    path.join(home, ".openclaw", "media", "tool-image-generation"),
-    path.join(home, ".openclaw", "media", "downloaded"),
-    path.join(home, ".openclaw", "media", "gallery-resend"),
-    path.join(home, ".openclaw", "media", "practical-tools"),
+    openclawStatePath("media", "inbound"),
+    openclawStatePath("media", "tool-image-generation"),
+    openclawStatePath("media", "downloaded"),
+    openclawStatePath("media", "gallery-resend"),
+    openclawStatePath("media", "practical-tools"),
     gachaArchiveSendRoot(config),
     gachaArchiveRoot(config)
   ];
@@ -2214,7 +2209,7 @@ function archiveChannelId(config) {
 function archiveTokenFile(config) {
   const archiveConfig = gachaArchiveConfig(config);
   const configured = String(archiveConfig.tokenFile || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "secrets", "telegram-imagebot.token"));
+  return path.resolve(configured || openclawStatePath("secrets", "telegram-imagebot.token"));
 }
 
 async function sendGachaArchiveToTelegram(config, archive) {

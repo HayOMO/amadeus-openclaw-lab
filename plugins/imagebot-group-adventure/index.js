@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const TOOL_NAME = "group_adventure";
 const MAX_TEXT = 6000;
@@ -64,10 +64,6 @@ const DEFAULT_WORLD = {
   ]
 };
 
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
-
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -125,7 +121,7 @@ function normalizedIdentity(value) {
 
 function storeRoot(config = {}) {
   const configured = String(config.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "group-adventure"));
+  return path.resolve(configured || openclawStatePath("group-adventure"));
 }
 
 function statePath(config = {}) {

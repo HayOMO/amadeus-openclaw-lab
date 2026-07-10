@@ -217,7 +217,7 @@ function Start-ImagebotBrowserPrewarm {
     return
   }
 
-  Write-Host "Warming isolated browser in background..."
+  Write-Host "Warming browser runtime in background..."
   Start-Process `
     -FilePath "powershell.exe" `
     -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $BrowserPrewarmScript, "-Fast", "-SoftFail") `

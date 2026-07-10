@@ -1,11 +1,11 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
 import { createCallbackRecord } from "../imagebot-shared/interaction-session-registry.js";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const TOOL_NAME = "interaction_pipeline";
 const MARS_FORWARD_LOOKUP_TOOL = "mars_forward_lookup";
@@ -743,17 +743,13 @@ function fail(error) {
   };
 }
 
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
-
 function marsConfig(config = {}) {
   return configObject(config, "marsForwardDetector", {});
 }
 
 function marsStatePath(config = {}) {
   const configured = readString(marsConfig(config), "statePath");
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "imagebot", "mars-forward-detector.json"));
+  return path.resolve(configured || openclawStatePath("imagebot", "mars-forward-detector.json"));
 }
 
 function marsSqlitePath(config = {}) {
@@ -766,7 +762,7 @@ function marsSqlitePath(config = {}) {
 function marsTokenFile(config = {}) {
   const detector = marsConfig(config);
   const configured = readString(detector, "tokenFile") || readString(config, "tokenFile");
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "secrets", "telegram-imagebot.token"));
+  return path.resolve(configured || openclawStatePath("secrets", "telegram-imagebot.token"));
 }
 
 async function readJsonFile(filePath, fallback = null) {

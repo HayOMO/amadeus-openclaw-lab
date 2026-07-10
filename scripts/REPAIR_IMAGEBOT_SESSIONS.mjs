@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { openclawStatePath } from "../plugins/imagebot-shared/openclaw-paths.mjs";
 
 const DEFAULT_AGENT = "imagebot";
 const DEFAULT_VISIBLE_RESULTS = 6;
@@ -9,12 +9,8 @@ const DEFAULT_DETAIL_RESULTS = 12;
 const DEFAULT_LOCK_STALE_SECONDS = 900;
 const REPAIR_TEXT = "[assistant turn interrupted after a provider overload; continue from the visible conversation and tool results if relevant.]";
 
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
-
 function defaultSessionsDir(agent = DEFAULT_AGENT) {
-  return path.join(homeDir(), ".openclaw", "agents", agent, "sessions");
+  return openclawStatePath("agents", agent, "sessions");
 }
 
 function isRecord(value) {

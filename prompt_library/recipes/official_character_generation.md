@@ -12,8 +12,11 @@ specific persona and no reliable reference image is already delivered.
 
 Workflow:
 
-1. Search for official/canonical references first.
-2. Inspect at least one promising image before generation.
+1. Search for official/canonical references first: official character pages,
+   official art books, game/anime sites, publisher pages, or high-confidence
+   source wikis when official pages are not reachable.
+2. Verify the source title and at least one visible image: hair, eyes, outfit,
+   silhouette, signature accessories, palette, and common wrong variants.
 3. Pass selected reference images to `image_generate.images`.
 4. Use the prompt mainly for requested action, composition, mood, and any user
    style changes. Let the reference image carry the original design/style.
@@ -21,5 +24,5 @@ Workflow:
 Avoid:
 
 - Text-only generation for a specified character.
-- Passing old generated images as references unless the user explicitly asks to
-  edit that exact generated image.
+- Passing old or current-turn generated images as references unless the user
+  explicitly asks to edit that exact generated image.

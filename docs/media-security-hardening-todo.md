@@ -212,9 +212,10 @@ Also consider rejecting huge page counts or absurd page dimensions explicitly if
 - Very large page-size PDFs fail or render at bounded memory.
 - The 6-page maximum remains in place.
 
-## Priority 4: verify installed native parser versions
+## Priority 4: verify installed native parser versions (completed 2026-07-10)
 
-The repo uses installer packages for ffmpeg/ffprobe in `plugins/imagebot-video-utils/package.json`:
+The repo retains installer packages for ffmpeg/ffprobe as clean-CI fallbacks in
+`plugins/imagebot-video-utils/package.json`:
 
 ```json
 {
@@ -223,24 +224,20 @@ The repo uses installer packages for ffmpeg/ffprobe in `plugins/imagebot-video-u
 }
 ```
 
-Codex should inspect the actual lockfile/runtime before changing this. The important thing is the binary version, not just npm package semver.
+The original active package binary was a 2018 FFmpeg snapshot. Production media
+tools now resolve the managed, SHA-256-verified FFmpeg/FFprobe 8.1.2 runtime
+through `plugins/imagebot-shared/media-runtime.mjs`.
 
-Add or run a diagnostic command:
+Install and verify the active runtime with:
 
 ```bash
-node -e "console.log(require('@ffmpeg-installer/ffmpeg').path)"
-node -e "console.log(require('@ffprobe-installer/ffprobe').path)"
-ffmpeg -version
-ffprobe -version
-npm ls sharp @ffmpeg-installer/ffmpeg @ffprobe-installer/ffprobe
+npm run setup:media
+npm run verify:media
 ```
 
-If the installer packages are stale or hard to update, prefer either:
-
-- a known current ffmpeg binary shipped by the app/tooling;
-- or a documented system ffmpeg dependency checked at startup.
-
-Do not blindly bump without verifying Windows behavior.
+The resolver still permits explicit `IMAGEBOT_FFMPEG_PATH` and
+`IMAGEBOT_FFPROBE_PATH` overrides and a system `PATH` installation. Audio,
+video-keyframe, and practical AV tests run against the resolved active binary.
 
 ## Priority 5: add regression tests for media safety gates
 

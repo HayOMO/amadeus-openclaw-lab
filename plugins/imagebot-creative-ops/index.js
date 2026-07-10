@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -14,6 +13,7 @@ import {
   verifyMutationPlanApproval
 } from "../imagebot-shared/mutation-authorization.mjs";
 import { appendFileLocked, withStateFileLock, writeJsonAtomic as writeSharedJsonAtomic } from "../imagebot-shared/state-file.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const SCRIPT_ACTION_TOOL = "script_action";
 const PROMPT_LIBRARY_TOOL = "prompt_library";
@@ -126,10 +126,6 @@ const SCRIPT_REGISTRY = [
   }
 ];
 
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
-
 function repoRoot(config) {
   const configured = String(config?.repoRoot || "").trim();
   return path.resolve(configured || defaultRepoRoot);
@@ -137,7 +133,7 @@ function repoRoot(config) {
 
 function storeRoot(config) {
   const configured = String(config?.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "creative-ops"));
+  return path.resolve(configured || openclawStatePath("creative-ops"));
 }
 
 function plansPath(config) {
@@ -159,14 +155,14 @@ function modelProfilesPath(config) {
 
 function openClawConfigPath(config) {
   const configured = String(config?.openClawConfigPath || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "openclaw.json"));
+  return path.resolve(configured || openclawStatePath("openclaw.json"));
 }
 
 function sessionStorePath(config, ctx = {}) {
   const configured = String(config?.sessionStorePath || "").trim();
   if (configured) return path.resolve(configured);
   const agentId = String(ctx?.agentId || config?.agentId || "imagebot").trim().replace(/[^A-Za-z0-9_.-]/g, "_") || "imagebot";
-  return path.join(homeDir(), ".openclaw", "agents", agentId, "sessions", "sessions.json");
+  return openclawStatePath("agents", agentId, "sessions", "sessions.json");
 }
 
 function commandCatalogPath(config) {
@@ -663,7 +659,7 @@ function formatScriptLine(script, index = 0) {
 function backgroundJobsConfig(config) {
   const configured = isRecord(config.backgroundJobs) ? config.backgroundJobs : {};
   return {
-    storeDir: configured.storeDir || path.join(homeDir(), ".openclaw", "background-jobs"),
+    storeDir: configured.storeDir || openclawStatePath("background-jobs"),
     maxConcurrent: readNumber(configured, "maxConcurrent", 3, 1, 8),
     appendActiveContext: configured.appendActiveContext !== false
   };
@@ -1065,10 +1061,13 @@ const commandCatalogTool = {
 const DEFAULT_MODEL_CATALOG = {
   version: 1,
   models: [
-    { id: "openai/gpt-5.5", label: "GPT-5.5", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"] },
-    { id: "openai/gpt-5.4", label: "GPT-5.4", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"] },
-    { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"] },
-    { id: "openai/gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", provider: "openai", enabled: true, reasoningEfforts: ["off"], toolPolicy: CHAT_ONLY_TOOL_POLICY },
+    { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", provider: "openai", enabled: true, reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], nativeCapabilities: ["text", "vision"] },
+    { id: "openai/gpt-5.6-terra", label: "GPT-5.6 Terra", provider: "openai", enabled: true, reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], nativeCapabilities: ["text", "vision"] },
+    { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna", provider: "openai", enabled: true, reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], nativeCapabilities: ["text", "vision"] },
+    { id: "openai/gpt-5.5", label: "GPT-5.5", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], nativeCapabilities: ["text", "vision"] },
+    { id: "openai/gpt-5.4", label: "GPT-5.4", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], nativeCapabilities: ["text", "vision"] },
+    { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], nativeCapabilities: ["text", "vision"] },
+    { id: "openai/gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", provider: "openai", enabled: false, reasoningEfforts: ["off"], nativeCapabilities: ["text"], toolPolicy: CHAT_ONLY_TOOL_POLICY },
     { id: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash", provider: "deepseek", enabled: true, reasoningEfforts: ["off", "high", "max"] },
     { id: "deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro", provider: "deepseek", enabled: true, reasoningEfforts: ["off", "high", "max"] }
   ],
@@ -1076,12 +1075,13 @@ const DEFAULT_MODEL_CATALOG = {
   textVerbosity: ["low", "medium", "high"],
   profiles: [
     { id: "fast", label: "Fast", model: "openai/gpt-5.5", reasoningEffort: "low", textVerbosity: "low" },
-    { id: "balanced", label: "Balanced", model: "openai/gpt-5.5", reasoningEffort: "medium", textVerbosity: "low" },
-    { id: "deep", label: "GPT High", model: "openai/gpt-5.5", reasoningEffort: "high", textVerbosity: "low" },
-    { id: "research", label: "GPT XHigh", model: "openai/gpt-5.5", reasoningEffort: "xhigh", textVerbosity: "medium" },
+    { id: "balanced", label: "Balanced", model: "openai/gpt-5.6-sol", reasoningEffort: "medium", textVerbosity: "low" },
+    { id: "deep", label: "GPT High", model: "openai/gpt-5.6-sol", reasoningEffort: "high", textVerbosity: "low" },
+    { id: "research", label: "GPT XHigh", model: "openai/gpt-5.6-sol", reasoningEffort: "xhigh", textVerbosity: "medium" },
+    { id: "terra", label: "GPT-5.6 Terra Medium", model: "openai/gpt-5.6-terra", reasoningEffort: "medium", textVerbosity: "low" },
+    { id: "luna", label: "GPT-5.6 Luna Medium", model: "openai/gpt-5.6-luna", reasoningEffort: "medium", textVerbosity: "low" },
     { id: "gpt54", label: "GPT-5.4 Medium", model: "openai/gpt-5.4", reasoningEffort: "medium", textVerbosity: "low" },
     { id: "mini", label: "GPT-5.4 Mini", model: "openai/gpt-5.4-mini", reasoningEffort: "low", textVerbosity: "low" },
-    { id: "spark", label: "Spark Chat", model: "openai/gpt-5.3-codex-spark", reasoningEffort: "off", textVerbosity: "low", toolPolicy: CHAT_ONLY_TOOL_POLICY },
     { id: "ds-fast", label: "DS Flash High", model: "deepseek/deepseek-v4-flash", reasoningEffort: "high", textVerbosity: "low" },
     { id: "ds-pro", label: "DS Pro High", model: "deepseek/deepseek-v4-pro", reasoningEffort: "high", textVerbosity: "low" },
     { id: "ds-flash-off", label: "DS Flash Off", model: "deepseek/deepseek-v4-flash", reasoningEffort: "off", textVerbosity: "low" },

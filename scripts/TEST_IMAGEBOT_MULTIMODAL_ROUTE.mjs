@@ -25,19 +25,29 @@ async function importDistByPrefix(prefix, marker) {
 const cfg = {
   models: {
     providers: {
-      openai: {}
+      openai: {
+        api: "openai-chatgpt-responses",
+        models: [{
+          id: "gpt-5.6-sol",
+          name: "gpt-5.6-sol",
+          input: ["text", "image"],
+          contextWindow: 400_000,
+          contextTokens: 272_000,
+          maxTokens: 128_000
+        }]
+      }
     }
   },
   agents: {
     defaults: {
-      model: { primary: "openai/gpt-5.5" },
-      models: { "openai/gpt-5.5": {} },
-      imageModel: { primary: "openai/gpt-5.5" }
+      model: { primary: "openai/gpt-5.6-sol" },
+      models: { "openai/gpt-5.6-sol": {} },
+      imageModel: { primary: "openai/gpt-5.6-sol" }
     },
     list: [{
       id: "imagebot",
-      model: "openai/gpt-5.5",
-      models: { "openai/gpt-5.5": {} },
+      model: "openai/gpt-5.6-sol",
+      models: { "openai/gpt-5.6-sol": {} },
       params: {
         reasoningEffort: "medium",
         textVerbosity: "low"
@@ -55,6 +65,18 @@ const cfg = {
 
 const runner = await importDistByPrefix("runner-", "primary model supports vision natively");
 const effectiveRoute = await importDistByPrefix("effective-reply-route-", "imageOrder");
+
+assert.deepEqual(
+  await runner.r({
+    cfg,
+    agentId: "imagebot",
+    agentDir: process.cwd(),
+    workspaceDir: process.cwd(),
+    activeModel: { provider: "deepseek", model: "deepseek-v4-flash" }
+  }),
+  { provider: "openai", model: "gpt-5.6-sol" },
+  "text-only or weaker active models must keep GPT-5.6 Sol as the image-analysis fallback"
+);
 
 const mediaDir = path.join(os.homedir(), ".openclaw", "media", "inbound", "multimodal-route-test");
 await fs.mkdir(mediaDir, { recursive: true });
@@ -81,7 +103,7 @@ const nativeVisionDecision = await runner.a({
   ctx,
   media,
   providerRegistry: runner.t(undefined, cfg),
-  activeModel: { provider: "openai", model: "gpt-5.5" },
+  activeModel: { provider: "openai", model: "gpt-5.6-sol" },
   agentId: "imagebot",
   agentDir: process.cwd(),
   workspaceDir: process.cwd(),
@@ -90,11 +112,11 @@ const nativeVisionDecision = await runner.a({
 assert.deepEqual(nativeVisionDecision.outputs, []);
 assert.equal(nativeVisionDecision.decision.outcome, "skipped");
 assert.equal(nativeVisionDecision.decision.attachments[0]?.chosen?.provider, "openai");
-assert.equal(nativeVisionDecision.decision.attachments[0]?.chosen?.model, "gpt-5.5");
+assert.equal(nativeVisionDecision.decision.attachments[0]?.chosen?.model, "gpt-5.6-sol");
 assert.equal(
   nativeVisionDecision.decision.attachments[0]?.chosen?.reason,
   "primary model supports vision natively",
-  "GPT-5.5 image turns must skip text-only image understanding instead of spending an extra image-model pass",
+  "GPT-5.6 Sol image turns must skip text-only image understanding instead of spending an extra image-model pass",
 );
 
 const currentTurnImages = await effectiveRoute.a({
@@ -113,5 +135,5 @@ assert.deepEqual(currentTurnImages.imageOrder, ["inline"]);
 console.log("imagebot multimodal route tests passed", {
   media: media.length,
   nativeImages: currentTurnImages.images.length,
-  model: "openai/gpt-5.5",
+  model: "openai/gpt-5.6-sol",
 });

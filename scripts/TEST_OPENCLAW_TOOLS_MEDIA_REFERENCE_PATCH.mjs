@@ -45,6 +45,7 @@ assert.match(openclawTools.source, /RECENT_IMAGE_GENERATION_PROBLEM_STATUS_MS = 
 assert.match(openclawTools.source, /No completion event is expected for this \$\{params\.completionLabel\}/);
 assert.match(openclawTools.source, /const recentProblemTask = findRecentProblemImageGenerationTaskForSession\(sessionKey\)/);
 assert.match(openclawTools.source, /buildImageGenerationTaskProblemStatusDetails\(recentProblemTask\)/);
+assert.match(openclawTools.source, /failure reason from the internal event result\/error plainly/);
 assert.match(mediaReference.source, /async function resolveMediaReferenceLocalPath\(\w+\)/);
 assert.match(mediaReference.source, /resolveMediaBufferPath\(\w+, "inbound"\)/);
 

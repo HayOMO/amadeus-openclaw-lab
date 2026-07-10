@@ -12,7 +12,14 @@ when_to_read: Before analyzing Telegram images, stickers, GIFs, animations, shor
 - The runtime routes inbound images by current session model capability.
   Native-vision chat models can consume images directly; text-only models use
   `image` first to receive textual visual context.
-- Use `image` for visible facts, OCR-like reading, style, objects, identity, composition, and safety judgment when the current model has not already received the image natively or when a separate focused inspection is needed.
+- When an image is already visible in the current native multimodal input,
+  inspect it directly for visible facts, text, style, objects, identity,
+  composition, and safety. Do not call `image` again as a first step, a
+  confidence check, or a second description pass.
+- Use `image` only to load an additional image path/URL that is not present in
+  the current visual context, or when the current model did not receive usable
+  visual input. A separate focused question about an already visible image does
+  not by itself justify another tool call.
 - Telegram static stickers are usually `.webp` and follow this image path.
 - Replied Telegram stickers can expose `ReplySticker` metadata plus a
   `ReplyMediaPaths` local file. Use `ReplySticker.format` / `isVideo` to tell

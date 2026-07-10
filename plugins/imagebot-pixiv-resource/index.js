@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const TOOL_NAME = "pixiv_resource";
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -56,10 +57,6 @@ const WEB_RANKING_ALIASES = {
 };
 
 let spawnImpl = spawn;
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -118,15 +115,15 @@ function safePart(value, fallback = "pixiv") {
 }
 
 function secretPath(config = {}) {
-  return path.resolve(String(config.refreshTokenFile || "").trim() || path.join(homeDir(), ".openclaw", "secrets", "pixiv-refresh.token"));
+  return path.resolve(String(config.refreshTokenFile || "").trim() || openclawStatePath("secrets", "pixiv-refresh.token"));
 }
 
 function storeRoot(config = {}) {
-  return path.resolve(String(config.storeDir || "").trim() || path.join(homeDir(), ".openclaw", "resources", "pixiv"));
+  return path.resolve(String(config.storeDir || "").trim() || openclawStatePath("resources", "pixiv"));
 }
 
 function mediaRoot(config = {}) {
-  return path.resolve(String(config.mediaDir || "").trim() || path.join(homeDir(), ".openclaw", "media", "pixiv-resource"));
+  return path.resolve(String(config.mediaDir || "").trim() || openclawStatePath("media", "pixiv-resource"));
 }
 
 async function readRefreshToken(config = {}) {

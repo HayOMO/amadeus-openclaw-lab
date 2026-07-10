@@ -1,10 +1,9 @@
 import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { openclawStatePath } from "../plugins/imagebot-shared/openclaw-paths.mjs";
 
 const limitArg = process.argv.find((arg) => arg.startsWith("--limit="));
 const limit = Math.max(1, Math.min(100, Number(limitArg?.split("=")[1] || 20)));
-const auditPath = path.join(os.homedir(), ".openclaw", "logs", "telegram-media-delivery.jsonl");
+const auditPath = openclawStatePath("logs", "telegram-media-delivery.jsonl");
 
 function parseLine(line) {
   try {

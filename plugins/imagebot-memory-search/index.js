@@ -1,15 +1,17 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const TOOL_NAME = "memory_search";
 const DEFAULT_COUNT = 4;
 const MAX_COUNT = 8;
 const MAX_FILE_BYTES = 220_000;
 const MAX_WINDOW_FILES = 80;
+const MEMORY_DOC_INVENTORY_CACHE_MS = 1000;
+const MEMORY_FILE_TEXT_CACHE_MAX_ENTRIES = 256;
 const RECALL_GATE_QUERY_CHARS = 360;
 const SEMANTIC_MODEL = process.env.IMAGEBOT_MEMORY_EMBEDDING_MODEL || "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
 const SEMANTIC_INDEX_VERSION = 2;
@@ -27,6 +29,11 @@ let cachedSemanticIndexMtimeMs = 0;
 let semanticBuildPromise = null;
 let lastSemanticBuildError = null;
 let knownUsersCache = null;
+const memoryDocInventoryCache = new Map();
+const memoryDocInventoryPromises = new Map();
+const memoryFileTextCache = new Map();
+let memoryFileTextCacheHits = 0;
+let memoryFileTextCacheMisses = 0;
 
 const STOPWORDS = new Set([
   "ask", "draw", "edit", "read", "describe", "search", "dream", "failures", "help",
@@ -63,7 +70,7 @@ function normalizeMode(value) {
 }
 
 function memoryRoot() {
-  return path.join(os.homedir(), ".openclaw", "agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-memory");
+  return openclawStatePath("agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-memory");
 }
 
 function semanticIndexPath() {
@@ -71,11 +78,11 @@ function semanticIndexPath() {
 }
 
 function semanticCacheDir() {
-  return path.join(os.homedir(), ".openclaw", "models", "transformers");
+  return openclawStatePath("models", "transformers");
 }
 
 function windowStorePath() {
-  return path.join(os.homedir(), ".openclaw", "agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-windows.json");
+  return openclawStatePath("agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-windows.json");
 }
 
 function sanitizeText(value) {
@@ -173,18 +180,53 @@ function knownUsersCacheStats() {
 async function safeReadFile(filePath) {
   const stat = await fs.stat(filePath);
   if (!stat.isFile()) return "";
+  const cacheKey = `${path.resolve(filePath)}:${stat.size}:${Math.trunc(stat.mtimeMs)}`;
+  const cached = memoryFileTextCache.get(cacheKey);
+  if (cached !== undefined) {
+    memoryFileTextCacheHits++;
+    memoryFileTextCache.delete(cacheKey);
+    memoryFileTextCache.set(cacheKey, cached);
+    return cached;
+  }
+  memoryFileTextCacheMisses++;
   const handle = await fs.open(filePath, "r");
   try {
     const length = Math.min(stat.size, MAX_FILE_BYTES);
     const buffer = Buffer.alloc(length);
     await handle.read(buffer, 0, length, Math.max(0, stat.size - length));
-    return buffer.toString("utf-8");
+    const text = buffer.toString("utf-8");
+    memoryFileTextCache.set(cacheKey, text);
+    while (memoryFileTextCache.size > MEMORY_FILE_TEXT_CACHE_MAX_ENTRIES) {
+      const oldest = memoryFileTextCache.keys().next().value;
+      if (!oldest) break;
+      memoryFileTextCache.delete(oldest);
+    }
+    return text;
   } finally {
     await handle.close();
   }
 }
 
+function cloneDocs(docs) {
+  return docs.map((doc) => ({ ...doc }));
+}
+
 async function listMemoryDocs(scope) {
+  const normalizedScope = normalizeScope(scope);
+  const now = Date.now();
+  const cached = memoryDocInventoryCache.get(normalizedScope);
+  if (cached && now - cached.checkedAt < MEMORY_DOC_INVENTORY_CACHE_MS) return cloneDocs(cached.docs);
+  if (memoryDocInventoryPromises.has(normalizedScope)) {
+    return cloneDocs(await memoryDocInventoryPromises.get(normalizedScope));
+  }
+  const promise = buildMemoryDocInventory(normalizedScope, now).finally(() => {
+    memoryDocInventoryPromises.delete(normalizedScope);
+  });
+  memoryDocInventoryPromises.set(normalizedScope, promise);
+  return cloneDocs(await promise);
+}
+
+async function buildMemoryDocInventory(scope, checkedAt = Date.now()) {
   const root = memoryRoot();
   const docs = [];
   const addDir = async (kind, dir, limit = Infinity) => {
@@ -198,12 +240,17 @@ async function listMemoryDocs(scope) {
         if (stat?.isFile()) files.push({ name: entry.name, filePath, mtimeMs: stat.mtimeMs, size: stat.size });
       }
       files.sort((a, b) => b.mtimeMs - a.mtimeMs);
-      for (const file of files.slice(0, limit)) docs.push({ kind, fileName: file.name, filePath: file.filePath, mtimeMs: file.mtimeMs, size: file.size });
+      for (const file of files.slice(0, limit)) {
+        docs.push({ kind, fileName: file.name, filePath: file.filePath, mtimeMs: file.mtimeMs, size: file.size });
+      }
     } catch {}
   };
-  if (scope === "all" || scope === "users") await addDir("user", path.join(root, "users"));
-  if (scope === "all" || scope === "group") await addDir("group", path.join(root, "group"));
-  if (scope === "all" || scope === "windows") await addDir("window", path.join(root, "windows"), MAX_WINDOW_FILES);
+  const tasks = [];
+  if (scope === "all" || scope === "users") tasks.push(addDir("user", path.join(root, "users")));
+  if (scope === "all" || scope === "group") tasks.push(addDir("group", path.join(root, "group")));
+  if (scope === "all" || scope === "windows") tasks.push(addDir("window", path.join(root, "windows"), MAX_WINDOW_FILES));
+  await Promise.all(tasks);
+  memoryDocInventoryCache.set(scope, { checkedAt, docs: cloneDocs(docs) });
   return docs;
 }
 
@@ -659,6 +706,40 @@ function formatRecallGate(prompt = "") {
   return lines.join("\n");
 }
 
+function clearMemoryDocInventoryCache() {
+  memoryDocInventoryCache.clear();
+  memoryDocInventoryPromises.clear();
+}
+
+function memoryDocInventoryCacheStats() {
+  return {
+    entries: memoryDocInventoryCache.size,
+    scopes: [...memoryDocInventoryCache.keys()],
+    recheckMs: MEMORY_DOC_INVENTORY_CACHE_MS
+  };
+}
+
+function clearMemoryFileTextCache() {
+  memoryFileTextCache.clear();
+  memoryFileTextCacheHits = 0;
+  memoryFileTextCacheMisses = 0;
+}
+
+function memoryFileTextCacheStats() {
+  return {
+    entries: memoryFileTextCache.size,
+    hits: memoryFileTextCacheHits,
+    misses: memoryFileTextCacheMisses,
+    maxEntries: MEMORY_FILE_TEXT_CACHE_MAX_ENTRIES
+  };
+}
+
+function clearMemorySearchCaches() {
+  clearKnownUsersCache();
+  clearMemoryDocInventoryCache();
+  clearMemoryFileTextCache();
+}
+
 async function recallGatePromptContext(config = {}, event = {}, ctx = {}) {
   if (config.appendPromptContext === false) return "";
   if (ctx?.agentId && ctx.agentId !== "imagebot") return "";
@@ -746,6 +827,11 @@ export const __testing = {
   recallGatePromptContext,
   readKnownUsers,
   clearKnownUsersCache,
+  clearMemoryDocInventoryCache,
+  clearMemoryFileTextCache,
+  clearMemorySearchCaches,
+  memoryDocInventoryCacheStats,
+  memoryFileTextCacheStats,
   shouldOpenRecallGate,
   searchMemory,
   sanitizeText

@@ -34,9 +34,30 @@ for (const name of ["web_image_search", "danbooru_resource", "download_image_url
 }
 assert.ok(Object.hasOwn(tools.get("web_image_search").parameters.properties, "downloadPreviews"));
 assert.ok(Object.hasOwn(tools.get("web_image_search").parameters.properties, "previewCount"));
+assert.deepEqual(
+  tools.get("reverse_image_search").parameters.properties.providers.items.enum,
+  ["saucenao", "iqdb", "ascii2d"],
+);
+assert.ok(!Object.hasOwn(tools.get("reverse_image_search").parameters.properties, "googleLensFallback"));
+assert.ok(!Object.hasOwn(tools.get("reverse_image_search").parameters.properties, "googleLensPages"));
 
 const pluginSource = await fs.readFile(path.resolve("plugins/web-image-search/index.js"), "utf8");
 assert.match(pluginSource, /withEphemeralPage/, "browser-backed image downloads should use ephemeral contexts");
+assert.match(pluginSource, /const REVERSE_REQUEST_TIMEOUT_MS = 12_000;/, "ordinary reverse search should keep a bounded fast timeout");
+assert.match(tools.get("reverse_image_search").description, /Fast reverse search/);
+assert.match(tools.get("reverse_image_search").description, /SauceNAO\/IQDB/);
+assert.match(tools.get("reverse_image_search").description, /not general photo identification/);
+assert.match(tools.get("reverse_image_search").description, /similar-only results are not identity proof/);
+assert.match(tools.get("reverse_image_search").description, /Full-browser Google Lens\/Images is broader for general photos/);
+assert.doesNotMatch(tools.get("reverse_image_search").description, /natural follow-up/);
+assert.match(pluginSource, /Similar-only or low-confidence candidates do not establish the input image's identity or source/);
+assert.match(tools.get("reverse_image_search").parameters.properties.providers.description, /Omit for the default fast path: SauceNAO \+ IQDB/);
+assert.match(tools.get("reverse_image_search").parameters.properties.providers.description, /Add ascii2d when requested/);
+assert.match(tools.get("download_image_url").description, /direct image URL/);
+assert.match(tools.get("download_image_url").parameters.properties.url.description, /direct image URL/);
+assert.match(tools.get("download_image_urls").description, /direct image URLs/);
+assert.match(tools.get("download_image_urls").parameters.properties.urls.description, /direct image URLs/);
+assert.doesNotMatch(pluginSource, /google_lens|googleLensFallback|googleLensPages|Google Lens fallback/);
 assert.doesNotMatch(pluginSource, /image-download-pool/, "browser-backed image downloads must not keep a persistent public profile");
 assert.match(pluginSource, /AmadeusImageBot\/1\.0 \(danbooru_resource\)/, "Danbooru CDN downloads should not use the generic browser UA");
 assert.ok(hooks.has("web-image-search-before-tool-call"), "web-image-search should register the image_generate reference guard");
@@ -262,6 +283,13 @@ try {
   const spoilerMediaUriResult = await spoilerTool.execute("test-media-uri", { media: "media://downloaded/test-web-image-search/spoiler-test.png (image/png)" });
   assert.equal(spoilerMediaUriResult.details.status, "ok");
   assert.deepEqual(spoilerMediaUriResult.details.media.mediaUrls, [localMediaPath]);
+  const reverseMediaUriResult = await tools.get("reverse_image_search").execute("test-reverse-media-uri", {
+    image: "media://downloaded/test-web-image-search/spoiler-test.png (image/png)",
+    providers: ["ascii2d"]
+  });
+  assert.equal(reverseMediaUriResult.details.status, "ok");
+  assert.equal(reverseMediaUriResult.details.input, path.basename(localMediaPath));
+  assert.equal(reverseMediaUriResult.details.inputKind, "file");
 
   const practicalDir = path.join(os.homedir(), ".openclaw", "media", "practical-tools", "web-snapshots", "test-web-image-search");
   await fs.mkdir(practicalDir, { recursive: true });

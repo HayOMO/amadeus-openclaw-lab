@@ -1,0 +1,42 @@
+diff --git a/dist/openclaw-tools-B0V1p3La.js b/dist/openclaw-tools-B0V1p3La.js
+index af81567..b9e3178 100644
+--- a/dist/openclaw-tools-B0V1p3La.js
++++ b/dist/openclaw-tools-B0V1p3La.js
+@@ -5063,7 +5063,8 @@ async function executeImageGenerationCall(params) {
+ 			count: savedImages.length,
+ 			media: {
+ 				mediaUrls: savedImages.map((image) => image.path),
+-				attachments
++				attachments,
++				outbound: true
+ 			},
+ 			attachments,
+ 			paths: savedImages.map((image) => image.path),
+@@ -7412,7 +7413,8 @@ async function processMusicGenerationResult(result, params) {
+ 			count: savedTracks.length,
+ 			media: {
+ 				mediaUrls: savedTracks.map((track) => track.path),
+-				attachments
++				attachments,
++				outbound: true
+ 			},
+ 			attachments,
+ 			paths: savedTracks.map((track) => track.path),
+@@ -13112,6 +13114,7 @@ function createTtsTool() {
+ 					media: {
+ 						mediaUrl: result.audioPath,
+ 						trustedLocalMedia: true,
++						outbound: true,
+ 						...result.audioAsVoice || result.voiceCompatible ? { audioAsVoice: true } : {}
+ 					}
+ 				}
+@@ -13718,7 +13721,8 @@ async function processVideoGenerationResult(result, params) {
+ 			count: totalCount,
+ 			media: {
+ 				mediaUrls: allMediaUrls,
+-				attachments
++				attachments,
++				outbound: true
+ 			},
+ 			attachments,
+ 			paths: allMediaUrls,

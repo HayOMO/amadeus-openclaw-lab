@@ -44,6 +44,7 @@ const botDeps = await readDistFile("bot-deps-", "syncTelegramMenuCommands");
 const commandDetection = await readDistFile("command-detection-", "listConfiguredTelegramCustomCommandAliases");
 const dispatch = await readDistFile("dispatch-", "dispatchReplyFromConfig");
 const sentCache = await readDistFile("sent-message-cache-", "resolveTelegramPrimaryMedia");
+const browserPluginService = await readDistFile("plugin-service-", "createBrowserTool");
 const embeddedTools = await readDistFileAny([
   { prefix: "embedded-agent-subscribe.tools-", marker: "TRUSTED_TOOL_RESULT_MEDIA" },
   { prefix: "embedded-agent-message-tool-source-reply-", marker: "TRUSTED_TOOL_RESULT_MEDIA" },
@@ -55,6 +56,7 @@ const embeddedPayloads = await readDistFileAny([
 ]);
 const selection = await readDistFile("selection-", "queuePendingToolMedia");
 const getReply = await readDistFile("get-reply-", "applyMediaUnderstandingIfNeeded");
+const turnKernel = await readDistFile("kernel-", "sendDurableMessageBatch");
 const imagebotModelCatalog = JSON.parse(await fs.readFile(path.join(process.cwd(), "scripts", "IMAGEBOT_MODEL_PROFILES.json"), "utf8"));
 
 function extractFunctionSource(source, name) {
@@ -394,13 +396,19 @@ assert.match(bot.source, /buildTelegramImagebotPersonaKeyboard/);
 assert.match(bot.source, /TELEGRAM_IMAGEBOT_PERSONA_MENU_PAGE_SIZE/);
 assert.match(bot.source, /callback_data: `\/ampersona page \$\{Math\.max\(0, currentPage - 1\)\}`/);
 assert.match(bot.source, /loadTelegramImagebotAmmodelCatalog/);
+assert.match(bot.source, /models_cache\.json/);
+assert.match(bot.source, /model\?\.supported_in_api === true/);
+assert.match(bot.source, /model\?\.input_modalities/);
+assert.doesNotMatch(bot.source, /listCodexAppServerModels/);
+assert.doesNotMatch(bot.source, /const runtimeModels = await loadModelCatalog\(\{ config: cfg \}\)/);
+assert.match(bot.source, /const catalog = await loadTelegramImagebotAmmodelCatalog\(freshCfg, target\.agentId\)/);
 assert.match(bot.source, /loadTelegramImagebotPersonaCatalog/);
 assert.match(bot.source, /TELEGRAM_IMAGEBOT_AMMODEL_MODELS/);
 assert.match(bot.source, /openai\/gpt-5\.4-mini/);
 assert.equal(
   imagebotModelCatalog.models.find((model) => model.id === "openai/gpt-5.3-codex-spark")?.enabled,
-  true,
-  "project model catalog should expose Spark for chat-only tests",
+  false,
+  "project model catalog must exclude Spark from the backend API route",
 );
 assert.equal(
   imagebotModelCatalog.models.find((model) => model.id === "openai/gpt-5.3-codex-spark")?.toolPolicy,
@@ -408,9 +416,9 @@ assert.equal(
   "project model catalog must keep Spark under chat-only tool policy",
 );
 assert.equal(
-  imagebotModelCatalog.profiles.find((profile) => profile.id === "spark")?.toolPolicy,
-  "chat-only",
-  "project model catalog must expose Spark as a chat-only /ammodel profile",
+  imagebotModelCatalog.profiles.some((profile) => profile.id === "spark"),
+  false,
+  "project model catalog must not expose a Spark /ammodel profile",
 );
 assert.match(bot.source, /getTelegramImagebotAmmodelProfilesForModel/);
 assert.match(bot.source, /IMAGEBOT_MODEL_PROFILES\.json/);
@@ -584,6 +592,36 @@ assert.match(openclawTools.source, /const requestedModel = readStringParam\(para
 assert.match(openclawTools.source, /const model = imagebotManagedImageGeneration \? void 0 : requestedModel;/);
 assert.match(openclawTools.source, /const timeoutMs = imagebotManagedImageGeneration \? imageGenerationModelConfig\.timeoutMs : readGenerationTimeoutMs\(params\) \?\? imageGenerationModelConfig\.timeoutMs;/);
 assert.doesNotMatch(openclawTools.source, /300000 tends to be a safe amount/);
+
+assert.match(browserPluginService.source, /function markBrowserScreenshotDetailsNonOutbound\(details\)/);
+assert.match(browserPluginService.source, /details: markBrowserScreenshotDetailsNonOutbound\(result\)/);
+assert.match(embeddedTools.source, /function isOutboundToolResultMedia\(media\)/);
+assert.match(embeddedTools.source, /if \(!isOutboundToolResultMedia\(detailsMedia\)\) return;/);
+assert.match(openclawTools.source, /outbound: true/);
+
+const embeddedToolsModule = await import(pathToFileURL(embeddedTools.filePath).href);
+const extractToolResultMediaArtifact = embeddedToolsModule.f;
+assert.equal(
+  extractToolResultMediaArtifact({
+    details: { media: { mediaUrl: "%USERPROFILE%/.openclaw/media/browser/blocked.png", outbound: false } },
+  }),
+  undefined,
+  "browser screenshots marked outbound:false must stay observation-only and not become Telegram attachments",
+);
+assert.equal(
+  extractToolResultMediaArtifact({
+    details: { media: { mediaUrl: "%USERPROFILE%/.openclaw/media/browser/implicit.png" } },
+  }),
+  undefined,
+  "plain details.media without outbound:true must not be implicitly attached to a later assistant reply",
+);
+assert.deepEqual(
+  extractToolResultMediaArtifact({
+    details: { media: { mediaUrl: "%USERPROFILE%/.openclaw/media/tool-image-generation/result.png", outbound: true } },
+  })?.mediaUrls,
+  ["%USERPROFILE%/.openclaw/media/tool-image-generation/result.png"],
+  "generated/tool media explicitly marked outbound:true must still be deliverable",
+);
 
 const dropGateStart = bot.source.indexOf("const shouldDropUnaddressedImagebotGroupMessage");
 assert.notEqual(dropGateStart, -1);
@@ -778,7 +816,16 @@ assert.match(commandDetection.source, /listConfiguredTelegramCustomCommandAliase
 assert.match(commandDetection.source, /telegram\?\.customCommands/);
 assert.match(commandDetection.source, /options\?\.accountId/);
 assert.match(bot.source, /hasControlCommand\(messageTextParts\.text, runtimeCfg, \{ botUsername, accountId \}/);
-assert.match(bot.source, /durable\.status === "handled_no_send"\) logVerbose\("telegram durable delivery produced no visible send; falling back to direct Telegram delivery"\)/);
+assert.match(turnKernel.source, /reason: send\.reason \?\? "no_visible_result"/);
+assert.match(bot.source, /durable\.reason === "adapter_returned_no_identity"/);
+assert.match(bot.source, /treating as delivered to avoid duplicate direct send/);
+assert.match(bot.source, /telegram duplicate durable visible payload suppressed within current dispatch/);
+assert.match(bot.source, /toolName === "image_generate"\) await sendImageGenerationNotice\(\)/);
+assert.match(bot.source, /bot\.api\.sendChatAction\(chatId, "upload_photo"/);
+assert.match(bot.source, /bot\.api\.sendMessage\(chatId, "\\u751f\\u6210\\u56fe\\u7247\\u4e2d\.\.\."/);
+assert.match(bot.source, /reply_parameters:\s*\{\s*message_id: msg\.message_id,\s*allow_sending_without_reply: true\s*\}/s);
+assert.match(bot.source, /const applyImplicitMediaReplyTarget = \(payload\) => \{/);
+assert.match(bot.source, /replyToId: String\(msg\.message_id\)/);
 assert.match(embeddedTools.source, /"generated_gallery_resend"/);
 assert.match(embeddedTools.source, /function hasTrustedLocalMediaDetails\(result\)/);
 assert.match(embeddedTools.source, /if \(hasTrustedLocalMediaDetails\(result\)\) return mediaUrls/);

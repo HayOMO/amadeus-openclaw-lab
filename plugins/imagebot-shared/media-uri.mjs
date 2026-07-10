@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
+import { openclawStatePath } from "./openclaw-paths.mjs";
 
 const MEDIA_URI_BUCKETS = new Set([
   "downloaded",
@@ -14,17 +14,13 @@ const MEDIA_URI_BUCKETS = new Set([
   "tool-image-generation"
 ]);
 
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
-
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function openclawMediaRoot(config = {}) {
   const configured = String(config.openclawMediaRoot || config.mediaRoot || config.openclawMediaDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "media"));
+  return path.resolve(configured || openclawStatePath("media"));
 }
 
 export function stripMediaUriDecorations(value) {

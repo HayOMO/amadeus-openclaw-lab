@@ -1,11 +1,11 @@
 import fs from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { mutationScopeKey, trustedMutationContext } from "../imagebot-shared/mutation-authorization.mjs";
 import { withStateFileLock, writeJsonAtomic } from "../imagebot-shared/state-file.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const RECENT_TOOL_NAME = "generated_gallery_recent";
 const SEARCH_TOOL_NAME = "generated_gallery_search";
@@ -34,10 +34,6 @@ const pluginRequire = createRequire(import.meta.url);
 let sharpModulePromise = null;
 let runtimeConfig = {};
 
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
-
 function configuredPath(key, fallback) {
   const value = String(runtimeConfig?.[key] || "").trim();
   return path.resolve(value || fallback);
@@ -47,19 +43,19 @@ function archiveRoot() {
   const configured = String(process.env.TELEGRAM_IMAGEBOT_MEDIA_ARCHIVE_DIR || "").trim();
   return configured
     ? path.resolve(configured)
-    : configuredPath("archiveRoot", path.join(homeDir(), ".openclaw", "media", "archive"));
+    : configuredPath("archiveRoot", openclawStatePath("media", "archive"));
 }
 
 function sendCacheRoot() {
-  return configuredPath("resendDir", path.join(homeDir(), ".openclaw", "media", "gallery-resend"));
+  return configuredPath("resendDir", openclawStatePath("media", "gallery-resend"));
 }
 
 function previewCacheRoot() {
-  return configuredPath("previewDir", path.join(homeDir(), ".openclaw", "media", "gallery-preview"));
+  return configuredPath("previewDir", openclawStatePath("media", "gallery-preview"));
 }
 
 function galleryStateRoot() {
-  return configuredPath("storeDir", path.join(homeDir(), ".openclaw", "generated-gallery"));
+  return configuredPath("storeDir", openclawStatePath("generated-gallery"));
 }
 
 function visualHashIndexPath() {
@@ -406,7 +402,7 @@ async function ensureVisualQueryPathAllowed(filePath) {
   const candidate = path.resolve(filePath);
   const allowedRoots = [
     archiveRoot(),
-    path.join(homeDir(), ".openclaw", "media")
+    openclawStatePath("media")
   ].map((root) => path.resolve(root));
   if (!allowedRoots.some((root) => isInside(root, candidate))) {
     throw new Error("visual gallery search only accepts archive or bot media paths");

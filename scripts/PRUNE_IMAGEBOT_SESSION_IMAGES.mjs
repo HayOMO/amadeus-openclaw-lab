@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { openclawStatePath } from "../plugins/imagebot-shared/openclaw-paths.mjs";
 
 const DEFAULT_AGENT = "imagebot";
 const DEFAULT_LOCK_STALE_SECONDS = 15 * 60;
@@ -10,7 +10,7 @@ const DEFAULT_MIN_DATA_CHARS = 1024;
 const EMBEDDED_IMAGE_DATA_RE = /("data"\s*:\s*")((?:data:image\/(?:png|jpe?g|webp|gif);base64,)?[A-Za-z0-9+/=]{1024,})(?="|\[\.\.\.|$)/g;
 
 function defaultSessionsDir(agent = DEFAULT_AGENT) {
-  return path.join(os.homedir(), ".openclaw", "agents", agent, "sessions");
+  return openclawStatePath("agents", agent, "sessions");
 }
 
 function parseArgs(argv = process.argv.slice(2)) {

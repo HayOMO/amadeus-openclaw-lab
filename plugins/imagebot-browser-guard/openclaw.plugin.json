@@ -1,7 +1,7 @@
 {
   "id": "imagebot-browser-guard",
   "name": "Imagebot Browser Guard",
-  "description": "Restricts browser tool calls to the isolated managed profile and Telegram media paths.",
+  "description": "Adds the bot browser default profile and permits bot-local media uploads.",
   "version": "0.1.0",
   "enabledByDefault": false,
   "activation": {
@@ -11,7 +11,8 @@
     ]
   },
   "hooks": [
-    "before_tool_call"
+    "before_tool_call",
+    "after_tool_call"
   ],
   "configSchema": {
     "type": "object",
@@ -28,6 +29,12 @@
         "items": {
           "type": "string"
         }
+      },
+      "uploadStagingDir": {
+        "type": "string"
+      },
+      "mediaRoot": {
+        "type": "string"
       }
     }
   }

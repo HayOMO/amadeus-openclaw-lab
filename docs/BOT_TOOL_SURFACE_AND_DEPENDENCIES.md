@@ -7,10 +7,10 @@ or plugin-to-plugin imports change.
 ## Snapshot
 
 - Active local plugins: 25.
-- Allowed tools: 61 total.
-- Built-in allowed tools: 3 (`image`, `image_generate`, `message`).
-- Plugin-owned allowed tools: 58.
-- Ordinary chat tools: 41.
+- Allowed tools: 63 total.
+- Built-in allowed tools: 4 (`browser`, `image`, `image_generate`, `message`).
+- Plugin-owned allowed tools: 59.
+- Ordinary chat tools: 43.
 - Operator-only tools: 20.
 - Provider-visible schema mode: OpenClaw `tools.toolSearch` `directory` mode.
   The allowed surface stays the same, but most heavyweight schemas are deferred
@@ -38,7 +38,13 @@ Operator-only tools are marked with `*` below.
 ### Core Chat And Routing
 
 - `message`: final Telegram reply/send surface.
-- `image`: image understanding when the current model needs a separate vision route.
+- `browser`: OpenClaw built-in interactive browser for live page inspection,
+  clicking, scrolling, upload flows, Google Lens, and profile-backed browsing.
+  Omitted `profile` uses the Bot-owned `bot` browser state;
+  `profile="isolated"` selects separate cookies and site state. Ordinary Chrome
+  `profile="user"` is prohibited.
+- `image`: loads additional image paths/URLs only when they are not already in
+  the current native multimodal input; prompt images are inspected directly.
 - `image_generate`: primary image generation/editing.
 - `interaction_pipeline`: deterministic trigger/window/interaction helpers.
 - `mars_forward_lookup`: channel-forward duplicate lookup.
@@ -67,8 +73,8 @@ Operator-only tools are marked with `*` below.
 - `media_artifact`: inspect media artifacts and attach tool-result images.
 - `media_artifact_recent`, `media_artifact_lineage`: manifest-only split routes
   behind `media_artifact`.
-- `web_snapshot`: public or bot-owned account browser page snapshot.
-- `web_card`: compact public or bot-owned account browser page card.
+- `web_snapshot`: isolated public-page snapshot.
+- `web_card`: compact isolated public-page card.
 - `media_transform`: local bounded image/media transformations.
 - `artifact`: local generated artifact lookup/read.
 - `artifact_recent`, `artifact_search`, `artifact_get`: manifest-only split
@@ -172,6 +178,20 @@ Operator-only tools are marked with `*` below.
 7. If two tools always need to be called together, either document the workflow
    in a manual or create a small orchestration feature. Do not make one tool
    secretly depend on the other's private state.
+
+## Managed Media Runtime
+
+`imagebot-video-utils`, `imagebot-audio-transcribe`, and
+`imagebot-practical-tools` resolve FFmpeg/FFprobe through
+`imagebot-shared/media-runtime.mjs`.
+
+Resolution order is explicit environment path, the managed runtime manifest
+under `$OPENCLAW_STATE_DIR/runtime/ffmpeg/current.json`, system `PATH`, then the
+legacy npm installer package as a clean-CI fallback. Production setup uses
+`npm run setup:media`; `npm run verify:media` requires FFmpeg and FFprobe
+8.1.2 or newer. The setup script downloads the pinned Gyan 8.1.2 essentials
+build from its GitHub release mirror and verifies the publisher SHA-256 before
+installation.
 
 ## Current Warnings
 

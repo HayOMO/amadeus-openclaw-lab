@@ -33,13 +33,32 @@ for (const name of ["knowledge", "knowledge_sources", "knowledge_search", "knowl
   assert.ok(tools.has(name), `${name} should be registered`);
 }
 
+__testing.clearKnowledgeCaches();
+assert.deepEqual(
+  __testing.knowledgeFileInventoryCacheStats(),
+  { entries: 0, pending: 0, recheckMs: 1000 },
+  "knowledge file inventory cache should be clearable"
+);
+assert.deepEqual(
+  __testing.knowledgeFileTextCacheStats(),
+  { entries: 0, hits: 0, misses: 0, maxEntries: 256 },
+  "knowledge file text cache should be clearable"
+);
+
 const sources = await tools.get("knowledge_sources").execute("sources", {});
 assert.equal(sources.details.status, "ok");
 assert.ok(sources.details.sources.some((source) => source.id === "persona"));
+const firstInventoryStats = __testing.knowledgeFileInventoryCacheStats();
+assert.ok(firstInventoryStats.entries > 0, "knowledge_sources should cache source file inventories");
 
 const aggregateSources = await tools.get("knowledge").execute("aggregate-sources", { action: "sources" });
 assert.equal(aggregateSources.details.status, "ok");
 assert.ok(aggregateSources.details.sources.some((source) => source.id === "persona"));
+assert.equal(
+  __testing.knowledgeFileInventoryCacheStats().entries,
+  firstInventoryStats.entries,
+  "hot aggregate sources should reuse cached source file inventories"
+);
 
 const found = await tools.get("knowledge_search").execute("search", {
   query: "official outfit reference images",
@@ -52,6 +71,23 @@ assert.equal(found.details.mode, "keyword");
 assert.ok(found.details.results.some((item) => item.sourceId === "prompt_library"));
 assert.ok(found.details.sources.some((item) => item.sourceId === "prompt_library"));
 assert.ok(found.details.sources.every((item) => !("filePath" in item)));
+const firstTextStats = __testing.knowledgeFileTextCacheStats();
+assert.ok(firstTextStats.entries >= 1, "knowledge_search should cache searched file text by mtime signature");
+assert.ok(firstTextStats.misses >= 1, "cold knowledge_search should read source text");
+
+const hotFound = await tools.get("knowledge_search").execute("search-hot", {
+  query: "official outfit reference images",
+  sources: "prompt_library,tool_manuals",
+  mode: "keyword",
+  count: 4
+});
+assert.equal(hotFound.details.status, "ok");
+assert.deepEqual(
+  hotFound.details.results.map((item) => `${item.sourceId}/${item.title}`),
+  found.details.results.map((item) => `${item.sourceId}/${item.title}`),
+  "hot knowledge_search should return the same ranked public results"
+);
+assert.ok(__testing.knowledgeFileTextCacheStats().hits > firstTextStats.hits, "hot knowledge_search should reuse cached text");
 
 const aggregateFound = await tools.get("knowledge").execute("aggregate-search", {
   action: "search",
@@ -77,6 +113,8 @@ const ingestedFile = await tools.get("knowledge_ingest").execute("commit-file", 
   plan_id: draftFile.details.plan_id
 }, null, null, { ...ctxA, messageId: "11", text: `approved ${draftFile.details.approval_code}` });
 assert.equal(ingestedFile.details.status, "ok");
+assert.equal(__testing.knowledgeFileInventoryCacheStats().entries, 0, "knowledge_ingest commit should invalidate file inventories");
+assert.equal(__testing.knowledgeFileTextCacheStats().entries, 0, "knowledge_ingest commit should invalidate cached text");
 
 const draftText = await tools.get("knowledge_ingest").execute("ingest-text", {
   title: "Group meme note",
@@ -167,6 +205,8 @@ const deleted = await tools.get("knowledge_ingest").execute("delete-real", {
   reason: "stale test note"
 }, null, null, ctxA);
 assert.equal(deleted.details.status, "ok");
+assert.equal(__testing.knowledgeFileInventoryCacheStats().entries, 0, "knowledge_ingest delete should invalidate file inventories");
+assert.equal(__testing.knowledgeFileTextCacheStats().entries, 0, "knowledge_ingest delete should invalidate cached text");
 const ingestIndexLines = (await fs.readFile(path.join(storeDir, "ingest-index.jsonl"), "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
 const deleteEvent = ingestIndexLines.find((event) => event.event === "delete" && event.id === ingestedText.details.id);
 assert.equal(deleteEvent.reason, "stale test note");

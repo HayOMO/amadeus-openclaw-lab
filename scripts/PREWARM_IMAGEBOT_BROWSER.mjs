@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { openclawStatePath } from "../plugins/imagebot-shared/openclaw-paths.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
@@ -15,10 +16,6 @@ const DEFAULT_URLS = [
   "about:blank",
   "https://danbooru.donmai.us/"
 ];
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function readArg(name, fallback = "") {
   const prefix = `${name}=`;
@@ -160,7 +157,7 @@ async function gotoWarmPage(context, url, timeoutMs) {
 
 async function warmContextRoute({ label, chromium, launchOptions, urls, timeoutMs }) {
   const routeStartedAt = Date.now();
-  const baseTmpDir = path.join(homeDir(), ".openclaw", "tmp");
+  const baseTmpDir = openclawStatePath("tmp");
   const userDataDir = await fs.mkdtemp(path.join(baseTmpDir, `browser-prewarm-${label}-`));
   let context = null;
   try {
@@ -191,7 +188,7 @@ async function warmContextRoute({ label, chromium, launchOptions, urls, timeoutM
 const startedAt = Date.now();
 const timeoutMs = Math.max(3000, Math.min(30000, Number(readArg("--timeout-ms", "15000")) || 15000));
 const urls = normalizeUrls();
-const tmpRoot = path.join(homeDir(), ".openclaw", "tmp");
+const tmpRoot = openclawStatePath("tmp");
 
 try {
   const playwright = requireRuntimeModule("playwright-core");

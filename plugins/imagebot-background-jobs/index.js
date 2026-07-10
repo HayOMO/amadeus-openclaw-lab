@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import {
   mutationActorKey,
@@ -8,6 +7,7 @@ import {
   trustedMutationContext
 } from "../imagebot-shared/mutation-authorization.mjs";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const TOOL_NAME = "background_job";
 const DEFAULT_MAX_CONCURRENT = 3;
@@ -20,13 +20,9 @@ const OPEN_STATES = new Set(["queued", "active", "retrying"]);
 
 const managers = new Map();
 
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
-
 function storeRoot(config = {}) {
   const configured = String(config.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "background-jobs"));
+  return path.resolve(configured || openclawStatePath("background-jobs"));
 }
 
 function eventsPath(config = {}) {
@@ -205,6 +201,7 @@ function publicJob(job) {
     finishedAt: job.finishedAt || "",
     attempt: job.attempt,
     attempts: job.attempts,
+    retryClass: job.retryClass,
     progress: job.progress || null,
     context: job.context || {},
     dedupeKey: job.dedupeKey || "",
@@ -326,6 +323,7 @@ class BackgroundJobManager {
       }
     }
     const now = nowIso();
+    const retryClass = input.retryClass === "idempotent" ? "idempotent" : "none";
     const job = {
       id: `bg_${crypto.randomBytes(7).toString("hex")}`,
       kind,
@@ -337,7 +335,8 @@ class BackgroundJobManager {
       startedAt: "",
       finishedAt: "",
       attempt: 0,
-      attempts: readNumber(input.attempts, 1, 1, 5),
+      attempts: retryClass === "idempotent" ? readNumber(input.attempts, 1, 1, 3) : 1,
+      retryClass,
       backoffMs: readNumber(input.backoffMs, 1000, 0, 60_000),
       timeoutMs: readNumber(input.timeoutMs, 0, 0, 30 * 60_000),
       progress: { percent: 0, note: "queued", updatedAt: now },
@@ -554,7 +553,7 @@ export function getBackgroundJobManager(config = {}) {
 export function backgroundJobsConfig(config = {}) {
   const configured = isRecord(config.backgroundJobs) ? config.backgroundJobs : {};
   return {
-    storeDir: configured.storeDir || config.backgroundJobStoreDir || path.join(homeDir(), ".openclaw", "background-jobs"),
+    storeDir: configured.storeDir || config.backgroundJobStoreDir || openclawStatePath("background-jobs"),
     maxConcurrent: readNumber(configured.maxConcurrent ?? config.backgroundJobMaxConcurrent, DEFAULT_MAX_CONCURRENT, 1, MAX_MAX_CONCURRENT),
     appendActiveContext: configured.appendActiveContext !== false
   };
@@ -598,6 +597,7 @@ export async function enqueueBackgroundTool({
   timeoutMs,
   attempts,
   backoffMs,
+  retryClass,
   handler
 }) {
   const manager = getBackgroundJobManager(backgroundJobsConfig(config));
@@ -612,6 +612,7 @@ export async function enqueueBackgroundTool({
     timeoutMs,
     attempts,
     backoffMs,
+    retryClass,
     handler
   });
   return {

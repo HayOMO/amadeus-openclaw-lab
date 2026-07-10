@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const ZHIHU_SEARCH_TOOL = "zhihu_search";
 const ZHIHU_GLOBAL_SEARCH_TOOL = "zhihu_global_search";
@@ -15,7 +14,7 @@ const DEFAULT_HOT_LIMIT = 10;
 const MAX_HOT_LIMIT = 30;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const HOT_CACHE_TTL_MS = 2 * 60 * 1000;
-const SECRET_FILE = path.join(os.homedir(), ".openclaw", "secrets", "zhihu-access-secret.token");
+const SECRET_FILE = openclawStatePath("secrets", "zhihu-access-secret.token");
 
 const cache = new Map();
 

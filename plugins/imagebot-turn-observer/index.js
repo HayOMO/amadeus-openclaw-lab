@@ -1,17 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const RECENT_TOOL = "turn_observer_recent";
 const DEFAULT_COUNT = 8;
 const MAX_COUNT = 30;
 const MAX_TEXT = 5000;
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -33,7 +29,7 @@ function readCount(params, fallback = DEFAULT_COUNT) {
 
 function storeRoot(config = {}) {
   const configured = String(config.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "turn-observer"));
+  return path.resolve(configured || openclawStatePath("turn-observer"));
 }
 
 function logPath(config = {}) {

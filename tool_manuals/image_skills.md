@@ -37,8 +37,9 @@ If lookup is empty or unrelated, fall back to ordinary reference search.
 Use `image_skill_save_reference` after a reference image is clearly useful:
 
 - official/canonical character art found and downloaded;
+- representative artist/style work found and checked against the requested style;
 - user-supplied reference they want reused later;
-- a generated result the user approves as a stable style/character reference.
+- a generated result the user explicitly approves as a stable style/character reference.
 
 Input must be bot-local media, not an external URL. The tool copies it into the
 local skill store and deduplicates by hash.

@@ -4,6 +4,8 @@ import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { openclawStatePath } from "../plugins/imagebot-shared/openclaw-paths.mjs";
+import { readCodexModelCatalog } from "./IMAGEBOT_CODEX_MODEL_CATALOG.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
@@ -37,7 +39,24 @@ function repoPath(...parts) {
 }
 
 function statePath(...parts) {
-  return path.join(os.homedir(), ".openclaw", ...parts);
+  return openclawStatePath(...parts);
+}
+
+function assertNoDeploymentPlaceholders(settings) {
+  const values = [
+    settings.mainGroupId,
+    settings.testGroupId,
+    settings.gachaArchive?.channelChatId,
+    ...(Array.isArray(settings.groupIds) ? settings.groupIds : []),
+    ...(Array.isArray(settings.operatorSenderIds) ? settings.operatorSenderIds : []),
+    ...(Array.isArray(settings.botUsernames) ? settings.botUsernames : []),
+    ...(Array.isArray(settings.mentionPatterns) ? settings.mentionPatterns : [])
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  for (const value of values) {
+    assert.ok(!/^YOUR_/i.test(value), `template placeholder must not be used in a real config build: ${value}`);
+    assert.ok(value !== "1000000000", "template operator sender id must not be used in a real config build");
+    assert.ok(!/^-100000000000\d+$/.test(value), `template Telegram chat id must not be used in a real config build: ${value}`);
+  }
 }
 
 function runtimeModelStatePath() {
@@ -129,35 +148,15 @@ function pluginPaths(settings) {
 function browserConfig() {
   return {
     enabled: true,
-    evaluateEnabled: false,
+    evaluateEnabled: true,
     headless: true,
-    defaultProfile: "openclaw",
+    defaultProfile: "bot",
+    profiles: {
+      bot: { cdpPort: 18810, color: "#D1495B" },
+      isolated: { cdpPort: 18811, color: "#00798C" }
+    },
     ssrfPolicy: {
-      dangerouslyAllowPrivateNetwork: false,
-      allowedHostnames: [
-        "example.com",
-        "google.com",
-        "www.google.com",
-        "lens.google.com",
-        "saucenao.com",
-        "safe.iqdb.org",
-        "iqdb.org",
-        "ascii2d.net",
-        "tineye.com"
-      ],
-      hostnameAllowlist: [
-        "example.com",
-        "*.example.com",
-        "saucenao.com",
-        "*.saucenao.com",
-        "iqdb.org",
-        "*.iqdb.org",
-        "ascii2d.net",
-        "*.ascii2d.net",
-        "lens.google.com",
-        "tineye.com",
-        "*.tineye.com"
-      ]
+      dangerouslyAllowPrivateNetwork: true
     },
     tabCleanup: {
       enabled: true,
@@ -168,10 +167,30 @@ function browserConfig() {
   };
 }
 
-function groupStreaming() {
+function groupStreaming(settings) {
+  const cfg = settings.telegramRuntime?.streaming || {};
   return {
+    mode: ["off", "partial", "block", "progress"].includes(cfg.mode) ? cfg.mode : "progress",
     preview: { toolProgress: false },
-    progress: { toolProgress: false }
+    progress: {
+      label: cfg.label === false ? false : String(cfg.label || "处理中"),
+      maxLines: boundedInteger(cfg.maxLines, 4, 1, 12),
+      maxLineChars: boundedInteger(cfg.maxLineChars, 120, 40, 240),
+      toolProgress: cfg.toolProgress !== false,
+      commandText: cfg.commandText === "raw" ? "raw" : "status",
+      commentary: cfg.commentary === true
+    }
+  };
+}
+
+function telegramRetryConfig(settings) {
+  const cfg = settings.telegramRuntime?.retry || {};
+  const jitter = Number(cfg.jitter);
+  return {
+    attempts: boundedInteger(cfg.attempts, 3, 1, 5),
+    minDelayMs: boundedInteger(cfg.minDelayMs, 400, 100, 30_000),
+    maxDelayMs: boundedInteger(cfg.maxDelayMs, 30_000, 1_000, 120_000),
+    jitter: Number.isFinite(jitter) ? Math.max(0, Math.min(1, jitter)) : 0.1
   };
 }
 
@@ -186,14 +205,13 @@ function queueConfig(settings) {
 
 function browserGuardConfig() {
   return {
-    allowedProfiles: ["openclaw"],
+    allowedProfiles: ["bot", "isolated"],
+    mediaRoot: statePath("media"),
     allowedPathPrefixes: [
-      statePath("media", "inbound"),
-      statePath("media", "tool-image-generation"),
-      statePath("media", "downloaded"),
-      statePath("media", "gacha-archive"),
+      statePath("media"),
       statePath("feature-core", "gacha-archive")
-    ]
+    ],
+    uploadStagingDir: statePath("media", "inbound")
   };
 }
 
@@ -254,31 +272,6 @@ function browserPoolConfig(settings) {
   };
 }
 
-function accountBrowserRiskTierConfig(cfg, tierName, defaults) {
-  const tiers = cfg && typeof cfg.tiers === "object" ? cfg.tiers : {};
-  const tier = tiers && typeof tiers[tierName] === "object" ? tiers[tierName] : {};
-  return {
-    minIntervalMs: Number.isFinite(Number(tier.minIntervalMs)) ? Number(tier.minIntervalMs) : defaults.minIntervalMs,
-    hourlyLimit: Number.isFinite(Number(tier.hourlyLimit)) ? Number(tier.hourlyLimit) : defaults.hourlyLimit,
-    dailyLimit: Number.isFinite(Number(tier.dailyLimit)) ? Number(tier.dailyLimit) : defaults.dailyLimit,
-    actionLimit: Number.isFinite(Number(tier.actionLimit)) ? Number(tier.actionLimit) : defaults.actionLimit
-  };
-}
-
-function accountBrowserRiskConfig(settings) {
-  const cfg = settings.accountBrowserRisk || {};
-  return {
-    enabled: cfg.enabled !== false,
-    loginBackoffMs: Number.isFinite(Number(cfg.loginBackoffMs)) ? Number(cfg.loginBackoffMs) : 300_000,
-    verificationBackoffMs: Number.isFinite(Number(cfg.verificationBackoffMs)) ? Number(cfg.verificationBackoffMs) : 1_800_000,
-    tiers: {
-      read: accountBrowserRiskTierConfig(cfg, "read", { minIntervalMs: 5_000, hourlyLimit: 48, dailyLimit: 160, actionLimit: 0 }),
-      light: accountBrowserRiskTierConfig(cfg, "light", { minIntervalMs: 9_000, hourlyLimit: 32, dailyLimit: 120, actionLimit: 2 }),
-      interactive: accountBrowserRiskTierConfig(cfg, "interactive", { minIntervalMs: 15_000, hourlyLimit: 18, dailyLimit: 80, actionLimit: 4 })
-    }
-  };
-}
-
 function imageGenerationModelConfig(settings) {
   const cfg = settings.imageGeneration || {};
   const model = settings.modelParams || {};
@@ -305,11 +298,18 @@ function chatModelConfig(settings) {
   const fallbacks = chatModelFallbacks(settings, primary);
   const reasoningEffort = String(state.reasoningEffort || model.reasoningEffort || "medium").trim();
   const textVerbosity = String(state.textVerbosity || model.textVerbosity || "low").trim();
+  const maxTokensRaw = state.maxTokens ?? model.maxTokens ?? 0;
+  const maxTokens = Number(maxTokensRaw || 0);
+  assert.ok(
+    maxTokens === 0 || (Number.isInteger(maxTokens) && maxTokens >= 256 && maxTokens <= 8192),
+    "chat model maxTokens must be unset/0 or an integer between 256 and 8192"
+  );
   return {
     primary,
     fallbacks,
     reasoningEffort,
-    textVerbosity
+    textVerbosity,
+    maxTokens
   };
 }
 
@@ -326,6 +326,15 @@ function isModelRef(value) {
   return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.:-]+$/.test(String(value || ""));
 }
 
+function modelProviderWildcards(settings) {
+  const providers = Array.isArray(settings.modelCatalog?.providerWildcards)
+    ? settings.modelCatalog.providerWildcards
+    : [];
+  return [...new Set(providers
+    .map((provider) => String(provider || "").trim().toLowerCase())
+    .filter((provider) => /^[a-z0-9_.-]+$/.test(provider)))];
+}
+
 function enabledChatModelIds(settings, primary) {
   const ids = new Set();
   if (isModelRef(primary)) ids.add(primary);
@@ -336,6 +345,46 @@ function enabledChatModelIds(settings, primary) {
     ids.add(id);
   }
   return [...ids];
+}
+
+function openAiCodexProviderModels(settings, primary) {
+  const curatedModels = Array.isArray(settings.modelCatalog?.models) ? settings.modelCatalog.models : [];
+  const verifiedModels = Array.isArray(settings.codexModelCatalog?.models) ? settings.codexModelCatalog.models : [];
+  const modelsById = new Map();
+  for (const model of curatedModels) {
+    const modelId = String(model?.id || "").trim();
+    if (!modelId.toLowerCase().startsWith("openai/") || model?.enabled === false) continue;
+    assert.ok(
+      Array.isArray(model?.nativeCapabilities) && model.nativeCapabilities.includes("text"),
+      `curated OpenAI model must declare checked nativeCapabilities: ${modelId}`
+    );
+    modelsById.set(modelId, model);
+  }
+  for (const model of verifiedModels) {
+    const modelId = String(model?.id || "").trim();
+    if (!modelId.toLowerCase().startsWith("openai/") || model?.enabled === false) continue;
+    modelsById.set(modelId, model);
+  }
+  if (isModelRef(primary) && primary.toLowerCase().startsWith("openai/") && !modelsById.has(primary)) {
+    modelsById.set(primary, { id: primary, label: primary.slice("openai/".length), nativeCapabilities: ["text"] });
+  }
+  return [...modelsById.values()]
+    .map((model) => {
+      const modelId = String(model.id || "");
+      const id = modelId.slice("openai/".length);
+      const capabilities = new Set(Array.isArray(model.nativeCapabilities) ? model.nativeCapabilities : ["text"]);
+      return {
+      id,
+      name: String(model.label || id),
+      api: "openai-chatgpt-responses",
+      reasoning: true,
+      input: capabilities.has("vision") ? ["text", "image"] : ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 400_000,
+      contextTokens: 272_000,
+      maxTokens: 128_000
+    };
+    });
 }
 
 function singleProfileAliasesByModel(settings) {
@@ -361,6 +410,11 @@ function singleProfileAliasesByModel(settings) {
 function agentModelAllowlistOps(settings, primary) {
   const aliases = singleProfileAliasesByModel(settings);
   const ops = [];
+  for (const provider of modelProviderWildcards(settings)) {
+    const wildcard = `${provider}/*`;
+    ops.push({ path: `agents.defaults.models["${wildcard}"]`, value: {} });
+    ops.push({ path: `agents.list[0].models["${wildcard}"]`, value: {} });
+  }
   for (const modelId of enabledChatModelIds(settings, primary)) {
     const alias = aliases.get(modelId);
     const value = alias ? { alias } : {};
@@ -499,9 +553,11 @@ function buildConfigOps(settings, customCommands) {
   const ops = [
     { path: "agents.defaults.model", value: chatModelSelection },
     { path: "agents.list[0].model", value: chatModelSelection },
+    { path: "models.providers.openai.models", value: openAiCodexProviderModels(settings, chatModel.primary) },
     ...agentModelAllowlistOps(settings, chatModel.primary),
     { path: "agents.list[0].params.reasoningEffort", value: chatModel.reasoningEffort },
     { path: "agents.list[0].params.textVerbosity", value: chatModel.textVerbosity },
+    ...(chatModel.maxTokens > 0 ? [{ path: "agents.list[0].params.maxTokens", value: chatModel.maxTokens }] : []),
     { path: "agents.defaults.maxConcurrent", value: model.maxConcurrent },
     { path: "agents.defaults.subagents.maxConcurrent", value: model.subagentMaxConcurrent },
     { path: "agents.list[0].groupChat.mentionPatterns", value: settings.mentionPatterns },
@@ -668,8 +724,7 @@ function buildConfigOps(settings, customCommands) {
       value: {
         openclawMediaRoot: statePath("media"),
         backgroundJobs: backgroundJobsSharedConfig(settings, "media"),
-        browserPool: browserPoolConfig(settings),
-        accountBrowserRisk: accountBrowserRiskConfig(settings)
+        browserPool: browserPoolConfig(settings)
       }
     },
     { path: "plugins.entries.imagebot-desktop-control.enabled", value: true },
@@ -789,7 +844,7 @@ function buildConfigOps(settings, customCommands) {
     { path: "agents.list[0].tools.toolsBySender", value: toolsBySender },
     { path: "agents.list[0].tools.message.actions.allow", value: ["send"] },
     { path: "agents.list[0].tools.loopDetection", value: loopDetection() },
-    { path: "agents.defaults.imageModel", value: { primary: "openai/gpt-5.5" } },
+    { path: "agents.defaults.imageModel", value: { primary: "openai/gpt-5.6-sol" } },
     { path: "agents.defaults.imageGenerationModel", value: imageGenerationModelConfig(settings) },
     { path: "agents.defaults.mediaMaxMb", value: model.mediaMaxMb },
     { path: "tools.media.image.timeoutSeconds", value: model.imageTimeoutSeconds },
@@ -799,8 +854,10 @@ function buildConfigOps(settings, customCommands) {
     { path: "channels.telegram.commands.nativeSkills", value: false },
     { path: "channels.telegram.accounts.imagebot.commands.native", value: false },
     { path: "channels.telegram.accounts.imagebot.commands.nativeSkills", value: false },
-    { path: "channels.telegram.streaming", value: groupStreaming() },
-    { path: "channels.telegram.accounts.imagebot.streaming", value: groupStreaming() },
+    { path: "channels.telegram.streaming", value: groupStreaming(settings) },
+    { path: "channels.telegram.accounts.imagebot.streaming", value: groupStreaming(settings) },
+    { path: "channels.telegram.retry", value: telegramRetryConfig(settings) },
+    { path: "channels.telegram.accounts.imagebot.retry", value: telegramRetryConfig(settings) },
     { path: "channels.telegram.groupPolicy", value: "allowlist" },
     { path: "channels.telegram.accounts.imagebot.groupPolicy", value: "allowlist" }
   ];
@@ -829,10 +886,13 @@ async function writeJson(file, value) {
 export async function buildImagebotConfig({ write = false, template = false } = {}) {
   const settingsPath = repoPath("config", "imagebot", "settings.json");
   const settings = await readJson(settingsPath);
+  if (!template) assertNoDeploymentPlaceholders(settings);
   const modelState = await readModelState({ template });
   const modelCatalog = await readOptionalJson(repoPath("scripts", "IMAGEBOT_MODEL_PROFILES.json"), {});
+  const codexModelCatalog = template ? { source: "curated-fallback", fetchedAt: "", models: [] } : await readCodexModelCatalog();
   settings.modelState = modelState;
   settings.modelCatalog = modelCatalog;
+  settings.codexModelCatalog = codexModelCatalog;
   assert.equal(settings.schema, 1);
   const prompt = await buildPrompt(settings);
   const customCommands = await buildCustomCommands(settings);

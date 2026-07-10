@@ -1,0 +1,15 @@
+diff --git a/dist/plugin-registration-CIf1lyqW.js b/dist/plugin-registration-CIf1lyqW.js
+index bd0badf..975a36b 100644
+--- a/dist/plugin-registration-CIf1lyqW.js
++++ b/dist/plugin-registration-CIf1lyqW.js
+@@ -29,8 +29,8 @@ function createLazyBrowserTool(opts) {
+ 		name: "browser",
+ 		description: [
+ 			"Control the browser via OpenClaw's browser control server (status/start/stop/profiles/tabs/open/snapshot/screenshot/actions).",
+-			"Browser choice: omit profile by default for the isolated OpenClaw-managed browser (`openclaw`).",
+-			"For the logged-in user browser, use profile=\"user\". A supported Chromium-based browser (v144+) must be running on the selected host or browser node. Use only when existing logins/cookies matter and the user is present.",
++			"Browser choice: omit profile to use imagebot's Bot-owned OpenClaw-managed profile (\"bot\"), which is separate from the owner's ordinary Chrome. Verified login markers include Xiaohongshu, Weibo, Bilibili, Baidu/Tieba, Zhihu, and Pixiv; Google and LOFTER are not verified as logged in. Login state may expire. profile=\"user\" is blocked.",
++			"Google Lens/Images is the broadest general visual-search capability here; it is not a required fallback step, and similar results are not identity proof. Use profile=\"isolated\" for separate cookies and site state without a login guarantee.",
+ 			"For profile=\"user\" or other existing-session profiles, omit timeoutMs on act:type, evaluate, hover, scrollIntoView, drag, select, and fill; that driver rejects per-call timeout overrides for those actions.",
+ 			"When a node-hosted browser proxy is available, the tool may auto-route to it. Pin a node with node=<id|name> or target=\"node\".",
+ 			"When using refs from snapshot (e.g. e12), keep the same tab: prefer passing targetId from the snapshot response into subsequent actions (act/click/type/etc). For tab operations, targetId also accepts tabId handles (t1) and labels from action=tabs.",

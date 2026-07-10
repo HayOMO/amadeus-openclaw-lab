@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
@@ -19,6 +18,7 @@ import {
 } from "../imagebot-shared/mutation-authorization.mjs";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
 import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 import { withStateFileLock, writeJsonAtomic } from "../imagebot-shared/state-file.mjs";
 
 const TOOL_NAME = "sticker_pack";
@@ -119,10 +119,6 @@ let fetchImpl = globalThis.fetch;
 let sharpModulePromise = null;
 let preferSharpWorker = false;
 const pendingStickerToolContexts = new Map();
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -284,7 +280,7 @@ async function withSharpFallback(action, payload, inProcess) {
 
 function mediaRoot(config = {}) {
   const configured = String(config.mediaDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "media", "sticker-pack"));
+  return path.resolve(configured || openclawStatePath("media", "sticker-pack"));
 }
 
 function draftRoot(config = {}) {
@@ -331,7 +327,7 @@ function stickerMimeType(format = "", filePath = "") {
 
 function tokenFile(config = {}) {
   const configured = String(config.tokenFile || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "secrets", "telegram-imagebot.token"));
+  return path.resolve(configured || openclawStatePath("secrets", "telegram-imagebot.token"));
 }
 
 async function writeJson(file, value) {
@@ -343,14 +339,13 @@ async function readJson(file) {
 }
 
 function allowedMediaRoots(config = {}) {
-  const home = homeDir();
   const defaults = [
-    path.join(home, ".openclaw", "media", "inbound"),
-    path.join(home, ".openclaw", "media", "downloaded"),
-    path.join(home, ".openclaw", "media", "practical-tools"),
-    path.join(home, ".openclaw", "media", "meme-tools"),
-    path.join(home, ".openclaw", "media", "gallery-resend"),
-    path.join(home, ".openclaw", "media", "gacha-archive"),
+    openclawStatePath("media", "inbound"),
+    openclawStatePath("media", "downloaded"),
+    openclawStatePath("media", "practical-tools"),
+    openclawStatePath("media", "meme-tools"),
+    openclawStatePath("media", "gallery-resend"),
+    openclawStatePath("media", "gacha-archive"),
     mediaRoot(config)
   ];
   const extra = Array.isArray(config.allowedMediaRoots) ? config.allowedMediaRoots : [];

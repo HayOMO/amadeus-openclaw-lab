@@ -50,7 +50,7 @@ It intentionally does not store bot tokens, OpenClaw secrets, logs, sessions, ge
 - Interaction policy is centralized through `interaction_pipeline`: group messages are supposed to enter the model only through explicit commands, bot replies, mentions, or configured prefixes, and window routing uses Telegram user ids plus reply-session metadata.
 - Mixed features use `feature_catalog` / `feature_action`: deterministic state and safety live in the feature tool, while the model decides when to call it and wraps the structured result. Sample features include daily check-in (`features\checkin.json`) and Safebooru/Danbooru score-band anime card gacha (`features\waifu_gacha.json`).
 - Image generation concurrency is window-scoped: one in-flight generation per active Telegram window/session, with up to 6 different windows allowed to run concurrently through the agent global lane.
-- Allowed tools are kept narrow: image reading/generation, Zhihu Open Platform search/hot-list, explicit broad-web text fallback, public image/Pixiv resource search, scripted reverse image search, guarded isolated-browser fallback, media transforms, audio/video helpers, bounded desktop media playback control, and lightweight playful features.
+- Allowed tools are kept narrow: image reading/generation, Zhihu Open Platform search/hot-list, explicit broad-web text fallback, public image/Pixiv resource search, scripted reverse image search, a Bot-owned browser plus a separate isolated browser, media transforms, audio/video helpers, bounded desktop media playback control, and lightweight playful features.
 
 ## Layer Boundary
 
@@ -125,20 +125,22 @@ The apply wrapper now:
 
 - generates config batches from `config\imagebot\settings.json` and `config\imagebot\prompt\*.md`,
 - lints the active prompt source against known stale spoiler/refusal wording before writing generated batches,
-- keeps the base Telegram system prompt focused on tool routing, the tool index, and workflow hints; active persona cards are selected by `persona_config` / agent-ops prompt hooks and are injected before the tool prompt,
+- keeps the base Telegram system prompt focused on default reply preferences and a capability-only tool index; active persona cards are selected by `persona_config` / agent-ops prompt hooks and are injected before the tool prompt,
 - exposes Zhihu, provider-native search, `explicit_web_text_search`, `web_card`, and `web_snapshot` as complementary source-reading routes,
 - search policy: stable chat can answer directly; public/current/source-dependent work should retrieve evidence; source snippets are leads, and source pages can be read with `web_card` / `web_snapshot` when snippets are incomplete or the page state matters,
-- browser posture: `web_snapshot` is a page reader, not only a screenshot tool. Visible clicks, waits, and scrolling are normal reading moves for tabs, comments, image grids, next/load-more controls, and expanded sections; account-backed pages still use the account-browser risk tiers,
+- browser posture: `browser` defaults to the OpenClaw-managed `bot` profile and may explicitly select the separate `isolated` profile; ordinary Chrome `profile=user` is prohibited; `web_snapshot` / `web_card` always use fresh, login-free Playwright contexts,
 - enables per-agent tool loop detection for repeated no-progress tool usage,
 - explicitly sets `agents.defaults.maxConcurrent=6`, while each `:window:<id>` session lane remains serial,
-- disables Telegram preview tool-progress chatter so failed search attempts do not spam the group.
+- enables OpenClaw's bounded Telegram progress draft for public stage updates,
+  with `commentary` disabled so private model reasoning is never streamed.
 
-The Telegram-visible tool status is handled by the imagebot runtime patch as a single editable status message per request. Do not re-enable generic Telegram `toolProgress` unless that patch is removed or redesigned.
+The Telegram-visible tool status is handled by the native progress draft and
+the imagebot runtime patch as one bounded, editable status surface per request.
 - No tool status appears for pure model replies. Evidence claims should line up with actual search, page, or reference tool results from the current turn.
 - adds a scripted `reverse_image_search` path for SauceNAO/IQDB lookups on Telegram-delivered images,
 - adds a scripted `video_keyframes` path for Telegram-delivered small videos, video notes, and animation/GIF messages,
 - uses a Telegram status message for slow media tools such as image generation; if the turn actually stalls, that status message is edited to a retry notice instead of adding another misleading reply,
-- enables browser-backed page reading through bot-owned isolated or platform-specific profiles,
+- exposes exactly two full-browser states, `bot` and `isolated`; lightweight page readers remain ephemeral,
 - keeps local/private/internal/file URLs outside the public page-reading path.
 
 Current routing note:
@@ -170,11 +172,20 @@ powershell -ExecutionPolicy Bypass -File .\scripts\SET_IMAGEBOT_MODEL_MODE.ps1 -
 
 Profiles live in `scripts\IMAGEBOT_MODEL_PROFILES.json`. The script writes
 validated OpenClaw config for the launcher/control panel, including model,
-reasoning effort, verbosity, and max-token defaults. Telegram `/ammodel` is a
+reasoning effort, verbosity, and optional max-token caps. Leave max tokens
+unset/0 to use provider/OpenClaw defaults; set 256-8192 only for an explicit
+temporary output cap. Telegram `/ammodel` is a
 pre-model runtime command: it directly pins the current window/session with
 OpenClaw's session-level model override, so the next clean turn in that window
 should use the selected model without restarting the gateway or starting a
 model run just to switch.
+
+The local file declares only the `openai/*` provider wildcard. Telegram
+`/ammodel` reads Codex's backend-refreshed `models_cache.json`, keeps only
+visible models marked `supported_in_api=true`, and carries each model's
+`input_modalities` into the runtime catalog. Exact curated DeepSeek fallbacks
+remain available, but hidden, non-backend, and unrelated provider models are
+not exposed automatically.
 
 `config\imagebot\model-state.json` is the repository default seed. Mutable
 chat-side model state lives outside git at

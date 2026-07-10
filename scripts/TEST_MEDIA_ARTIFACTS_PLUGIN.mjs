@@ -75,6 +75,14 @@ const mediaTransformHandle = resolveToolMediaInputs({ input: "current.image.0" }
 assert.equal(mediaTransformHandle.params.input, inboundFromUri);
 assert.equal(findUnavailableHandleRefs(mediaTransformHandle.resolvedRefs).length, 0);
 
+const reverseSearchHandle = resolveToolMediaInputs({ image: "current.image.0" }, context, { fields: ["image", "imagePath", "url"] });
+assert.equal(reverseSearchHandle.params.image, inboundFromUri);
+assert.equal(findUnavailableHandleRefs(reverseSearchHandle.resolvedRefs).length, 0);
+
+const browserUploadHandle = resolveToolMediaInputs({ action: "upload", paths: ["current.image.0"] }, context, { arrays: ["paths"] });
+assert.deepEqual(browserUploadHandle.params.paths, [inboundFromUri]);
+assert.equal(findUnavailableHandleRefs(browserUploadHandle.resolvedRefs).length, 0);
+
 const stickerHandleBatch = resolveToolMediaInputs({
   input: "current.image.0",
   inputs: ["reply.image.0"],
@@ -139,6 +147,12 @@ const rewrittenMediaTool = await mediaRewriteHook({
   runId: "hook-run"
 }, { agentId: "imagebot", sessionKey: "hook-session", runId: "hook-run" });
 assert.equal(rewrittenMediaTool.params.input, inboundFromUri);
+const rewrittenBrowserTool = await mediaRewriteHook({
+  toolName: "browser",
+  params: { action: "upload", paths: ["current.image.0"] },
+  runId: "hook-run"
+}, { agentId: "imagebot", sessionKey: "hook-session", runId: "hook-run" });
+assert.deepEqual(rewrittenBrowserTool.params.paths, [inboundFromUri]);
 const blockedMissingHandle = await mediaRewriteHook({
   toolName: "meme_transform",
   params: { input: "current.image.0" },

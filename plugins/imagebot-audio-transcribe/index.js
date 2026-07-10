@@ -1,11 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
 import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
+import { resolveFfmpeg, resolveFfprobe } from "../imagebot-shared/media-runtime.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const TOOL_NAME = "audio_transcribe";
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024;
@@ -14,14 +14,9 @@ const COMMAND_TIMEOUT_MS = 120_000;
 const DEFAULT_MODEL = "Xenova/whisper-tiny";
 const DEFAULT_ALLOWED_MODELS = [DEFAULT_MODEL];
 const INPUT_EXTS = new Set([".mp3", ".m4a", ".aac", ".wav", ".ogg", ".oga", ".opus", ".flac", ".mp4", ".mov", ".mkv", ".webm", ".avi"]);
-const runtimeRequire = createRequire(import.meta.url);
 
 const asrPipelinePromises = new Map();
 let testTranscriber = null;
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -78,30 +73,22 @@ function hash(value, len = 16) {
   return crypto.createHash("sha256").update(String(value || "")).digest("hex").slice(0, len);
 }
 
-function commandPath(moduleName) {
-  const mod = runtimeRequire(moduleName);
-  const candidate = mod?.path ?? mod?.default?.path;
-  if (!candidate) throw new Error(`${moduleName} did not expose a binary path`);
-  return candidate;
-}
-
 function mediaRoot(config = {}) {
   const configured = String(config.mediaDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "media", "audio-transcribe"));
+  return path.resolve(configured || openclawStatePath("media", "audio-transcribe"));
 }
 
 function storeRoot(config = {}) {
   const configured = String(config.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "audio-transcribe"));
+  return path.resolve(configured || openclawStatePath("audio-transcribe"));
 }
 
 function allowedMediaRoots(config = {}) {
-  const home = homeDir();
   const defaults = [
-    path.join(home, ".openclaw", "media", "inbound"),
-    path.join(home, ".openclaw", "media", "downloaded"),
-    path.join(home, ".openclaw", "media", "practical-tools"),
-    path.join(home, ".openclaw", "media", "video-keyframes"),
+    openclawStatePath("media", "inbound"),
+    openclawStatePath("media", "downloaded"),
+    openclawStatePath("media", "practical-tools"),
+    openclawStatePath("media", "video-keyframes"),
     mediaRoot(config)
   ];
   const extra = Array.isArray(config.allowedMediaRoots) ? config.allowedMediaRoots : [];
@@ -181,7 +168,7 @@ function runProcess(command, args, { timeoutMs = COMMAND_TIMEOUT_MS, signal } = 
 }
 
 async function probeMedia(filePath, signal) {
-  const ffprobe = commandPath("@ffprobe-installer/ffprobe");
+  const ffprobe = resolveFfprobe(import.meta.url);
   const { stdout } = await runProcess(ffprobe, [
     "-v", "error",
     "-show_entries", "format=duration,size,bit_rate:stream=codec_type,codec_name,channels,sample_rate,duration,width,height",
@@ -228,7 +215,7 @@ async function extractWav(config, inputPath, signal) {
   const outDir = mediaRoot(config);
   await fs.mkdir(outDir, { recursive: true });
   const outputPath = path.join(outDir, `audio-${Date.now()}-${hash(inputPath, 8)}.wav`);
-  const ffmpeg = commandPath("@ffmpeg-installer/ffmpeg");
+  const ffmpeg = resolveFfmpeg(import.meta.url);
   await runProcess(ffmpeg, [
     "-hide_banner",
     "-loglevel", "error",
@@ -292,7 +279,7 @@ async function loadAsrPipeline(config = {}, model = DEFAULT_MODEL) {
   if (!asrPipelinePromises.has(key)) {
     const promise = (async () => {
       const transformers = await import("@xenova/transformers");
-      transformers.env.cacheDir = path.join(homeDir(), ".openclaw", "models", "transformers");
+      transformers.env.cacheDir = openclawStatePath("models", "transformers");
       transformers.env.allowLocalModels = true;
       transformers.env.allowRemoteModels = remote;
       return await transformers.pipeline("automatic-speech-recognition", model || DEFAULT_MODEL);

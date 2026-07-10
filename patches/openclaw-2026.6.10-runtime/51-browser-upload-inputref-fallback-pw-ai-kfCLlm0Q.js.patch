@@ -1,0 +1,31 @@
+diff --git a/dist/pw-ai-kfCLlm0Q.js b/dist/pw-ai-kfCLlm0Q.js
+index c8dc6d7..0b6658d 100644
+--- a/dist/pw-ai-kfCLlm0Q.js
++++ b/dist/pw-ai-kfCLlm0Q.js
+@@ -2679,13 +2679,24 @@ async function setInputFilesViaPlaywright(opts) {
+ 	const resolvedResult = await resolveStrictExistingUploadPaths({ requestedPaths: opts.paths });
+ 	if (!resolvedResult.ok) throw new Error(resolvedResult.error);
+ 	const resolvedPaths = resolvedResult.paths;
++	let activeLocator = locator;
+ 	try {
+ 		await locator.setInputFiles(resolvedPaths);
+ 	} catch (err) {
+-		throw toFriendlyInteractionError(err, inputRef || element);
++		if (inputRef && !element) {
++			try {
++				const fallbackLocator = page.locator('input[type="file"]').first();
++				await fallbackLocator.setInputFiles(resolvedPaths);
++				activeLocator = fallbackLocator;
++			} catch {
++				throw toFriendlyInteractionError(err, inputRef || element);
++			}
++		} else {
++			throw toFriendlyInteractionError(err, inputRef || element);
++		}
+ 	}
+ 	try {
+-		const handle = await locator.elementHandle();
++		const handle = await activeLocator.elementHandle();
+ 		if (handle) await handle.evaluate((el) => {
+ 			el.dispatchEvent(new Event("input", { bubbles: true }));
+ 			el.dispatchEvent(new Event("change", { bubbles: true }));

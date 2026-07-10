@@ -50,10 +50,16 @@ try {
     throw "imagebot config build failed with exit code $LASTEXITCODE"
   }
 
-  Invoke-OpenClawChecked config set --batch-file $configBatch
+  Invoke-OpenClawChecked config set --batch-file $configBatch --replace
   Invoke-OpenClawChecked config set --batch-file $promptBatch
   if (Test-Path -LiteralPath $modelProfilesPath) {
     $modelCatalog = Get-Content -LiteralPath $modelProfilesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $dynamicProviders = @($modelCatalog.providerWildcards | ForEach-Object { ([string]$_).Trim().ToLowerInvariant() })
+    foreach ($provider in @("openai", "deepseek")) {
+      if ($dynamicProviders -contains $provider) { continue }
+      Invoke-OpenClawUnsetIfPresent ('agents.defaults.models["' + $provider + '/*"]')
+      Invoke-OpenClawUnsetIfPresent ('agents.list[0].models["' + $provider + '/*"]')
+    }
     foreach ($model in @($modelCatalog.models)) {
       if ($model.enabled -ne $false) { continue }
       $modelId = [string]$model.id

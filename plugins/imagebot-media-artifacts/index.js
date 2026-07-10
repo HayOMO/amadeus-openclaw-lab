@@ -1,11 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { screenVisionContextImage, buildSafetyReviewPrompt } from "../imagebot-shared/vision-context-gate.mjs";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
 import { resolveExistingMediaUriToLocalPath, resolveMediaReferencePaths, stripMediaUriDecorations } from "../imagebot-shared/media-uri.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const RECENT_TOOL = "media_artifact_recent";
 const LINEAGE_TOOL = "media_artifact_lineage";
@@ -42,12 +42,10 @@ const TOOL_MEDIA_INPUT_SPECS = new Map([
   ["av_media", { fields: ["input", "media", "video", "audio"] }],
   ["video_keyframes", { fields: ["video", "input", "media"] }],
   ["media_brief", { fields: ["video", "input", "media"] }],
+  ["reverse_image_search", { fields: ["image", "imagePath", "url"] }],
+  ["browser", { arrays: ["paths"] }],
   ["image_skill_save_reference", { fields: ["media", "image", "path"] }]
 ]);
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function nowIso() {
   return new Date().toISOString();
@@ -118,7 +116,7 @@ function isGeneratedPath(value) {
 
 function storeRoot(config) {
   const configured = String(config?.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "media-artifacts"));
+  return path.resolve(configured || openclawStatePath("media-artifacts"));
 }
 
 function artifactLogPath(config) {
@@ -601,7 +599,7 @@ function getSharp(config = {}) {
 
 function defaultMediaRoots(config = {}) {
   const roots = [
-    path.join(homeDir(), ".openclaw", "media")
+    openclawStatePath("media")
   ];
   if (Array.isArray(config.allowedMediaRoots)) {
     for (const root of config.allowedMediaRoots) if (typeof root === "string" && root.trim()) roots.push(root);

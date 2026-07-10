@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const AGENT_MODE_TOOL = "agent_mode";
 const PERSONA_CONFIG_TOOL = "persona_config";
@@ -42,17 +42,13 @@ const jsonFileCache = new Map();
 const personaFileCache = new Map();
 const personaFileCacheCounters = { hits: 0, misses: 0 };
 
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
-
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function storeRoot(config) {
   const configured = String(config?.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "agent-ops"));
+  return path.resolve(configured || openclawStatePath("agent-ops"));
 }
 
 function repoRoot(config) {
@@ -70,7 +66,7 @@ function personaStatePath(config) {
 
 function windowStorePath(config) {
   const configured = String(config?.windowStorePath || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-windows.json"));
+  return path.resolve(configured || openclawStatePath("agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-windows.json"));
 }
 
 function personaCatalogPath(config) {
@@ -190,15 +186,14 @@ function isInside(root, target) {
 }
 
 function allowedSkillMediaRoots(config = {}) {
-  const home = homeDir();
   const defaults = [
-    path.join(home, ".openclaw", "media", "inbound"),
-    path.join(home, ".openclaw", "media", "tool-image-generation"),
-    path.join(home, ".openclaw", "media", "downloaded"),
-    path.join(home, ".openclaw", "media", "gallery-resend"),
-    path.join(home, ".openclaw", "media", "gacha-archive"),
-    path.join(home, ".openclaw", "media", "practical-tools"),
-    path.join(home, ".openclaw", "media", "archive"),
+    openclawStatePath("media", "inbound"),
+    openclawStatePath("media", "tool-image-generation"),
+    openclawStatePath("media", "downloaded"),
+    openclawStatePath("media", "gallery-resend"),
+    openclawStatePath("media", "gacha-archive"),
+    openclawStatePath("media", "practical-tools"),
+    openclawStatePath("media", "archive"),
     skillFilesRoot(config)
   ];
   const extra = Array.isArray(config.allowedMediaRoots) ? config.allowedMediaRoots : [];
