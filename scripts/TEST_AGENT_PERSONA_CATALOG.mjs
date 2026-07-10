@@ -54,32 +54,36 @@ for (const tool of ["sessions_spawn", "sessions_yield", "sessions_history", "sub
 }
 
 const modelCatalog = await readJson("scripts/IMAGEBOT_MODEL_PROFILES.json");
-for (const id of ["openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5.4-mini", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"]) {
+assert.deepEqual(modelCatalog.providerWildcards, ["openai"], "only the Codex subscription route should use dynamic model discovery");
+for (const id of ["openai/gpt-5.6-sol", "openai/gpt-5.6-terra", "openai/gpt-5.6-luna", "openai/gpt-5.5", "openai/gpt-5.4", "openai/gpt-5.4-mini", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"]) {
   assert.ok(modelCatalog.models.some((model) => model.id === id && model.enabled !== false), `missing enabled model ${id}`);
+}
+for (const id of ["openai/gpt-5.6-sol", "openai/gpt-5.6-terra", "openai/gpt-5.6-luna"]) {
+  assert.ok(modelCatalog.models.find((model) => model.id === id)?.nativeCapabilities?.includes("vision"), `${id} must advertise verified native vision`);
 }
 assert.equal(
   modelCatalog.models.find((model) => model.id === "openai/gpt-5.3-codex-spark")?.enabled,
-  true,
-  "Spark should be available only through its chat-only model layer",
+  false,
+  "Spark must be excluded because the Codex cache marks it unsupported by the backend API",
 );
 assert.equal(
   modelCatalog.models.find((model) => model.id === "openai/gpt-5.3-codex-spark")?.toolPolicy,
   "chat-only",
   "Spark must keep OpenClaw tools disabled through chat-only policy",
 );
-for (const id of ["balanced", "gpt54", "mini", "ds-fast", "ds-pro"]) {
+for (const id of ["balanced", "terra", "luna", "gpt54", "mini", "ds-fast", "ds-pro"]) {
   assert.ok(modelCatalog.profiles.some((profile) => profile.id === id), `missing model profile ${id}`);
 }
-assert.equal(modelCatalog.profiles.find((profile) => profile.id === "spark")?.toolPolicy, "chat-only", "Spark profile must be chat-only");
+assert.equal(modelCatalog.profiles.some((profile) => profile.id === "spark"), false, "unsupported Spark must not have a selectable profile");
 assert.equal(
   modelCatalog.profiles.find((profile) => profile.id === "balanced")?.model,
-  "openai/gpt-5.5",
-  "GPT-5.5 model menu should keep a balanced profile for medium reasoning",
+  "openai/gpt-5.6-sol",
+  "the balanced default must use GPT-5.6 Sol",
 );
 assert.equal(
   modelCatalog.profiles.find((profile) => profile.id === "balanced")?.reasoningEffort,
   "medium",
-  "GPT-5.5 balanced profile should use medium reasoning",
+  "GPT-5.6 Sol balanced profile should use medium reasoning",
 );
 
 const overlayCatalog = await readJson("persona/persona_overlays.json");

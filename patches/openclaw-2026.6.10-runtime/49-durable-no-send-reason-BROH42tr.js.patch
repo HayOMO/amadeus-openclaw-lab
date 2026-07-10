@@ -1,0 +1,13 @@
+diff --git a/dist/kernel-BROH42tr.js b/dist/kernel-BROH42tr.js
+index 2b76c2d..0e6888a 100644
+--- a/dist/kernel-BROH42tr.js
++++ b/dist/kernel-BROH42tr.js
+@@ -518,7 +518,7 @@ async function deliverInboundReplyWithMessageSendContext(params) {
+ 	});
+ 	if (send.status === "suppressed") return {
+ 		status: "handled_no_send",
+-		reason: "no_visible_result",
++		reason: send.reason ?? "no_visible_result",
+ 		delivery
+ 	};
+ 	return {

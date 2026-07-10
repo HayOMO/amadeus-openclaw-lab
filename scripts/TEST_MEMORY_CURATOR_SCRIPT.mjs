@@ -10,7 +10,7 @@ const modelCatalog = JSON.parse(await fs.readFile(path.join(repoRoot, "scripts",
 const deepProfile = modelCatalog.profiles.find((profile) => profile.id === "deep");
 
 assert.ok(script.includes('const curatorProfile = args.get("curator-profile") || "deep"'), "curator must default to GPT high profile");
-assert.equal(deepProfile?.model, "openai/gpt-5.5", "deep profile must use GPT-5.5");
+assert.equal(deepProfile?.model, "openai/gpt-5.6-sol", "memory curation must use GPT-5.6 Sol");
 assert.equal(deepProfile?.reasoningEffort, "high", "deep profile must use high reasoning");
 assert.ok(script.includes('commandArgs.push("--model", curatorModel)'), "curator must pass a single-run model override when configured");
 assert.ok(script.includes("中性记忆整理器"), "curator prompt must be neutral");

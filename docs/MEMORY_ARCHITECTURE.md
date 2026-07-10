@@ -8,6 +8,10 @@ patterns, not an original memory algorithm. The distinctive part is the local
 combination of user memory, group shared memory, window notes, recall gate, and
 curator workflow for a Telegram imagebot.
 
+The current backend decision and measured comparison with OpenClaw builtin
+memory and Honcho are recorded in
+`docs/MEMORY_BACKEND_EVALUATION_2026-07-10.md`.
+
 ## Reference Patterns
 
 - LangGraph / LangMem
@@ -91,3 +95,13 @@ currently has only two small Telegram groups and local-first requirements. The
 current stack favors debuggability, low latency, and simple files. Entity graph
 or contradiction tracking can be added later if group lore grows large enough
 to make keyword/semantic recall ambiguous.
+
+The same rule applies to Honcho: adopt it when automatic peer modeling,
+cross-session multi-agent awareness, or measured recall quality makes the
+additional service and derivation pipeline worthwhile. Until then, the scoped
+local backend preserves the stronger Telegram privacy boundary with less
+latency and fewer moving parts.
+
+See `MEMORY_BACKEND_DECISION_ZH.md` for the concise Chinese explanation and
+`MEMORY_BACKEND_EVALUATION_2026-07-10.md` for measured results and migration
+gates.

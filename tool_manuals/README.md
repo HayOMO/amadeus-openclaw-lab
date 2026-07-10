@@ -7,15 +7,17 @@ when_to_read: Entry point for the tool manual library and manual-search behavior
 
 # Imagebot Tool Manuals
 
-These files are the local workflow manual library for `tool_manual_search`.
+These files are the local tool-contract library for `tool_manual_search`.
 
-Keep the global system prompt short. Put detailed tool routing and workflow notes
-here, then retrieve only the relevant section when the model needs it.
+Keep the global system prompt short. Put tool schemas, capability boundaries,
+and usage details here, then retrieve only the relevant section when the model
+needs it.
 
 ## Tool Catalog
 
 - `image_generate`: create or edit images.
-- `image`: inspect delivered or selected images.
+- `image`: load an additional image path/URL that is not already visible to the
+  current multimodal model; do not re-inspect native prompt images.
 - Provider-native/current-model search may exist without being a normal callable
   tool. If no native search tool is visible, use the explicit search tools.
 - `zhihu`: Zhihu OpenAPI search, Chinese-community lookup, and hot-list lookup.

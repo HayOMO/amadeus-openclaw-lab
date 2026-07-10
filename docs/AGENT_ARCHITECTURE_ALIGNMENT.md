@@ -108,7 +108,7 @@ Good surfaces:
 - `directImportApproved`
 - owner/session checks
 - path allowlists
-- account-browser risk budgets
+- explicit dedicated-versus-isolated browser profile selection
 - resumable background jobs
 
 Weak surfaces:
@@ -123,9 +123,10 @@ Browser-collected text can contain prompt injection. Browser/account tools must
 return evidence and metadata; they should not inject page instructions as trusted
 system guidance.
 
-For Chinese image/resource collection, prefer the existing source-site hints and
-browser-risk manual. Do not make a platform-specific crawler unless the user
-explicitly asks for that product boundary.
+For Chinese image/resource collection, expose source-site hints and the two
+browser profile capabilities without prescribing a fixed sequence. Do not make
+a platform-specific crawler unless the user explicitly asks for that product
+boundary.
 
 ### Memory Is Not A Dump
 
@@ -151,7 +152,7 @@ Already aligned:
 - `tool_manual_search` implements the project-local skill/manual layer.
 - OpenClaw `tools.toolSearch` is enabled in `directory` mode, keeping the full
   allowed tool surface available while reducing the provider-visible schema set.
-- Tool manuals cover search, browser risk, sticker workbench, memory/persona,
+- Tool manuals cover search, browser profiles, sticker workbench, memory/persona,
   Telegram delivery, media understanding, and background jobs.
 - `CHECK_IMAGEBOT_FEATURE_HEALTH.mjs` validates plugin/manual/test alignment.
 - `turn_observer` and feature health give basic observability.

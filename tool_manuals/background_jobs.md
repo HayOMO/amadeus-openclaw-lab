@@ -10,6 +10,8 @@ when_to_read: When a long-running tool returns or mentions a background job id, 
 ## Overview
 
 `background_job` inspects bot-owned long-running work. It does not start arbitrary work and cannot run shell commands.
+`web_watch_check` is a monitor-status tool; do not use it for image search,
+reverse image lookup, source finding, or browser search.
 
 Use it to:
 

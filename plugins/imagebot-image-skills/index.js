@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const LOOKUP_TOOL = "image_skill_lookup";
 const SAVE_REFERENCE_TOOL = "image_skill_save_reference";
@@ -15,10 +15,6 @@ const MAX_RESULTS = 8;
 const MAX_NOTE_CHARS = 600;
 const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
 const ALLOWED_IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function nowIso() {
   return new Date().toISOString();
@@ -54,7 +50,7 @@ function hash(value, len = 16) {
 
 function storeRoot(config = {}) {
   const configured = String(config.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "imagebot-image-skills"));
+  return path.resolve(configured || openclawStatePath("imagebot-image-skills"));
 }
 
 function indexPath(config = {}) {
@@ -138,15 +134,14 @@ async function writeIndex(config = {}, index) {
 }
 
 function allowedMediaRoots(config = {}) {
-  const home = homeDir();
   const defaults = [
-    path.join(home, ".openclaw", "media", "inbound"),
-    path.join(home, ".openclaw", "media", "tool-image-generation"),
-    path.join(home, ".openclaw", "media", "downloaded"),
-    path.join(home, ".openclaw", "media", "gallery-resend"),
-    path.join(home, ".openclaw", "media", "gacha-archive"),
-    path.join(home, ".openclaw", "media", "practical-tools"),
-    path.join(home, ".openclaw", "media", "archive"),
+    openclawStatePath("media", "inbound"),
+    openclawStatePath("media", "tool-image-generation"),
+    openclawStatePath("media", "downloaded"),
+    openclawStatePath("media", "gallery-resend"),
+    openclawStatePath("media", "gacha-archive"),
+    openclawStatePath("media", "practical-tools"),
+    openclawStatePath("media", "archive"),
     referencesRoot(config)
   ];
   const extra = Array.isArray(config.allowedMediaRoots) ? config.allowedMediaRoots : [];

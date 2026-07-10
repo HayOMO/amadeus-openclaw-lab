@@ -11,6 +11,7 @@ import {
   normalizePublicHttpUrl
 } from "../imagebot-shared/public-network-guard.mjs";
 import { mediaReferenceToLocalPath, openclawMediaRoot } from "../imagebot-shared/media-uri.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const IMAGE_TOOL_NAME = "web_image_search";
 const TEXT_TOOL_NAME = "web_text_search";
@@ -24,7 +25,7 @@ const DEFAULT_COUNT = 6;
 const MAX_COUNT = 12;
 const MODEL_VISIBLE_IMAGE_RESULTS = 6;
 const REQUEST_TIMEOUT_MS = 20_000;
-const REVERSE_REQUEST_TIMEOUT_MS = 75_000;
+const REVERSE_REQUEST_TIMEOUT_MS = 12_000;
 const DOWNLOAD_REQUEST_TIMEOUT_MS = 25_000;
 const DOWNLOAD_BROWSER_TIMEOUT_MS = 60_000;
 const DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024;
@@ -47,7 +48,7 @@ const DANBOORU_MAX_COUNT = 50;
 const DANBOORU_MAX_DOWNLOAD_COUNT = 10;
 const DANBOORU_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_REVERSE_PROVIDERS = ["saucenao", "iqdb"];
-const REVERSE_PROVIDERS = new Set(["saucenao", "iqdb", "ascii2d", "google_lens"]);
+const REVERSE_PROVIDERS = new Set(["saucenao", "iqdb", "ascii2d"]);
 const DOWNLOAD_ALLOWED_TYPES = new Map([
   ["image/jpeg", "jpg"],
   ["image/png", "png"],
@@ -298,7 +299,7 @@ function normalizeDanbooruBaseUrl(raw) {
 
 function danbooruSecretPath(config = {}) {
   const raw = isRecord(config.danbooru) ? config.danbooru.secretFile : config.danbooruSecretFile;
-  return path.resolve(expandHomePath(raw) || path.join(os.homedir(), ".openclaw", "secrets", "danbooru-imagebot.json"));
+  return path.resolve(expandHomePath(raw) || openclawStatePath("secrets", "danbooru-imagebot.json"));
 }
 
 async function readDanbooruSecret(config = {}) {
@@ -1092,7 +1093,7 @@ function safeDownloadBasename(raw, fallback) {
 
 function resolveDownloadDirectory() {
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  return path.join(os.homedir(), ".openclaw", "media", "downloaded", today);
+  return openclawStatePath("media", "downloaded", today);
 }
 
 async function fetchImageWithRedirects(rawUrl, { signal, maxBytes, refererUrl }) {
@@ -1708,6 +1709,39 @@ async function buildToolResultImagePreview(entry) {
   };
 }
 
+async function buildToolResultImagePreviewFromBuffer(buffer, { mimeType = "image/jpeg", fileName = "preview.jpg" } = {}) {
+  if (!Buffer.isBuffer(buffer) || buffer.length <= 0) return null;
+  let image = buffer;
+  let finalMimeType = mimeType;
+  let finalFileName = fileName;
+  if (!TOOL_RESULT_DIRECT_IMAGE_PREVIEW_TYPES.has(finalMimeType) || image.length > TOOL_RESULT_DIRECT_IMAGE_PREVIEW_MAX_BYTES) {
+    const sharp = await getSharp();
+    image = await sharp(buffer, {
+      animated: false,
+      pages: 1,
+      limitInputPixels: 80_000_000
+    })
+      .rotate()
+      .resize({
+        width: TOOL_RESULT_IMAGE_PREVIEW_MAX_EDGE,
+        height: TOOL_RESULT_IMAGE_PREVIEW_MAX_EDGE,
+        fit: "inside",
+        withoutEnlargement: true
+      })
+      .jpeg({ quality: 78, mozjpeg: true })
+      .toBuffer();
+    finalMimeType = "image/jpeg";
+    finalFileName = `${path.basename(fileName, path.extname(fileName)) || "preview"}-preview.jpg`;
+  }
+  if (image.length > TOOL_RESULT_IMAGE_PREVIEW_MAX_BYTES) return null;
+  return {
+    type: "image",
+    data: image.toString("base64"),
+    mimeType: finalMimeType,
+    fileName: finalFileName
+  };
+}
+
 async function buildToolResultImagePreviews(entries) {
   const previews = [];
   let totalBytes = 0;
@@ -1950,7 +1984,7 @@ function formatTextResults(query, results, prefix = "WEB_TEXT_SEARCH") {
       `   snippet: ${result.snippet || ""}`
     );
   });
-  lines.push("Treat these URLs as public source leads. Do not loop with more wording variants in the same turn.");
+  lines.push("Treat these URLs as public source leads. If a browser/source candidate already exists, continue from that evidence rather than changing query wording.");
   return lines.join("\n");
 }
 
@@ -2013,7 +2047,7 @@ function guessContentType(filePath) {
   return "image/jpeg";
 }
 
-async function resolveImageInput(params) {
+async function resolveImageInput(params, config = {}) {
   const candidate = readString(params, "image") || readString(params, "imagePath") || readString(params, "url");
   if (!candidate) throw new Error("image is required");
   const url = normalizeHttpUrl(candidate);
@@ -2024,16 +2058,17 @@ async function resolveImageInput(params) {
       label: url
     };
   }
-  if (!isAllowedLocalFile(candidate)) {
-    throw new Error("local image path is blocked; only current Telegram media paths are allowed");
+  const localPath = mediaReferenceToLocalPath(candidate, config);
+  if (!isAllowedLocalFile(localPath, config)) {
+    throw new Error("local image path is blocked; only configured bot media paths are allowed");
   }
-  const data = await fs.readFile(candidate);
+  const data = await fs.readFile(localPath);
   return {
     kind: "file",
-    value: candidate,
-    label: path.basename(candidate),
-    filename: path.basename(candidate),
-    contentType: guessContentType(candidate),
+    value: localPath,
+    label: path.basename(localPath),
+    filename: path.basename(localPath),
+    contentType: guessContentType(localPath),
     data
   };
 }
@@ -2052,6 +2087,10 @@ function normalizeProviderList(params) {
     .map((entry) => String(entry || "").trim().toLowerCase())
     .filter((entry) => REVERSE_PROVIDERS.has(entry));
   return normalized.length > 0 ? [...new Set(normalized)] : [...DEFAULT_REVERSE_PROVIDERS];
+}
+
+function reverseProviderSummaries(providers) {
+  return providers.map((provider) => summarizeProvider(provider));
 }
 
 function extractLinks(html) {
@@ -2226,126 +2265,11 @@ async function getPlaywrightChromium() {
   return await playwrightChromiumPromise;
 }
 
-function isGoogleDomain(hostname) {
-  const host = String(hostname || "").toLowerCase();
-  return host === "google.com" || host.endsWith(".google.com");
-}
-
-function isGoogleMetaDomain(hostname) {
-  const host = String(hostname || "").toLowerCase();
-  return isGoogleDomain(host) || host === "about.google" || host.endsWith(".about.google");
-}
-
-function seemsGoogleSorryPage(url, text) {
-  const normalizedUrl = String(url || "");
-  const body = String(text || "");
-  return normalizedUrl.includes("/sorry/") ||
-    /unusual traffic/i.test(body) ||
-    /异常流量/.test(body) ||
-    /确认这些请求是由您而不是自动程序发出的/.test(body);
-}
-
-async function collectGoogleLensPageSummary(page, limit) {
-  const title = await page.title().catch(() => "");
-  const finalUrl = page.url();
-  const bodyText = await page.locator("body").innerText().catch(() => "");
-  const heading =
-    await page.locator("h1, h2, h3").first().innerText().catch(() => "") ||
-    title;
-  const rawLinks = await page.locator("a[href]").evaluateAll((nodes) => nodes.map((node) => ({
-    url: node.href || "",
-    text: (node.textContent || "").trim()
-  }))).catch(() => []);
-  const links = dedupeLinkEntries(rawLinks.filter((entry) => {
-    const url = normalizeHttpUrl(entry.url);
-    if (!url) return false;
-    try {
-      const parsed = new URL(url);
-      return !isGoogleMetaDomain(parsed.hostname);
-    } catch {
-      return false;
-    }
-  })).slice(0, Math.max(3, limit));
-  return {
-    title: stripHtml(heading || title || "Google Lens result"),
-    finalUrl,
-    bodyText,
-    links
-  };
-}
-
-async function googleLensSearch(input, limit) {
-  const chromium = await getPlaywrightChromium();
-  const baseTmpDir = path.join(os.homedir(), ".openclaw", "tmp");
-  await fs.mkdir(baseTmpDir, { recursive: true });
-  const userDataDir = await fs.mkdtemp(path.join(baseTmpDir, "google-lens-"));
-  let browser = null;
-  try {
-    browser = await chromium.launchPersistentContext(userDataDir, {
-      channel: "msedge",
-      headless: true,
-      args: ["--no-first-run", "--no-default-browser-check"]
-    });
-    const page = await browser.newPage();
-    if (input.kind === "url") {
-      const target = `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(input.value)}`;
-      await page.goto(target, { waitUntil: "domcontentloaded", timeout: 15_000 }).catch(() => {});
-      await page.waitForTimeout(4_000);
-    } else {
-      await page.goto("https://www.google.com/", { waitUntil: "domcontentloaded", timeout: 15_000 });
-      const trigger = page.locator('[aria-label*="图搜索"], [aria-label*="Search by image"], [aria-label*="Lens"]').first();
-      try {
-        await trigger.click({ timeout: 5_000 });
-      } catch {
-        await page.locator("[aria-label]").nth(13).click({ timeout: 5_000 });
-      }
-      await page.waitForTimeout(1_500);
-      const fileInput = page.locator('input[type="file"]').last();
-      await fileInput.setInputFiles(input.value);
-      await page.waitForFunction(() => location.href !== "https://www.google.com/" && location.href !== "https://www.google.com", { timeout: 15_000 }).catch(() => {});
-      await page.waitForTimeout(6_000);
-    }
-
-    const summary = await collectGoogleLensPageSummary(page, limit);
-    if ((summary.finalUrl === "https://www.google.com/" || summary.finalUrl === "https://www.google.com") &&
-      /使用 Google 智能镜头搜索任意图片|Search any image with Google Lens/i.test(summary.bodyText)) {
-      return {
-        provider: "Google Lens",
-        unavailable: true,
-        reason: "Google Lens upload UI opened but search results did not load on this host",
-        fallbackUrl: summary.finalUrl
-      };
-    }
-    if (seemsGoogleSorryPage(summary.finalUrl, summary.bodyText)) {
-      return {
-        provider: "Google Lens",
-        unavailable: true,
-        reason: "Google Lens returned an anti-bot / unusual traffic page on this host",
-        fallbackUrl: summary.finalUrl
-      };
-    }
-    return {
-      provider: "Google Lens",
-      notice: "browser-automated visual search",
-      results: [{
-        provider: "Google Lens",
-        title: summary.title || "Google Lens result",
-        details: summary.finalUrl,
-        links: summary.links.length > 0 ? summary.links : dedupeLinkEntries([{ url: summary.finalUrl, text: "Google Lens result" }])
-      }]
-    };
-  } finally {
-    if (browser) await browser.close().catch(() => {});
-    await fs.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
-  }
-}
-
-async function runReverseProvider(provider, input, count, signal) {
+async function runReverseProvider(provider, input, count, signal, config = {}, params = {}) {
   try {
     if (provider === "saucenao") return await sauceSearch(input, count, signal);
     if (provider === "iqdb") return await iqdbSearch(input, count, signal);
     if (provider === "ascii2d") return ascii2dFallback(input);
-    if (provider === "google_lens") return await googleLensSearch(input, count, signal);
     return {
       provider,
       failed: true,
@@ -2358,6 +2282,12 @@ async function runReverseProvider(provider, input, count, signal) {
       reason: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+async function runReverseProvidersWithFallback(params, input, count, signal, config = {}) {
+  const providers = normalizeProviderList(params);
+  const outputs = await Promise.all(providers.map((provider) => runReverseProvider(provider, input, count, signal, config, params)));
+  return { providers, outputs, autoFallback: null };
 }
 
 function parseSimilarityValue(value) {
@@ -2410,15 +2340,17 @@ function summarizeProvider(providerMeta) {
   if (providerMeta.notice) noteBits.push(providerMeta.notice);
   if (providerMeta.noRelevantMatches) noteBits.push("provider says no relevant matches");
   if (provider === "IQDB" && first.service) noteBits.push(first.service);
+  const primaryUrl = extractPrimaryUrl(first);
+  const fallbackLinks = providerMeta.fallbackLinks || [];
   return {
     provider,
     verdict,
     title: first.title || "",
     similarity: first.similarity || "",
     creator: provider === "SauceNAO" ? extractSauceCreator(first.details) : "",
-    primaryUrl: extractPrimaryUrl(first),
+    primaryUrl,
     note: noteBits.join("; "),
-    fallbackLinks: providerMeta.fallbackLinks || [],
+    fallbackLinks,
     raw: first
   };
 }
@@ -2445,10 +2377,13 @@ function chooseBestLead(providerSummaries) {
   return scored[0]?.entry || null;
 }
 
-function formatReverseSearchResult(label, providers, count) {
+function formatReverseSearchResult(label, providers, count, meta = {}) {
   const lines = [`REVERSE_IMAGE_SEARCH summary for "${label}":`];
   const summaries = providers.map((provider) => summarizeProvider(provider));
   const best = chooseBestLead(summaries);
+  if (meta.autoFallback?.provider) {
+    lines.push(`Auto fallback: ${meta.autoFallback.provider} ran because ${meta.autoFallback.reason || "ordinary reverse search was weak"}.`);
+  }
   if (best) {
     lines.push("Best lead:");
     lines.push(`- provider: ${best.provider}`);
@@ -2480,7 +2415,7 @@ function formatReverseSearchResult(label, providers, count) {
       lines.push(`- ${entry.text || "link"}: ${entry.url}`);
     });
   }
-  lines.push("Treat these as source leads, not proof. Weak/possible matches still need checking.");
+  lines.push("Treat these as leads, not proof. Similar-only or low-confidence candidates do not establish the input image's identity or source.");
   return lines.join("\n");
 }
 
@@ -2549,7 +2484,7 @@ const explicitTextTool = {
   name: EXPLICIT_TEXT_TOOL_NAME,
   label: "Explicit Web Text Search",
   description:
-    "Bounded DuckDuckGo public text search. Use for external-current public facts or source leads when native search/Zhihu is unavailable, unobservable, or insufficient; do not loop wording variants.",
+    "Bounded DuckDuckGo public text search. Use for external-current public facts or source leads when native search/Zhihu is unavailable, unobservable, or insufficient. It is a lead finder; when a browser/source candidate already exists, continue from that evidence.",
   async execute(_toolCallId, params, signal) {
     return executeTextSearch("EXPLICIT_WEB_TEXT_SEARCH", params, signal);
   }
@@ -2830,15 +2765,15 @@ const downloadImageTool = {
   name: DOWNLOAD_TOOL_NAME,
   label: "Download Image URL",
   description:
-    "Download one public http/https image URL into the bot's safe local media cache and return a model-visible preview plus MEDIA path. " +
-    "Allowed formats: jpg, png, webp, gif. Max size: 20MB. Use for found-image attachments and for public generation references before image_generate.",
+    "Download one public http/https direct image URL into the bot's local media cache and return preview plus MEDIA path. " +
+    "Use for found-image attachments and generation references before image_generate.",
   parameters: {
     type: "object",
     additionalProperties: false,
     properties: {
       url: {
         type: "string",
-        description: "Public http/https image URL to download."
+        description: "Public http/https direct image URL to download."
       },
       filename: {
         type: "string",
@@ -2952,8 +2887,7 @@ const downloadImagesTool = {
   name: DOWNLOAD_MANY_TOOL_NAME,
   label: "Download Image URLs",
   description:
-    "Download 2-10 public http/https image URLs into the bot's safe local media cache for Telegram attachment, usually so Telegram can send them as an album. " +
-    "Allowed formats: jpg, png, webp, gif. Max size per image: 20MB. Use only when the user explicitly wants multiple found images attached/downloaded.",
+    "Download 2-10 public http/https direct image URLs into the bot's local media cache for Telegram attachment, usually as an album.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -2963,7 +2897,7 @@ const downloadImagesTool = {
         items: { type: "string" },
         minItems: 1,
         maxItems: DOWNLOAD_MANY_MAX_COUNT,
-        description: "Public http/https image URLs to download. Use at most 10."
+        description: "Public http/https direct image URLs to download. Use at most 10."
       },
       filenamePrefix: {
         type: "string",
@@ -3147,8 +3081,8 @@ const reverseTool = {
   name: REVERSE_TOOL_NAME,
   label: "Reverse Image Search",
   description:
-    "Search source/match sites for a Telegram-delivered image using direct site automation. " +
-    "Best for anime/game/illustration identity, source, artist, or Pixiv-style lookups.",
+    "Fast reverse search from an existing image. SauceNAO/IQDB targets anime/game/illustration source and artist candidates. " +
+    "It is not general photo identification; similar-only results are not identity proof. Full-browser Google Lens/Images is broader for general photos.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -3165,9 +3099,9 @@ const reverseTool = {
         type: "array",
         items: {
           type: "string",
-          enum: ["saucenao", "iqdb", "ascii2d", "google_lens"]
+          enum: ["saucenao", "iqdb", "ascii2d"]
         },
-        description: "Providers to query. Default: SauceNAO + IQDB. Google Lens is slower and best used as a fallback."
+        description: "Providers to query. Omit for the default fast path: SauceNAO + IQDB. Add ascii2d when requested or specifically useful."
       },
       ...backgroundToolParameters()
     },
@@ -3187,18 +3121,19 @@ const reverseTool = {
           timeoutMs: REVERSE_REQUEST_TIMEOUT_MS + 30_000,
           handler: async ({ payload, signal: jobSignal, progress }) => {
             await progress({ percent: 10, note: "preparing reverse image search" });
-            const input = await resolveImageInput(payload);
+            const input = await resolveImageInput(payload, reverseTool.config || {});
             const count = readReverseCount(payload);
-            const providers = normalizeProviderList(payload);
-            await progress({ percent: 25, note: `querying ${providers.join(", ")}` });
-            const outputs = await Promise.all(providers.map((provider) => runReverseProvider(provider, input, count, jobSignal)));
+            const requestedProviders = normalizeProviderList(payload);
+            await progress({ percent: 25, note: `querying ${requestedProviders.join(", ")}` });
+            const { providers, outputs, autoFallback } = await runReverseProvidersWithFallback(payload, input, count, jobSignal, reverseTool.config || {});
             await progress({ percent: 95, note: "reverse search completed" });
             return {
               status: "ok",
               input: input.label,
               inputKind: input.kind,
               providers,
-              resultText: formatReverseSearchResult(input.label, outputs, count),
+              autoFallback,
+              resultText: formatReverseSearchResult(input.label, outputs, count, { autoFallback }),
               results: outputs.map((entry) => ({
                 provider: entry.provider,
                 status: entry.status,
@@ -3210,17 +3145,19 @@ const reverseTool = {
           }
         });
       }
-      const input = await resolveImageInput(params);
+      const input = await resolveImageInput(params, reverseTool.config || {});
       const count = readReverseCount(params);
-      const providers = normalizeProviderList(params);
-      const outputs = await Promise.all(providers.map((provider) => runReverseProvider(provider, input, count, signal)));
+      const { providers, outputs, autoFallback } = await runReverseProvidersWithFallback(params, input, count, signal, reverseTool.config || {});
       return {
-        content: [{ type: "text", text: formatReverseSearchResult(input.label, outputs, count) }],
+        content: [
+          { type: "text", text: formatReverseSearchResult(input.label, outputs, count, { autoFallback }) }
+        ],
         details: {
           status: "ok",
           input: input.label,
           inputKind: input.kind,
           providers,
+          autoFallback,
           results: outputs
         }
       };
@@ -3263,6 +3200,7 @@ export const __testing = {
   readImageGenerateReferences,
   guardImageGenerateReferenceInputs,
   downloadImageSearchPreviews,
+  normalizeProviderList,
   formatResults,
   compactImageResult,
   extractVqd,

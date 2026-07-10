@@ -3,10 +3,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { createRequire } from "node:module";
 import plugin, { __testing } from "../plugins/imagebot-practical-tools/index.js";
 import { getBackgroundJobManager } from "../plugins/imagebot-background-jobs/index.js";
 import { __testing as manualTesting } from "../plugins/imagebot-tool-manual-search/index.js";
+import { resolveFfmpeg } from "../plugins/imagebot-shared/media-runtime.mjs";
 
 const storeDir = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-practical-tools-test-"));
 const mediaDir = path.join(storeDir, "media");
@@ -45,77 +45,18 @@ const blocked = await tools.get("web_snapshot").execute("blocked", { url: "http:
 assert.equal(blocked.details.status, "failed");
 assert.match(blocked.content[0].text, /private|internal/i);
 
-const weiboPlatform = __testing.accountBrowserPlatformForUrl("https://s.weibo.com/weibo?q=test");
-assert.equal(weiboPlatform.id, "weibo");
-assert.equal(__testing.accountBrowserPlatformForUrl("https://example.com/"), null);
-assert.equal(__testing.accountBrowserPlatformForUrl("https://music.163.com/"), null);
-assert.equal(__testing.accountBrowserPlatformForUrl("https://demo.lofter.com/post/1").id, "lofter");
-assert.equal(__testing.accountBrowserActionProfile([]).tier, "read");
-assert.equal(__testing.accountBrowserActionProfile([{ type: "scroll" }]).tier, "light");
-assert.equal(__testing.accountBrowserActionProfile([{ type: "scroll" }, { type: "wait" }, { type: "scroll" }]).tier, "light");
-assert.equal(__testing.accountBrowserActionProfile([{ type: "click_text" }]).tier, "interactive");
-assert.equal(__testing.classifyBrowserRiskPage(weiboPlatform, "https://passport.weibo.com/sso/signin", ""), "login_redirect");
-assert.equal(__testing.classifyBrowserRiskPage(weiboPlatform, "https://s.weibo.com/weibo", "请完成验证码"), "verification_or_risk_wall");
-assert.ok(__testing.accountBrowserProfileDir({ storeDir }, weiboPlatform).endsWith(path.join("browser-profiles", "account", "weibo")));
 await assert.doesNotReject(() => __testing.assertBrowserRequestUrlAllowed("https://example.com/", new Map(), {
   dnsLookup: async () => [{ address: "93.184.216.34", family: 4 }]
 }));
 await assert.rejects(() => __testing.assertBrowserRequestUrlAllowed("http://127.0.0.1/private"), /private|internal/i);
 await assert.rejects(() => __testing.assertBrowserRequestUrlAllowed("file:///%USERPROFILE%/.ssh/id_rsa"), /scheme is blocked/i);
 
-const riskStoreDir = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-browser-risk-test-"));
-const riskConfig = { storeDir: riskStoreDir, accountBrowserRisk: { minIntervalMs: 60_000, hourlyLimit: 5, dailyLimit: 10, actionLimit: 1 } };
-const firstRiskClaim = await __testing.claimBrowserRiskVisit(riskConfig, weiboPlatform, "https://s.weibo.com/weibo?q=test", 1);
-assert.equal(firstRiskClaim.tracked, true);
-assert.equal(firstRiskClaim.platform.id, "weibo");
-assert.equal(firstRiskClaim.tier, "interactive");
-await assert.rejects(
-  () => __testing.claimBrowserRiskVisit(riskConfig, weiboPlatform, "https://s.weibo.com/weibo?q=test2", 2),
-  /up to 1 action/
-);
-await assert.rejects(
-  () => __testing.claimBrowserRiskVisit(riskConfig, weiboPlatform, "https://s.weibo.com/weibo?q=test2", 1),
-  /cooldown/
-);
-const lightLimitStoreDir = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-browser-risk-light-limit-test-"));
-const lightLimitConfig = { storeDir: lightLimitStoreDir, accountBrowserRisk: { tiers: { light: { minIntervalMs: 0, hourlyLimit: 5, dailyLimit: 10, actionLimit: 1 } } } };
-await assert.rejects(
-  () => __testing.claimBrowserRiskVisit(lightLimitConfig, weiboPlatform, "https://s.weibo.com/weibo?q=scrolls", [{ type: "scroll" }, { type: "wait" }]),
-  /light mode allows up to 1 action/
-);
-const budgetStoreDir = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-browser-risk-budget-test-"));
-const budgetConfig = { storeDir: budgetStoreDir, accountBrowserRisk: { tiers: { read: { minIntervalMs: 0, hourlyLimit: 2, dailyLimit: 3, actionLimit: 0 } } } };
-await __testing.claimBrowserRiskVisit(budgetConfig, weiboPlatform, "https://s.weibo.com/weibo?q=1", 0);
-await __testing.claimBrowserRiskVisit(budgetConfig, weiboPlatform, "https://s.weibo.com/weibo?q=2", 0);
-await assert.rejects(
-  () => __testing.claimBrowserRiskVisit(budgetConfig, weiboPlatform, "https://s.weibo.com/weibo?q=3", 0),
-  /budget/
-);
-const untrackedRisk = await __testing.claimBrowserRiskVisit(budgetConfig, null, "https://example.com/", 10);
-assert.equal(untrackedRisk.tracked, false);
-const concurrentStoreDir = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-browser-risk-concurrent-test-"));
-const concurrentConfig = { storeDir: concurrentStoreDir, accountBrowserRisk: { tiers: { read: { minIntervalMs: 0, hourlyLimit: 1, dailyLimit: 10, actionLimit: 0 } } } };
-const concurrentResults = await Promise.allSettled([
-  __testing.claimBrowserRiskVisit(concurrentConfig, weiboPlatform, "https://s.weibo.com/weibo?q=a", 0),
-  __testing.claimBrowserRiskVisit(concurrentConfig, weiboPlatform, "https://s.weibo.com/weibo?q=b", 0)
-]);
-assert.equal(concurrentResults.filter((result) => result.status === "fulfilled").length, 1);
-assert.equal(concurrentResults.filter((result) => result.status === "rejected").length, 1);
-const backoffStoreDir = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-browser-risk-backoff-test-"));
-const backoffConfig = { storeDir: backoffStoreDir, accountBrowserRisk: { verificationBackoffMs: 60_000, tiers: { read: { minIntervalMs: 0, hourlyLimit: 5, dailyLimit: 10, actionLimit: 0 } } } };
-await __testing.claimBrowserRiskVisit(backoffConfig, weiboPlatform, "https://s.weibo.com/weibo?q=risk", 0);
-await __testing.recordBrowserRiskEvent(backoffConfig, weiboPlatform, { kind: "verification_or_risk_wall", url: "https://s.weibo.com/weibo?q=risk" });
-await assert.rejects(
-  () => __testing.claimBrowserRiskVisit(backoffConfig, weiboPlatform, "https://s.weibo.com/weibo?q=after-risk", 0),
-  /backoff/
-);
-
 assert.equal(
-  __testing.classifyBrowserRiskPage(null, "https://example.com/", "Sorry, you have been blocked\nCloudflare Ray ID: test", "Attention Required! | Cloudflare"),
+  __testing.classifyBrowserRiskPage("https://example.com/", "Sorry, you have been blocked\nCloudflare Ray ID: test", "Attention Required! | Cloudflare"),
   "cloudflare_block"
 );
 assert.equal(
-  __testing.classifyBrowserRiskPage(null, "https://example.com/cdn-cgi/challenge-platform/h/b", "Just a moment...\nChecking your browser", ""),
+  __testing.classifyBrowserRiskPage("https://example.com/cdn-cgi/challenge-platform/h/b", "Just a moment...\nChecking your browser", ""),
   "cloudflare_challenge"
 );
 const scrollPlan = __testing.readWebScrollPlan({ scrollMode: "bottom", scrollSteps: 99, scrollWaitMs: 9999 }, 768);
@@ -295,8 +236,7 @@ assert.equal(pdfRendered.details.status, "ok");
 assert.ok(await fs.stat(pdfRendered.details.path).then((stat) => stat.isFile()));
 assert.match(pdfRendered.content[0].text, /PDF_RENDER ok/);
 
-const require = createRequire(path.resolve("plugins/imagebot-video-utils/index.js"));
-const ffmpeg = require("@ffmpeg-installer/ffmpeg").path;
+const ffmpeg = resolveFfmpeg(import.meta.url);
 const videoPath = path.join(mediaDir, "sample.mp4");
 const madeVideo = spawnSync(ffmpeg, [
   "-hide_banner",
@@ -331,6 +271,24 @@ const formattedJson = await tools.get("text_toolkit").execute("text-json", {
 });
 assert.equal(formattedJson.details.status, "ok");
 assert.match(formattedJson.content[0].text, /"a": 1/);
+
+const regexResult = await tools.get("text_toolkit").execute("text-regex", {
+  action: "regex_test",
+  text: "Alpha beta ALPHA",
+  pattern: "alpha",
+  flags: "i"
+});
+assert.equal(regexResult.details.status, "ok");
+assert.match(regexResult.content[0].text, /Alpha/);
+
+const slowRegex = await tools.get("text_toolkit").execute("text-regex-timeout", {
+  action: "regex_test",
+  text: `${"a".repeat(30000)}!`,
+  pattern: "(a+)+$",
+  flags: "g"
+});
+assert.equal(slowRegex.details.status, "failed");
+assert.match(slowRegex.details.error, /timed out/);
 
 const watchAdd = await tools.get("web_watch_add").execute("watch-add", {
   url: "https://example.com",

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { __testing } from "../plugins/imagebot-feature-core/index.js";
+import { openclawStatePath } from "../plugins/imagebot-shared/openclaw-paths.mjs";
 
 const args = process.argv.slice(2);
 
@@ -42,7 +42,7 @@ const apply = flag("--apply") || flag("--run");
 const limit = asPositiveInt(option("--limit", "50"), 50);
 const configPath = path.resolve(option(
   "--config",
-  path.join(os.homedir(), ".openclaw", "openclaw.json")
+  process.env.OPENCLAW_CONFIG_PATH || openclawStatePath("openclaw.json")
 ));
 const openclawConfig = await readJson(configPath, null);
 if (!openclawConfig) {
@@ -52,7 +52,7 @@ if (!openclawConfig) {
 const pluginConfig = openclawConfig?.plugins?.entries?.["imagebot-feature-core"]?.config || {};
 const archiveConfig = __testing.gachaArchiveConfig(pluginConfig);
 const archiveRoot = path.resolve(
-  archiveConfig.localDir || path.join(os.homedir(), ".openclaw", "feature-core", "gacha-archive")
+  archiveConfig.localDir || openclawStatePath("feature-core", "gacha-archive")
 );
 const recordsDir = path.join(archiveRoot, "records");
 const names = (await fs.readdir(recordsDir).catch(() => []))

@@ -15,12 +15,12 @@ await fs.writeFile(openClawConfigPath, JSON.stringify({
   models: { providers: { openai: {} } },
   agents: {
     defaults: {
-      imageModel: { primary: "openai/gpt-5.5" },
+      imageModel: { primary: "openai/gpt-5.6-sol" },
       imageGenerationModel: { primary: "openai/gpt-image-2" }
     },
     list: [{
       id: "imagebot",
-      model: "openai/gpt-5.5",
+      model: "openai/gpt-5.6-sol",
       params: {
         reasoningEffort: "medium",
         textVerbosity: "low"
@@ -208,10 +208,12 @@ const modelProfiles = await tools.get("model_config").execute("model-profiles", 
 });
 assert.equal(modelProfiles.details.status, "ok");
 assert.ok(modelProfiles.details.profiles.some((profile) => profile.id === "deep"));
+assert.ok(modelProfiles.details.profiles.some((profile) => profile.id === "terra" && profile.model === "openai/gpt-5.6-terra"));
+assert.ok(modelProfiles.details.profiles.some((profile) => profile.id === "luna" && profile.model === "openai/gpt-5.6-luna"));
 assert.ok(modelProfiles.details.profiles.some((profile) => profile.id === "mini" && profile.model === "openai/gpt-5.4-mini"));
-assert.ok(modelProfiles.details.profiles.some((profile) => profile.id === "spark" && profile.toolPolicy === "chat-only"));
+assert.equal(modelProfiles.details.profiles.some((profile) => profile.id === "spark"), false);
 assert.ok(modelProfiles.details.models.some((model) => model.id === "openai/gpt-5.4" && model.enabled === true));
-assert.ok(modelProfiles.details.models.some((model) => model.id === "openai/gpt-5.3-codex-spark" && model.toolPolicy === "chat-only"));
+assert.equal(modelProfiles.details.models.some((model) => model.id === "openai/gpt-5.3-codex-spark"), false);
 
 const modelSetWithoutPlan = await tools.get("model_config").execute("model-set-no-plan", {
   action: "set",
@@ -335,7 +337,8 @@ assert.ok(cards.details.results.some((card) => card.id === "recipe.official_char
 for (const id of [
   "recipe.academic_figure",
   "recipe.anime_character_scene",
-  "recipe.xiaohongshu_douyin_visual_note"
+  "recipe.xiaohongshu_douyin_visual_note",
+  "recipe.artist_style_reference"
 ]) {
   assert.ok(cards.details.results.some((card) => card.id === id), `prompt recipe card should be listed: ${id}`);
 }
@@ -375,6 +378,13 @@ const animeSearch = await tools.get("prompt_library").execute("anime-search", {
 });
 assert.equal(animeSearch.details.status, "ok");
 assert.equal(animeSearch.details.results[0].id, "recipe.anime_character_scene");
+
+const artistStyleSearch = await tools.get("prompt_library").execute("artist-style-search", {
+  action: "search",
+  query: "named artist style representative works linework palette"
+});
+assert.equal(artistStyleSearch.details.status, "ok");
+assert.equal(artistStyleSearch.details.results[0].id, "recipe.artist_style_reference");
 
 const xhsSearch = await tools.get("prompt_library").execute("xhs-search", {
   action: "search",

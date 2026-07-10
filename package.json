@@ -19,11 +19,15 @@
     "prewarm:memory": "node scripts/PREWARM_IMAGEBOT_MEMORY_SEARCH.mjs",
     "prepare:runtime:ci": "node scripts/PREPARE_OPENCLAW_RUNTIME_FOR_TESTS.mjs",
     "repair:sessions": "node scripts/REPAIR_IMAGEBOT_SESSIONS.mjs && node scripts/REPAIR_IMAGEBOT_WINDOW_STORE.mjs",
+    "report:latency": "node scripts/REPORT_IMAGEBOT_LATENCY.mjs",
     "setup:plugins": "powershell -ExecutionPolicy Bypass -File ./scripts/INSTALL_IMAGEBOT_PLUGIN_DEPS.ps1",
+    "setup:media": "powershell -ExecutionPolicy Bypass -File ./scripts/INSTALL_FFMPEG_RUNTIME.ps1",
     "setup:test": "python -m pip install -r requirements-test.txt",
+    "smoke:agent": "node scripts/SMOKE_IMAGEBOT_AGENT_WORKFLOWS.mjs",
     "test:all": "node scripts/TEST_IMAGEBOT_ALL.mjs",
     "test:core": "node scripts/TEST_IMAGEBOT_CORE.mjs",
     "test:public-export": "node scripts/TEST_PUBLIC_EXPORT_SANITIZATION.mjs",
-    "test:patches": "node scripts/TEST_RUNTIME_PATCH_MANIFEST.mjs && node scripts/TEST_RUNTIME_PATCH_GOVERNANCE.mjs && powershell -ExecutionPolicy Bypass -File ./scripts/VERIFY_RUNTIME_PATCHES.ps1"
+    "test:patches": "node scripts/TEST_RUNTIME_PATCH_MANIFEST.mjs && node scripts/TEST_RUNTIME_PATCH_GOVERNANCE.mjs && powershell -ExecutionPolicy Bypass -File ./scripts/VERIFY_RUNTIME_PATCHES.ps1",
+    "verify:media": "node scripts/VERIFY_MEDIA_RUNTIME.mjs"
   }
 }

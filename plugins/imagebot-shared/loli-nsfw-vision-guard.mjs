@@ -1,14 +1,14 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { openclawStatePath } from "./openclaw-paths.mjs";
 
 const DEFAULT_MODEL_REPO = "SmilingWolf/wd-v1-4-vit-tagger-v2";
 const MODEL_FILE = "model.onnx";
 const TAGS_FILE = "selected_tags.csv";
-const DEFAULT_MODEL_DIR = path.join(homeDir(), ".openclaw", "models", "wd-v1-4-vit-tagger-v2");
+const DEFAULT_MODEL_DIR = openclawStatePath("models", "wd-v1-4-vit-tagger-v2");
 const DEFAULT_INPUT_SIZE = 448;
 const DEFAULT_MAX_IMAGES = 4;
 const DEFAULT_LOLI_THRESHOLD = 0.28;
@@ -20,10 +20,6 @@ const LOLI_TAGS = [
 const TEXT_LOLI_RE = /(?:^|[\s_#:/.-])(?:loli|lolicon)(?:$|[\s_#:/.-])|(?:\u30ed\u30ea|\u308d\u308a|\u841d\u8389|\u863f\u8389)/iu;
 
 let runtimePromise;
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);

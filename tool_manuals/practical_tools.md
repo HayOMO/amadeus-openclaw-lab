@@ -12,6 +12,12 @@ when_to_read: Before webpage screenshots, URL previews, image utility transforms
 - `web_card`: fast URL preview; title, URL, description/headings, short text, screenshot.
 - `web_snapshot`: public webpage screenshot + visible text + optional bounded actions.
 - Allowed actions: `click_text`, `click_selector`, `fill_selector`, `press`, `scroll`, `wait`.
+- For source lookup, an already-open interactive browser tab is usually the
+  better continuation. `web_card` / `web_snapshot` are useful for quick URL
+  triage, simple page reads, or saving a screenshot artifact. When comparing a
+  saved page screenshot with the user's original image, compare them directly
+  if both are already visible. Call `image` only for an extra path that is not
+  present in the current visual context.
 - Treat those actions as page-reading moves and perform them yourself for public
   pages. Use `click_text` for visible tabs, links, buttons, comments, images,
   albums, next/next page, expand, sort, language, or load more.
@@ -31,14 +37,11 @@ when_to_read: Before webpage screenshots, URL previews, image utility transforms
 - Public `http/https` only. No local/private/internal/file URLs.
 - Ordinary public pages use a fresh Playwright context per call, so cookies and
   localStorage do not persist.
-- Known account-backed platforms use separate bot-owned persistent profiles by
-  platform, not the owner browser profile.
 - Navigations and subresources are checked against the same public-network
   boundary.
-- Logged-in/account-backed platforms use an account browser risk guard:
-  tiered cooldowns/budgets for read, light, and interactive page reads, lower
-  action counts, risk-event backoff, and risk-wall stop signals. Read
-  `account_browser_risk` before those workflows.
+- These lightweight readers are isolated and never inherit the Bot profile's
+  cookies. The full `browser` tool defaults to `bot` and can explicitly select
+  `isolated` when separate browser state is useful.
 - Use `fullPage:true` only when needed.
 
 ## Image Utility
@@ -76,6 +79,13 @@ when_to_read: Before webpage screenshots, URL previews, image utility transforms
   set-mirroring action.
 - `video_keyframes` / `media_brief`: use for visual understanding of clips.
 - Use `background:true` for slow media jobs.
+
+## Text Toolkit
+
+- `text_toolkit`: JSON format/minify, hash, base64, regex test, and small line
+  diffs.
+- Regex tests run in a bounded worker. If a pattern is too slow, report the
+  timeout and ask for a narrower pattern instead of retrying variants.
 
 ## QR
 

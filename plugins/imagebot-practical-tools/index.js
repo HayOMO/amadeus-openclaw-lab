@@ -5,8 +5,9 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
-import { browserExecutablePath as pooledBrowserExecutablePath, closeBrowserContextPool, withEphemeralPage, withPooledPage } from "../imagebot-shared/browser-context-pool.js";
+import { browserExecutablePath as pooledBrowserExecutablePath, closeBrowserContextPool, withEphemeralPage } from "../imagebot-shared/browser-context-pool.js";
 import {
   mutationActorKey,
   mutationScopeKey,
@@ -19,6 +20,8 @@ import {
   isPrivateIp
 } from "../imagebot-shared/public-network-guard.mjs";
 import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
+import { resolveFfmpeg, resolveFfprobe } from "../imagebot-shared/media-runtime.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 import { appendFileLocked, withStateFileLock, writeJsonAtomic } from "../imagebot-shared/state-file.mjs";
 
 const WEB_SNAPSHOT_TOOL = "web_snapshot";
@@ -52,13 +55,8 @@ const REDIRECT_PROBE_CACHE_MAX = 256;
 const MAX_MEDIA_BYTES = 100 * 1024 * 1024;
 const PYTHON_TIMEOUT_MS = 45_000;
 const WEB_TIMEOUT_MS = 30_000;
-const ACCOUNT_BROWSER_MIN_INTERVAL_MS = 15_000;
-const ACCOUNT_BROWSER_HOURLY_LIMIT = 18;
-const ACCOUNT_BROWSER_DAILY_LIMIT = 80;
-const ACCOUNT_BROWSER_ACTION_LIMIT = 4;
-const ACCOUNT_BROWSER_LOGIN_BACKOFF_MS = 5 * 60 * 1000;
-const ACCOUNT_BROWSER_VERIFICATION_BACKOFF_MS = 30 * 60 * 1000;
 const AV_TIMEOUT_MS = 90_000;
+const TEXT_REGEX_TIMEOUT_MS = 1_500;
 const MAX_AV_BYTES = 100 * 1024 * 1024;
 const MAX_PDF_BYTES = 100 * 1024 * 1024;
 const MAX_PDF_RENDER_PAGES = 6;
@@ -95,91 +93,10 @@ const SHARP_IMAGE_ACTIONS = new Set([
   "blur",
   "sharpen"
 ]);
-const ACCOUNT_BROWSER_PLATFORMS = [
-  {
-    id: "weibo",
-    label: "Weibo",
-    domains: ["weibo.com", "sina.com.cn", "sina.com"],
-    loginUrl: /passport\.weibo\.com|login\.sina\.com/i,
-    riskText: /验证码|安全验证|访问过于频繁|异常流量|captcha|verify/i
-  },
-  {
-    id: "bilibili",
-    label: "Bilibili",
-    domains: ["bilibili.com"],
-    loginUrl: /passport\.bilibili\.com/i,
-    riskText: /验证码|安全验证|captcha|verify/i
-  },
-  {
-    id: "baidu_tieba",
-    label: "Baidu/Tieba",
-    domains: ["baidu.com", "tieba.baidu.com"],
-    loginUrl: /passport\.baidu\.com/i,
-    riskText: /验证码|安全验证|访问过于频繁|异常流量|captcha|verify/i
-  },
-  {
-    id: "xiaohongshu",
-    label: "Xiaohongshu",
-    domains: ["xiaohongshu.com"],
-    loginUrl: /login|signin/i,
-    riskText: /验证码|安全验证|异常|captcha|verify/i
-  },
-  {
-    id: "zhihu",
-    label: "Zhihu",
-    domains: ["zhihu.com"],
-    loginUrl: /signin|login/i,
-    riskText: /验证码|安全验证|captcha|verify/i
-  },
-  {
-    id: "pixiv",
-    label: "Pixiv",
-    domains: ["pixiv.net"],
-    loginUrl: /\/login/i,
-    riskText: /captcha|verify|cloudflare/i
-  },
-  {
-    id: "lofter",
-    label: "LOFTER",
-    domains: ["lofter.com"],
-    loginUrl: /login|passport/i,
-    riskText: /验证码|安全验证|captcha|verify/i
-  }
-];
-const ACCOUNT_BROWSER_TIER_DEFAULTS = {
-  read: {
-    label: "read",
-    minIntervalMs: 5_000,
-    hourlyLimit: 48,
-    dailyLimit: 160,
-    actionLimit: 0
-  },
-  light: {
-    label: "light",
-    minIntervalMs: 9_000,
-    hourlyLimit: 32,
-    dailyLimit: 120,
-    actionLimit: 2
-  },
-  interactive: {
-    label: "interactive",
-    minIntervalMs: ACCOUNT_BROWSER_MIN_INTERVAL_MS,
-    hourlyLimit: ACCOUNT_BROWSER_HOURLY_LIMIT,
-    dailyLimit: ACCOUNT_BROWSER_DAILY_LIMIT,
-    actionLimit: ACCOUNT_BROWSER_ACTION_LIMIT
-  }
-};
-const ACCOUNT_BROWSER_PASSIVE_ACTIONS = new Set(["scroll", "wait"]);
-
 const pluginDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(pluginDir, "..", "..");
 const toolTurnCounters = new Map();
-const browserRiskStateLocks = new Map();
 const redirectProbeCache = new Map();
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -256,16 +173,12 @@ function safeBaseName(value, fallback = "artifact") {
 
 function storeRoot(config) {
   const configured = String(config?.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "practical-tools"));
+  return path.resolve(configured || openclawStatePath("practical-tools"));
 }
 
 function mediaRoot(config) {
   const configured = String(config?.mediaDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "media", "practical-tools"));
-}
-
-function browserRiskStatePath(config) {
-  return path.join(storeRoot(config), "browser-risk-state.json");
+  return path.resolve(configured || openclawStatePath("media", "practical-tools"));
 }
 
 function artifactLogPath(config) {
@@ -308,39 +221,6 @@ function artifactMatchesFilter(record, filter = {}) {
   if (filter.sessionKey && sessionKey !== filter.sessionKey) return false;
   if (filter.chatId && chatId !== filter.chatId) return false;
   return true;
-}
-
-async function readBrowserRiskState(config) {
-  try {
-    const parsed = JSON.parse(await fs.readFile(browserRiskStatePath(config), "utf8"));
-    return isRecord(parsed) ? parsed : {};
-  } catch (error) {
-    if (error?.code === "ENOENT") return {};
-    return {};
-  }
-}
-
-async function writeBrowserRiskState(config, state) {
-  const filePath = browserRiskStatePath(config);
-  await writeJsonAtomic(filePath, state, { space: 2 });
-}
-
-async function withBrowserRiskStateLock(config, fn) {
-  const key = browserRiskStatePath(config);
-  const previous = browserRiskStateLocks.get(key) || Promise.resolve();
-  let release;
-  const current = new Promise((resolve) => {
-    release = resolve;
-  });
-  const tail = previous.catch(() => {}).then(() => current);
-  browserRiskStateLocks.set(key, tail);
-  await previous.catch(() => {});
-  try {
-    return await fn();
-  } finally {
-    release();
-    if (browserRiskStateLocks.get(key) === tail) browserRiskStateLocks.delete(key);
-  }
 }
 
 async function appendJsonLine(filePath, record) {
@@ -423,176 +303,7 @@ function normalizeUrlInput(raw) {
   return parsed;
 }
 
-function hostMatchesDomain(hostname, domain) {
-  const host = String(hostname || "").toLowerCase().replace(/^\./, "");
-  const target = String(domain || "").toLowerCase().replace(/^\./, "");
-  return host === target || host.endsWith(`.${target}`);
-}
-
-function accountBrowserPlatformForUrl(urlLike) {
-  let url;
-  try {
-    url = urlLike instanceof URL ? urlLike : new URL(String(urlLike || ""));
-  } catch {
-    return null;
-  }
-  const hostname = url.hostname.toLowerCase();
-  return ACCOUNT_BROWSER_PLATFORMS.find((platform) => platform.domains.some((domain) => hostMatchesDomain(hostname, domain))) || null;
-}
-
-function readRiskNumber(value, fallback, min = 0) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return fallback;
-  return Math.max(min, Math.trunc(number));
-}
-
-function accountBrowserTierPolicy(cfg, tierName) {
-  const defaults = ACCOUNT_BROWSER_TIER_DEFAULTS[tierName] || ACCOUNT_BROWSER_TIER_DEFAULTS.interactive;
-  const tierCfg = isRecord(cfg.tiers?.[tierName]) ? cfg.tiers[tierName] : {};
-  const legacy = tierName === "interactive";
-  return {
-    label: defaults.label,
-    minIntervalMs: readRiskNumber(tierCfg.minIntervalMs ?? (legacy ? cfg.minIntervalMs : undefined), defaults.minIntervalMs),
-    hourlyLimit: readRiskNumber(tierCfg.hourlyLimit ?? (legacy ? cfg.hourlyLimit : undefined), defaults.hourlyLimit, 1),
-    dailyLimit: readRiskNumber(tierCfg.dailyLimit ?? (legacy ? cfg.dailyLimit : undefined), defaults.dailyLimit, 1),
-    actionLimit: readRiskNumber(tierCfg.actionLimit ?? (legacy ? cfg.actionLimit : undefined), defaults.actionLimit)
-  };
-}
-
-function accountBrowserPolicy(config = {}) {
-  const cfg = isRecord(config.accountBrowserRisk) ? config.accountBrowserRisk : {};
-  return {
-    enabled: cfg.enabled !== false,
-    loginBackoffMs: readRiskNumber(cfg.loginBackoffMs, ACCOUNT_BROWSER_LOGIN_BACKOFF_MS),
-    verificationBackoffMs: readRiskNumber(cfg.verificationBackoffMs, ACCOUNT_BROWSER_VERIFICATION_BACKOFF_MS),
-    tiers: {
-      read: accountBrowserTierPolicy(cfg, "read"),
-      light: accountBrowserTierPolicy(cfg, "light"),
-      interactive: accountBrowserTierPolicy(cfg, "interactive")
-    }
-  };
-}
-
-function accountBrowserActionProfile(actionsOrCount = 0) {
-  if (Array.isArray(actionsOrCount)) {
-    const actions = actionsOrCount.filter(isRecord);
-    const actionCount = actions.length;
-    if (actionCount === 0) return { tier: "read", actionCount, actionTypes: [] };
-    const actionTypes = actions.map((action) => String(action.type || "").toLowerCase()).filter(Boolean);
-    const passiveOnly = actionTypes.length === actionCount && actionTypes.every((type) => ACCOUNT_BROWSER_PASSIVE_ACTIONS.has(type));
-    if (passiveOnly) return { tier: "light", actionCount, actionTypes };
-    return { tier: "interactive", actionCount, actionTypes };
-  }
-  const actionCount = Math.max(0, Math.trunc(Number(actionsOrCount) || 0));
-  return {
-    tier: actionCount === 0 ? "read" : "interactive",
-    actionCount,
-    actionTypes: []
-  };
-}
-
-function browserRiskHistory(platformState = {}, now = Date.now()) {
-  const hourAgo = now - 60 * 60 * 1000;
-  const dayAgo = now - 24 * 60 * 60 * 1000;
-  const visits = Array.isArray(platformState.visits) ? platformState.visits.filter((entry) => Number(entry?.at) >= dayAgo) : [];
-  return {
-    visits,
-    hourCount: visits.filter((entry) => Number(entry?.at) >= hourAgo).length,
-    dayCount: visits.length
-  };
-}
-
-function browserRiskBackoff(platformState = {}, policy, now = Date.now()) {
-  const events = Array.isArray(platformState.events) ? platformState.events : [];
-  const candidates = events
-    .filter((entry) => ["login_redirect", "verification_or_risk_wall", "cloudflare_block", "cloudflare_challenge"].includes(String(entry?.kind || "")))
-    .map((entry) => ({ ...entry, at: Number(entry?.at || 0) }))
-    .filter((entry) => entry.at > 0)
-    .sort((a, b) => b.at - a.at);
-  const latest = candidates[0];
-  if (!latest) return null;
-  const backoffMs = latest.kind === "login_redirect" ? policy.loginBackoffMs : policy.verificationBackoffMs;
-  const waitMs = backoffMs - (now - latest.at);
-  return waitMs > 0 ? { kind: latest.kind, waitMs } : null;
-}
-
-async function claimBrowserRiskVisit(config, platform, url, actionsOrCount = 0) {
-  const policy = accountBrowserPolicy(config);
-  if (!policy.enabled || !platform) return { platform: null, policy, tracked: false };
-  const profile = accountBrowserActionProfile(actionsOrCount);
-  const limits = policy.tiers[profile.tier] || policy.tiers.interactive;
-  if (profile.actionCount > limits.actionLimit) {
-    throw new Error(`account browser risk limit: ${platform.label} ${limits.label} mode allows up to ${limits.actionLimit} action(s) per snapshot; received ${profile.actionCount}. Split the browsing into smaller human-reviewed steps.`);
-  }
-  return await withBrowserRiskStateLock(config, async () => {
-    const now = Date.now();
-    const state = await readBrowserRiskState(config);
-    const platforms = isRecord(state.platforms) ? state.platforms : {};
-    const previous = isRecord(platforms[platform.id]) ? platforms[platform.id] : {};
-    const backoff = browserRiskBackoff(previous, policy, now);
-    if (backoff) {
-      throw new Error(`account browser risk backoff: ${platform.label} recently hit ${backoff.kind}; wait ${Math.ceil(backoff.waitMs / 1000)}s before another account-backed page read.`);
-    }
-    const history = browserRiskHistory(previous, now);
-    const lastAt = Number(previous.lastAt || 0);
-    const sinceLast = lastAt ? now - lastAt : Number.POSITIVE_INFINITY;
-    if (sinceLast < limits.minIntervalMs) {
-      const waitMs = limits.minIntervalMs - sinceLast;
-      throw new Error(`account browser risk cooldown: wait ${Math.ceil(waitMs / 1000)}s before another ${platform.label} ${limits.label} page read.`);
-    }
-    if (history.hourCount >= limits.hourlyLimit) {
-      throw new Error(`account browser risk budget: ${platform.label} ${limits.label} mode reached ${history.hourCount}/${limits.hourlyLimit} page reads this hour.`);
-    }
-    if (history.dayCount >= limits.dailyLimit) {
-      throw new Error(`account browser risk budget: ${platform.label} ${limits.label} mode reached ${history.dayCount}/${limits.dailyLimit} page reads in 24h.`);
-    }
-    const visits = [...history.visits, { at: now, url: clip(String(url || ""), 240), tier: profile.tier, actionCount: profile.actionCount, actionTypes: profile.actionTypes }];
-    platforms[platform.id] = {
-      ...previous,
-      label: platform.label,
-      lastAt: now,
-      visits
-    };
-    await writeBrowserRiskState(config, {
-      ...state,
-      updatedAt: new Date(now).toISOString(),
-      platforms
-    });
-    return {
-      platform: { id: platform.id, label: platform.label },
-      policy,
-      tier: profile.tier,
-      limits,
-      tracked: true,
-      hourCount: history.hourCount + 1,
-      dailyCount: history.dayCount + 1
-    };
-  });
-}
-
-async function recordBrowserRiskEvent(config, platform, event) {
-  if (!platform) return;
-  await withBrowserRiskStateLock(config, async () => {
-    const now = Date.now();
-    const state = await readBrowserRiskState(config);
-    const platforms = isRecord(state.platforms) ? state.platforms : {};
-    const previous = isRecord(platforms[platform.id]) ? platforms[platform.id] : {};
-    const events = Array.isArray(previous.events) ? previous.events.filter((entry) => Number(entry?.at) >= now - 7 * 24 * 60 * 60 * 1000) : [];
-    events.push({ at: now, ...event });
-    platforms[platform.id] = {
-      ...previous,
-      label: platform.label,
-      events
-    };
-    await writeBrowserRiskState(config, {
-      ...state,
-      updatedAt: new Date(now).toISOString(),
-      platforms
-    });
-  });
-}
-
-function classifyBrowserRiskPage(platform, finalUrl = "", bodyText = "", title = "") {
+function classifyBrowserRiskPage(finalUrl = "", bodyText = "", title = "") {
   const url = String(finalUrl || "");
   const text = `${String(title || "")}\n${String(bodyText || "")}`;
   if (/cf-chl-|cdn-cgi\/challenge-platform|Cloudflare Ray ID|Attention Required!\s*\|\s*Cloudflare|Just a moment\.\.\.|checking your browser|verify you are human|Sorry, you have been blocked/i.test(`${url}\n${text}`)) {
@@ -603,9 +314,6 @@ function classifyBrowserRiskPage(platform, finalUrl = "", bodyText = "", title =
   if (/captcha|security check|verification required|access denied|unusual traffic|verify you are human/i.test(text)) {
     return "verification_or_risk_wall";
   }
-  if (!platform) return "";
-  if (platform.loginUrl?.test(String(finalUrl || ""))) return "login_redirect";
-  if (platform.riskText?.test(text)) return "verification_or_risk_wall";
   return "";
 }
 
@@ -738,13 +446,6 @@ function requireRuntimeModule(moduleName) {
   throw lastError || new Error(`unable to require ${moduleName}`);
 }
 
-function commandPath(moduleName) {
-  const mod = requireRuntimeModule(moduleName);
-  const candidate = mod?.path ?? mod?.default?.path;
-  if (!candidate) throw new Error(`${moduleName} did not expose a binary path`);
-  return candidate;
-}
-
 let chromiumPromise = null;
 let sharpPromise = null;
 const prewarmedBrowserPools = new Set();
@@ -791,23 +492,12 @@ function browserPoolConfig(config = {}) {
   };
 }
 
-function accountBrowserProfileDir(config = {}, platform = {}) {
-  const id = String(platform?.id || "account").replace(/[^a-z0-9_.-]+/gi, "_").replace(/^_+|_+$/g, "") || "account";
-  return path.join(storeRoot(config), "browser-profiles", "account", id);
-}
-
-function browserPoolLaunchOptions(executablePath, { viewport, persistent = false } = {}) {
-  const launchOptions = {
+function browserPoolLaunchOptions(executablePath) {
+  return {
     headless: true,
     executablePath,
     args: ["--no-first-run", "--no-default-browser-check", "--disable-extensions"]
   };
-  if (persistent) {
-    launchOptions.viewport = viewport;
-    launchOptions.userAgent = USER_AGENT;
-    launchOptions.acceptDownloads = false;
-  }
-  return launchOptions;
 }
 
 function browserContextOptions({ viewport } = {}) {
@@ -818,25 +508,7 @@ function browserContextOptions({ viewport } = {}) {
   };
 }
 
-async function withWebSnapshotPage({ config, chromium, executablePath, accountPlatform, viewport, pool, signal }, fn) {
-  if (accountPlatform) {
-    const userDataDir = accountBrowserProfileDir(config, accountPlatform);
-    await fs.mkdir(path.dirname(userDataDir), { recursive: true });
-    return await withPooledPage({
-      key: `imagebot-practical-account-${accountPlatform.id}`,
-      chromium,
-      userDataDir,
-      viewport,
-      maxPages: pool.maxPages,
-      idleMs: pool.idleMs,
-      signal,
-      launchOptions: browserPoolLaunchOptions(executablePath, { viewport, persistent: true })
-    }, async (page, context, meta) => {
-      await installBrowserNetworkGuard(context);
-      return await fn(page, context, { ...meta, accountPlatform, profileDir: userDataDir });
-    });
-  }
-
+async function withWebSnapshotPage({ chromium, executablePath, viewport, pool, signal }, fn) {
   return await withEphemeralPage({
     key: "imagebot-practical-public-browser",
     chromium,
@@ -844,7 +516,7 @@ async function withWebSnapshotPage({ config, chromium, executablePath, accountPl
     maxPages: pool.maxPages,
     idleMs: pool.idleMs,
     signal,
-    launchOptions: browserPoolLaunchOptions(executablePath, { viewport, persistent: false }),
+    launchOptions: browserPoolLaunchOptions(executablePath),
     contextOptions: browserContextOptions({ viewport })
   }, async (page, context, meta) => {
     await installBrowserNetworkGuard(context);
@@ -1064,15 +736,12 @@ async function runWebSnapshot(config, params, signal, ctx = {}) {
   const filenameHint = safeBaseName(readString(params, "filename", ""), "web-snapshot");
   const actions = readWebActions(params);
   const scrollPlan = readWebScrollPlan(params, height);
-  const riskActions = [
+  const pageActions = [
     ...actions,
     ...(scrollPlan.mode !== "none" || scrollPlan.scrollY !== null ? [{ type: "scroll" }] : [])
   ];
   const { finalUrl, chain, probeError } = await resolveRedirects(inputUrl, signal);
   await assertPublicHostname(new URL(finalUrl).hostname);
-  const accountPlatform = accountBrowserPlatformForUrl(finalUrl) || accountBrowserPlatformForUrl(inputUrl);
-  const risk = await claimBrowserRiskVisit(config, accountPlatform, finalUrl, riskActions);
-
   const chromium = await getChromium();
   const outputDir = path.join(mediaRoot(config), "web-snapshots");
   await fs.mkdir(outputDir, { recursive: true });
@@ -1081,10 +750,8 @@ async function runWebSnapshot(config, params, signal, ctx = {}) {
   if (!executablePath) throw new Error("no Chromium/Chrome/Edge executable is available for web_snapshot");
   const pool = browserPoolConfig(config);
   return await withWebSnapshotPage({
-    config,
     chromium,
     executablePath,
-    accountPlatform,
     viewport: { width, height },
     pool,
     signal
@@ -1093,18 +760,15 @@ async function runWebSnapshot(config, params, signal, ctx = {}) {
     if (waitMs > 0) await page.waitForTimeout(waitMs);
     const earlyBodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 3000) || "").catch(() => "");
     const earlyTitle = await page.title().catch(() => "");
-    let riskStatus = classifyBrowserRiskPage(accountPlatform, page.url(), earlyBodyText, earlyTitle);
+    let riskStatus = classifyBrowserRiskPage(page.url(), earlyBodyText, earlyTitle);
     if (riskStatus === "cloudflare_challenge") {
       const deadline = Date.now() + Math.max(0, WEB_VERIFICATION_WAIT_MS - waitMs);
       while (riskStatus === "cloudflare_challenge" && Date.now() < deadline) {
         await page.waitForTimeout(Math.min(1_000, Math.max(0, deadline - Date.now())));
         const retryText = await page.evaluate(() => document.body?.innerText?.slice(0, 3000) || "").catch(() => "");
         const retryTitle = await page.title().catch(() => "");
-        riskStatus = classifyBrowserRiskPage(accountPlatform, page.url(), retryText, retryTitle);
+        riskStatus = classifyBrowserRiskPage(page.url(), retryText, retryTitle);
       }
-    }
-    if (riskStatus) {
-      await recordBrowserRiskEvent(config, accountPlatform, { kind: riskStatus, url: clip(page.url(), 240) });
     }
     const actionLog = riskStatus ? [{ type: "risk_guard", status: "stopped", error: riskStatus }] : await applyWebActions(page, actions);
     const scrollResult = riskStatus ? { log: [], metrics: await pageScrollMetrics(page).catch(() => null) } : await applyWebScrollPlan(page, scrollPlan);
@@ -1127,9 +791,8 @@ async function runWebSnapshot(config, params, signal, ctx = {}) {
         links
       };
     }).catch(() => ({ description: "", ogTitle: "", bodyText: "", headings: [], links: [] }));
-    const finalRiskStatus = riskStatus || classifyBrowserRiskPage(accountPlatform, finalPageUrl, metadata.bodyText || "", title);
+    const finalRiskStatus = riskStatus || classifyBrowserRiskPage(finalPageUrl, metadata.bodyText || "", title);
     if (finalRiskStatus && !riskStatus) {
-      await recordBrowserRiskEvent(config, accountPlatform, { kind: finalRiskStatus, url: clip(finalPageUrl, 240) });
       riskStatus = finalRiskStatus;
     }
     await page.screenshot({ path: outputPath, fullPage, animations: "disabled", type: "png" });
@@ -1159,22 +822,21 @@ async function runWebSnapshot(config, params, signal, ctx = {}) {
       mimeType: "image/png",
       sizeBytes: stat.size,
       summary: clip(`${title}\n${metadata.description || ""}\n${bodyText}`, 800),
-      tags: ["web", "snapshot", accountPlatform ? "account-browser" : "public-browser", riskActions.length ? "interactive" : ""].filter(Boolean),
-      browserProfile: accountPlatform ? `account:${accountPlatform.id}` : "ephemeral-public"
+      tags: ["web", "snapshot", "public-browser", pageActions.length ? "interactive" : ""].filter(Boolean),
+      browserProfile: "ephemeral-public"
     }, ctx);
-    return { artifact, title, finalUrl: finalPageUrl, description: metadata.description || "", headings: metadata.headings || [], links: metadata.links || [], bodyText, outputPath, sizeBytes: stat.size, fullPage, width, height, actions: combinedActions, scroll: scrollResult.metrics || null, redirectProbeError: probeError || "", risk, riskStatus, browserProfile: artifact.browserProfile, profileDir: browserMeta.profileDir || "" };
+    return { artifact, title, finalUrl: finalPageUrl, description: metadata.description || "", headings: metadata.headings || [], links: metadata.links || [], bodyText, outputPath, sizeBytes: stat.size, fullPage, width, height, actions: combinedActions, scroll: scrollResult.metrics || null, redirectProbeError: probeError || "", riskStatus, browserProfile: artifact.browserProfile, profileDir: browserMeta.profileDir || "" };
   });
 }
 
 function allowedMediaRoots(config) {
-  const home = homeDir();
   const defaults = [
-    path.join(home, ".openclaw", "media", "inbound"),
-    path.join(home, ".openclaw", "media", "tool-image-generation"),
-    path.join(home, ".openclaw", "media", "downloaded"),
-    path.join(home, ".openclaw", "media", "gallery-resend"),
+    openclawStatePath("media", "inbound"),
+    openclawStatePath("media", "tool-image-generation"),
+    openclawStatePath("media", "downloaded"),
+    openclawStatePath("media", "gallery-resend"),
     mediaRoot(config),
-    path.join(home, ".openclaw", "media", "archive")
+    openclawStatePath("media", "archive")
   ];
   const extra = Array.isArray(config?.allowedMediaRoots) ? config.allowedMediaRoots : [];
   return [...defaults, ...extra].map((entry) => path.resolve(String(entry))).filter(Boolean);
@@ -1693,7 +1355,7 @@ async function runPdfRender(config, params, ctx = {}) {
 }
 
 async function probeAv(inputPath) {
-  const ffprobe = commandPath("@ffprobe-installer/ffprobe");
+  const ffprobe = resolveFfprobe(import.meta.url);
   const { stdout } = await runProcess(ffprobe, [
     "-v", "error",
     "-print_format", "json",
@@ -1739,7 +1401,7 @@ async function runAvMedia(config, params, ctx = {}) {
   const summary = avSummary(meta);
   if (action === "probe") return { action, input, meta, summary };
 
-  const ffmpeg = commandPath("@ffmpeg-installer/ffmpeg");
+  const ffmpeg = resolveFfmpeg(import.meta.url);
   const outputDir = path.join(mediaRoot(config), "av-media");
   await fs.mkdir(outputDir, { recursive: true });
   const base = safeBaseName(readString(params, "filename"), `${action}-${path.basename(input.path, input.ext)}`);
@@ -1794,7 +1456,57 @@ async function runAvMedia(config, params, ctx = {}) {
   return { action, input, outputPath, mimeType, sizeBytes: stat.size, originalSizeBytes: input.stat.size, meta, summary, artifact };
 }
 
-function runTextToolkit(params) {
+function runRegexToolkit(params, text) {
+  const pattern = readString(params, "pattern");
+  const flags = readString(params, "flags", "g").replace(/[^gimsuy]/g, "");
+  if (!pattern) throw new Error("pattern is required");
+  const workerSource = `
+    const { parentPort, workerData } = require("node:worker_threads");
+    try {
+      const flags = String(workerData.flags || "");
+      const effectiveFlags = flags.includes("g") ? flags : flags + "g";
+      const re = new RegExp(String(workerData.pattern || ""), effectiveFlags);
+      const matches = [];
+      for (const match of String(workerData.text || "").matchAll(re)) {
+        matches.push({ match: match[0], index: match.index, groups: match.slice(1) });
+        if (matches.length >= 50) break;
+      }
+      parentPort.postMessage({ ok: true, output: JSON.stringify({ count: matches.length, matches }, null, 2) });
+    } catch (error) {
+      parentPort.postMessage({ ok: false, error: error && error.message ? error.message : String(error) });
+    }
+  `;
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(workerSource, {
+      eval: true,
+      workerData: { text, pattern, flags }
+    });
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      worker.terminate().catch(() => {});
+      callback(value);
+    };
+    const timer = setTimeout(() => {
+      finish(reject, new Error(`regex_test timed out after ${TEXT_REGEX_TIMEOUT_MS}ms`));
+    }, TEXT_REGEX_TIMEOUT_MS);
+    worker.once("message", (message) => {
+      if (message?.ok) {
+        finish(resolve, String(message.output || ""));
+      } else {
+        finish(reject, new Error(String(message?.error || "regex_test failed")));
+      }
+    });
+    worker.once("error", (error) => finish(reject, error));
+    worker.once("exit", (code) => {
+      if (code !== 0) finish(reject, new Error(`regex_test worker exited with code ${code}`));
+    });
+  });
+}
+
+async function runTextToolkit(params) {
   const action = String(readString(params, "action", "json_format")).toLowerCase();
   const text = readString(params, "text") || readString(params, "input");
   if (action === "json_format" || action === "json_minify") {
@@ -1809,16 +1521,7 @@ function runTextToolkit(params) {
   if (action === "base64_encode") return Buffer.from(text, "utf8").toString("base64");
   if (action === "base64_decode") return Buffer.from(text, "base64").toString("utf8");
   if (action === "regex_test") {
-    const pattern = readString(params, "pattern");
-    const flags = readString(params, "flags", "g").replace(/[^gimsuy]/g, "");
-    if (!pattern) throw new Error("pattern is required");
-    const re = new RegExp(pattern, flags);
-    const matches = [...text.matchAll(re)].slice(0, 50).map((match) => ({
-      match: match[0],
-      index: match.index,
-      groups: match.slice(1)
-    }));
-    return JSON.stringify({ count: matches.length, matches }, null, 2);
+    return runRegexToolkit(params, text);
   }
   if (action === "diff") {
     const left = String(isRecord(params) ? params.left ?? "" : "");
@@ -2028,7 +1731,7 @@ const webSnapshotTool = {
   name: WEB_SNAPSHOT_TOOL,
   label: "Web Snapshot",
   description:
-    "Open a public http/https page in a bot-owned Playwright profile, save a screenshot, extract visible text, and record an artifact. " +
+    "Open a public http/https page in a fresh isolated Playwright context with no login state, save a screenshot, extract visible text, and record an artifact. " +
     "Supports bounded click/scroll/wait actions for tabs, comments, image grids, load-more controls, and expanded sections.",
   parameters: {
     type: "object",
@@ -2085,7 +1788,6 @@ const webSnapshotTool = {
             width: result.width,
             height: result.height,
             actions: result.actions || [],
-            risk: result.risk || null,
             riskStatus: result.riskStatus || "",
             scroll: result.scroll || null,
             redirectProbeError: result.redirectProbeError || "",
@@ -2103,7 +1805,6 @@ const webSnapshotTool = {
         `screenshot: ${result.width}x${result.height}${result.fullPage ? " fullPage" : " viewport"}`,
         result.scroll ? `scroll: y=${result.scroll.scrollY}/${result.scroll.maxScrollY} viewport=${result.scroll.viewportHeight} reachedBottom=${result.scroll.reachedBottom ? "yes" : "no"}` : "",
         result.redirectProbeError ? `redirect_probe: skipped after ${result.redirectProbeError}` : "",
-        result.risk?.platform ? `account_browser: ${result.risk.platform.label} ${result.risk.tier || "interactive"} ${result.risk.hourCount || 0}/${result.risk.limits?.hourlyLimit || "?"}h ${result.risk.dailyCount || 0}/${result.risk.limits?.dailyLimit || "?"}d` : "",
         result.riskStatus ? `risk_status: ${result.riskStatus}` : "",
         result.actions?.length ? `actions: ${result.actions.map((entry) => `${entry.type}:${entry.status}`).join(" | ")}` : "",
         result.description ? `description: ${clip(result.description, 300)}` : "",
@@ -2117,7 +1818,7 @@ const webSnapshotTool = {
           { type: "text", text },
           { type: "image", data: image.toString("base64"), mimeType: "image/png", fileName: path.basename(result.outputPath) }
         ],
-        details: { status: "ok", artifact: result.artifact, url: result.finalUrl, path: result.outputPath, risk: result.risk || null, riskStatus: result.riskStatus || "", scroll: result.scroll || null, redirectProbeError: result.redirectProbeError || "", browserProfile: result.browserProfile || "", media: { path: result.outputPath, mediaUrl: result.outputPath, mimeType: "image/png", outbound: false } }
+        details: { status: "ok", artifact: result.artifact, url: result.finalUrl, path: result.outputPath, riskStatus: result.riskStatus || "", scroll: result.scroll || null, redirectProbeError: result.redirectProbeError || "", browserProfile: result.browserProfile || "", media: { path: result.outputPath, mediaUrl: result.outputPath, mimeType: "image/png", outbound: false } }
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2130,8 +1831,8 @@ const webCardTool = {
   name: WEB_CARD_TOOL,
   label: "Web Card",
   description:
-    "Create a compact card for a public webpage: title, final URL, description/headings, short visible-text preview, screenshot, and artifact id. " +
-    "Use for quick URL previews before deeper reading, then move to web_snapshot when clicks, scrolling, or fuller page evidence are useful.",
+    "Create a compact card in a fresh isolated context for a public webpage: title, final URL, description/headings, short visible-text preview, screenshot, and artifact id. " +
+    "This is a lightweight URL evidence view; web_snapshot exposes the fuller bounded page-reading surface.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -2172,7 +1873,6 @@ const webCardTool = {
             preview: clip(result.bodyText, 800),
             headings: result.headings?.slice(0, 6) || [],
             actions: result.actions || [],
-            risk: result.risk || null,
             riskStatus: result.riskStatus || "",
             browserProfile: result.browserProfile || ""
           })
@@ -2185,7 +1885,6 @@ const webCardTool = {
         `artifact_id: ${result.artifact.artifactId}`,
         `title: ${result.title || "(untitled)"}`,
         `url: ${result.finalUrl}`,
-        result.risk?.platform ? `account_browser: ${result.risk.platform.label} ${result.risk.tier || "interactive"} ${result.risk.hourCount || 0}/${result.risk.limits?.hourlyLimit || "?"}h ${result.risk.dailyCount || 0}/${result.risk.limits?.dailyLimit || "?"}d` : "",
         result.riskStatus ? `risk_status: ${result.riskStatus}` : "",
         result.description ? `description: ${clip(result.description, 260)}` : "",
         result.headings?.length ? `headings: ${result.headings.slice(0, 6).join(" | ")}` : "",
@@ -2199,7 +1898,7 @@ const webCardTool = {
           { type: "text", text: lines.join("\n") },
           { type: "image", data: image.toString("base64"), mimeType: "image/png", fileName: path.basename(result.outputPath) }
         ],
-        details: { status: "ok", artifact: result.artifact, url: result.finalUrl, path: result.outputPath, risk: result.risk || null, riskStatus: result.riskStatus || "", browserProfile: result.browserProfile || "", media: { path: result.outputPath, mediaUrl: result.outputPath, mimeType: "image/png", outbound: false } }
+        details: { status: "ok", artifact: result.artifact, url: result.finalUrl, path: result.outputPath, riskStatus: result.riskStatus || "", browserProfile: result.browserProfile || "", media: { path: result.outputPath, mediaUrl: result.outputPath, mimeType: "image/png", outbound: false } }
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2650,7 +2349,7 @@ const textToolkitTool = {
   },
   async execute(_toolCallId, params) {
     try {
-      const output = runTextToolkit(params);
+      const output = await runTextToolkit(params);
       return { content: [{ type: "text", text: `TEXT_TOOLKIT ok\n${clip(output, 5000)}` }], details: { status: "ok", output } };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2844,17 +2543,9 @@ export const __testing = {
   applyWebActions,
   applyWebScrollPlan,
   pageScrollMetrics,
-  accountBrowserPlatformForUrl,
-  accountBrowserPolicy,
-  accountBrowserActionProfile,
-  claimBrowserRiskVisit,
-  recordBrowserRiskEvent,
   classifyBrowserRiskPage,
-  readBrowserRiskState,
-  browserRiskStatePath,
   loadArtifacts,
   recordArtifact,
-  accountBrowserProfileDir,
   assertBrowserRequestUrlAllowed,
   scoreArtifact,
   safeBaseName,

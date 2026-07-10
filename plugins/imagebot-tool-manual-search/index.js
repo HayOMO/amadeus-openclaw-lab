@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,12 +7,15 @@ const TOOL_NAME = "tool_manual_search";
 const DEFAULT_COUNT = 4;
 const MAX_COUNT = 8;
 const MAX_SNIPPET_CHARS = 1200;
+const MANUAL_INVENTORY_RECHECK_MS = 5000;
 
 const pluginDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(pluginDir, "..", "..");
 const manualRoot = path.join(repoRoot, "tool_manuals");
 let manualSectionCache = null;
 let manualSectionCachePromise = null;
+let manualInventoryCache = null;
+let manualInventoryPromise = null;
 
 const STOPWORDS = new Set([
   "the", "and", "for", "with", "that", "this", "from", "into", "about", "tool",
@@ -89,7 +92,9 @@ function discoverFocusValues() {
       .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
       .map((entry) => {
         if (entry.name === "README.md") return "tool_manuals_index";
-        return entry.name.replace(/\.md$/i, "");
+        const fallback = entry.name.replace(/\.md$/i, "");
+        const raw = readFileSync(path.join(manualRoot, entry.name), "utf8");
+        return parseFrontMatter(raw).meta.id || fallback;
       })
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b));
@@ -119,22 +124,41 @@ function splitSections(body, meta) {
   return blocks;
 }
 
+function cloneInventory(files) {
+  return files.map((file) => ({ ...file }));
+}
+
 async function manualInventory() {
-  const entries = await fs.readdir(manualRoot, { withFileTypes: true });
-  const files = await Promise.all(entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map(async (entry) => {
-      const filePath = path.join(manualRoot, entry.name);
-      const stat = await fs.stat(filePath).catch(() => null);
-      if (!stat?.isFile()) return null;
-      return {
-        name: entry.name,
-        filePath,
-        mtimeMs: Math.trunc(stat.mtimeMs),
-        size: stat.size
-      };
-    }));
-  return files.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  const now = Date.now();
+  if (manualInventoryCache && now - manualInventoryCache.checkedAt < MANUAL_INVENTORY_RECHECK_MS) {
+    return cloneInventory(manualInventoryCache.files);
+  }
+  if (manualInventoryPromise) return cloneInventory(await manualInventoryPromise);
+  manualInventoryPromise = (async () => {
+    const entries = await fs.readdir(manualRoot, { withFileTypes: true });
+    const files = await Promise.all(entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map(async (entry) => {
+        const filePath = path.join(manualRoot, entry.name);
+        const stat = await fs.stat(filePath).catch(() => null);
+        if (!stat?.isFile()) return null;
+        return {
+          name: entry.name,
+          filePath,
+          mtimeMs: Math.trunc(stat.mtimeMs),
+          size: stat.size
+        };
+      }));
+    const sorted = files.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+    manualInventoryCache = {
+      checkedAt: now,
+      files: cloneInventory(sorted)
+    };
+    return sorted;
+  })().finally(() => {
+    manualInventoryPromise = null;
+  });
+  return cloneInventory(await manualInventoryPromise);
 }
 
 function inventorySignature(files) {
@@ -195,13 +219,19 @@ function manualCacheStats() {
     cached: Boolean(manualSectionCache),
     files: manualSectionCache?.files || 0,
     sections: manualSectionCache?.sections?.length || 0,
-    loadedAt: manualSectionCache?.loadedAt || 0
+    loadedAt: manualSectionCache?.loadedAt || 0,
+    inventoryCached: Boolean(manualInventoryCache),
+    inventoryFiles: manualInventoryCache?.files?.length || 0,
+    inventoryCheckedAt: manualInventoryCache?.checkedAt || 0,
+    inventoryRecheckMs: MANUAL_INVENTORY_RECHECK_MS
   };
 }
 
 function clearManualCache() {
   manualSectionCache = null;
   manualSectionCachePromise = null;
+  manualInventoryCache = null;
+  manualInventoryPromise = null;
 }
 
 async function loadManualSectionsUncached(focus) {

@@ -4,8 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 const home = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-zhihu-test-"));
-process.env.USERPROFILE = home;
-process.env.HOME = home;
+process.env.OPENCLAW_STATE_DIR = home;
 delete process.env.ZHIHU_ACCESS_SECRET;
 delete process.env.OPENCLAW_ZHIHU_ACCESS_SECRET;
 

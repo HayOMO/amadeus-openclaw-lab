@@ -1,16 +1,12 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { openclawStatePath } from "../plugins/imagebot-shared/openclaw-paths.mjs";
 
 const DEFAULT_AGENT = "imagebot";
 
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
-
 function defaultWindowStorePath(agent = DEFAULT_AGENT) {
-  return path.join(homeDir(), ".openclaw", "agents", agent, "sessions", "sessions.json.telegram-imagebot-windows.json");
+  return openclawStatePath("agents", agent, "sessions", "sessions.json.telegram-imagebot-windows.json");
 }
 
 function isRecord(value) {

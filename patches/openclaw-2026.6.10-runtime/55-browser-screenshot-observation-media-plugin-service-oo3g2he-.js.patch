@@ -1,0 +1,39 @@
+diff --git a/dist/plugin-service-oo3g2he-.js b/dist/plugin-service-oo3g2he-.js
+index df15089..7df0737 100644
+--- a/dist/plugin-service-oo3g2he-.js
++++ b/dist/plugin-service-oo3g2he-.js
+@@ -91,6 +91,16 @@ function neutralizeMediaDirectives(text) {
+ 	}
+ 	return changed ? lines.join("\n") : text;
+ }
++function markBrowserScreenshotDetailsNonOutbound(details) {
++	const media = details?.media && typeof details.media === "object" && !Array.isArray(details.media) ? details.media : {};
++	return {
++		...details,
++		media: {
++			...media,
++			outbound: false
++		}
++	};
++}
+ //#endregion
+ //#region extensions/browser/src/browser-tool.actions.ts
+ const browserToolActionDeps = {
+@@ -1043,15 +1053,15 @@ function createBrowserTool(opts) {
+ 						return await browserToolDeps.imageResultFromFile({
+ 							label: "browser:screenshot",
+ 							path: screenshotPath,
+ 							extraText,
+-							details: result,
++							details: markBrowserScreenshotDetailsNonOutbound(result),
+ 							imageSanitization
+ 						});
+ 					}
+ 					return await browserToolDeps.imageResultFromFile({
+ 						label: "browser:screenshot",
+ 						path: screenshotPath,
+-						details: result,
++						details: markBrowserScreenshotDetailsNonOutbound(result),
+ 						imageSanitization
+ 					});
+ 				}

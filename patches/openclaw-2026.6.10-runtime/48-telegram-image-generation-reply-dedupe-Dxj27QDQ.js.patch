@@ -1,0 +1,118 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+index 59d1d2a..7e7c9fb 100644
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -10440,6 +10440,29 @@ const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode
+ 	let hadErrorReplyFailureOrSkip = false;
+ 	let isFirstTurnInSession = false;
+ 	let dispatchError;
++	let imageGenerationNoticeSent = false;
++	const sendImageGenerationNotice = async () => {
++		if (imageGenerationNoticeSent || isRoomEvent || typeof msg.message_id !== "number") return;
++		imageGenerationNoticeSent = true;
++		try {
++			await withTelegramApiErrorLogging({
++				operation: "sendChatAction",
++				fn: () => bot.api.sendChatAction(chatId, "upload_photo", buildTypingThreadParams(threadSpec.id))
++			});
++			await withTelegramApiErrorLogging({
++				operation: "sendMessage",
++				fn: () => bot.api.sendMessage(chatId, "\u751f\u6210\u56fe\u7247\u4e2d...", {
++					...(buildTelegramThreadParams(threadSpec) ?? {}),
++					reply_parameters: {
++						message_id: msg.message_id,
++						allow_sending_without_reply: true
++					}
++				})
++			});
++		} catch (err) {
++			logVerbose(`telegram image generation notice failed: ${formatErrorMessage(err)}`);
++		}
++	};
+ 	try {
+ 		const sticker = ctxPayload.Sticker;
+ 		if (sticker?.fileId && sticker.fileUniqueId && ctxPayload.MediaPath) {
+@@ -10494,6 +10517,13 @@ const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode
+ 				replyToId: implicitQuoteReplyTargetId
+ 			};
+ 		};
++		const applyImplicitMediaReplyTarget = (payload) => {
++			if (replyToMode === "off" || !hasTelegramPayloadMedia(payload) || payload.replyToId || payload.replyToTag || payload.replyToCurrent === false || typeof msg.message_id !== "number") return payload;
++			return {
++				...payload,
++				replyToId: String(msg.message_id)
++			};
++		};
+ 		const normalizeDeliveryPayload = (payload) => {
+ 			return projectOutboundPayloadPlanForDelivery(createOutboundPayloadPlan([payload], {
+ 				cfg,
+@@ -10505,10 +10535,28 @@ const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode
+ 			if (replyQuoteText != null) return true;
+ 			return payload.replyToId != null && replyQuoteByMessageId[payload.replyToId] != null;
+ 		};
++		const visibleDeliveryKeys = /* @__PURE__ */ new Set();
++		const createVisibleDeliveryKey = (payload, silent) => {
++			const parts = resolveSendableOutboundReplyParts(payload);
++			if (parts.text.length === 0 && !parts.hasMedia) return;
++			return JSON.stringify({
++				threadId: threadSpec.id ?? null,
++				replyToId: payload.replyToId ?? null,
++				text: parts.text.trimEnd(),
++				media: collectTelegramPayloadMediaUrls(payload),
++				silent: silent === true
++			});
++		};
+ 		const sendPayload = async (payload, options) => {
+ 			if (isDispatchSuperseded()) return false;
+-			const deliverablePayload = applyQuoteReplyTarget(payload);
++			const deliverablePayload = applyImplicitMediaReplyTarget(applyQuoteReplyTarget(payload));
+ 			const silent = options?.silent ?? (silentErrorReplies && payload.isError === true);
++			const visibleDeliveryKey = options?.durable ? createVisibleDeliveryKey(deliverablePayload, silent) : void 0;
++			if (visibleDeliveryKey && visibleDeliveryKeys.has(visibleDeliveryKey)) {
++				logVerbose("telegram duplicate durable visible payload suppressed within current dispatch");
++				deliveryState.markDelivered();
++				return true;
++			}
+ 			const sendablePartsForDiag = resolveSendableOutboundReplyParts(deliverablePayload);
+ 			const mediaCountForDiag = (deliverablePayload.mediaUrls?.filter(Boolean).length ?? 0) + (deliverablePayload.mediaUrl ? 1 : 0);
+ 			logVerbose(`telegram delivery attempt durable=${options?.durable === true} chat=${chatId} accountId=${route.accountId} textLen=${sendablePartsForDiag.text.length} mediaCount=${mediaCountForDiag} silent=${silent === true}`);
+@@ -10544,9 +10592,22 @@ const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode
+ 				if (durable.status === "failed") throw durable.error;
+ 				if (durable.status === "handled_visible") {
+ 					deliveryState.markDelivered();
++					if (visibleDeliveryKey) visibleDeliveryKeys.add(visibleDeliveryKey);
+ 					return true;
+ 				}
+-				if (durable.status === "handled_no_send") logVerbose("telegram durable delivery produced no visible send; falling back to direct Telegram delivery");
++				if (durable.status === "handled_no_send") {
++					if (durable.reason === "adapter_returned_no_identity") {
++						logVerbose("telegram durable delivery returned no message identity after adapter send; treating as delivered to avoid duplicate direct send");
++						deliveryState.markDelivered();
++						if (visibleDeliveryKey) visibleDeliveryKeys.add(visibleDeliveryKey);
++						return true;
++					}
++					if (durable.reason && durable.reason !== "no_visible_result") {
++						logVerbose(`telegram durable delivery suppressed visible send; not falling back to direct Telegram delivery (reason=${durable.reason})`);
++						return false;
++					}
++					logVerbose("telegram durable delivery produced no visible send; falling back to direct Telegram delivery");
++				}
+ 			}
+ 			let result;
+ 			try {
+@@ -10580,6 +10641,7 @@ const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode
+ 			logVerbose(`telegram direct delivery result delivered=${result.delivered === true}`);
+ 			if (result.delivered) {
+ 				deliveryState.markDelivered();
++				if (visibleDeliveryKey) visibleDeliveryKeys.add(visibleDeliveryKey);
+ 				recordTelegramImagebotOutboundDeliveries(result.messageIds);
+ 			}
+ 			return result.delivered;
+@@ -11058,6 +11120,7 @@ const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode
+ 											toolName,
+ 											startImmediately: true
+ 										});
++										if (toolName === "image_generate") await sendImageGenerationNotice();
+ 										if (statusReactionController && toolName) await statusReactionController.setTool(toolName);
+ 										await progressPromise;
+ 									},

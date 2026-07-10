@@ -16,7 +16,7 @@ test is `scripts/TEST_AGENT_ARCHITECTURE_CONTRACT.mjs`.
 | Mutations have dry-run, approval, owner check, or code gate | Improved, pass for contracted high-risk tools | Sticker Telegram mutations default to `dryRun:true` except user-aligned add paths; non-delete `dryRun:false` paths require trusted user/owner alignment; `delete_sticker` requires a delete approval code or trusted runtime mutation approval; managed sticker defaults are local registry writes; script/model mutations require ctx-bound approval plans |
 | Long tasks have draft/checkpoint/resume | Pass for current long-task surfaces | `sticker_pack` drafts use `draftId`; `background_job` uses `job_id`; long media/watch/script routes support background queue and status |
 | Memory is separated into semantic/episodic/procedural/operational layers | Pass at architecture level | `docs/MEMORY_ARCHITECTURE.md`, `tool_manuals/memory_and_persona.md`, `memory_search` hybrid/semantic/keyword modes |
-| Browser/account tools have untrusted-data boundary | Pass | `config/imagebot/prompt/90-privacy.md`, `tool_manuals/browser_sandbox.md`, `tool_manuals/account_browser_risk.md`, practical-tools SSRF/risk checks |
+| Browser/account tools have untrusted-data boundary | Pass | `config/imagebot/prompt/90-privacy.md`, `tool_manuals/browser_sandbox.md`, Bot-owned-vs-isolated profile contract, and practical-tools SSRF checks |
 | Trace/eval can replay real bot behavior | Pass for current scope, needs more scenario breadth | `turn_observer_recent`, `failure_memory`, `background_job`, `tests/telegram-turns`, `tests/telegram-scenarios`, replay scripts |
 
 ## Changes From This Audit
@@ -38,10 +38,12 @@ test is `scripts/TEST_AGENT_ARCHITECTURE_CONTRACT.mjs`.
 - Added default scope isolation for `artifact_recent`, `artifact_search`, and
   `artifact_get`; new artifact records carry normalized runtime context,
   `scopeKey`, and `actorKey`.
-- Split `web_snapshot` / `web_card` browser state at runtime: public pages use
-  fresh Playwright contexts, account-backed platforms use platform-specific
-  persistent bot profiles, and page requests are guarded against private/local
-  network targets.
+- Restricted browser state to the intended two-profile contract: the full
+  `browser` defaults to the OpenClaw-managed `bot` profile and may explicitly
+  select the separate `isolated` profile. Ordinary Chrome `profile=user` is
+  prohibited. `web_snapshot` / `web_card` always use fresh login-free contexts,
+  and page requests are
+  guarded against private/local network targets.
 - Added scoped draft/commit governance for `knowledge_ingest`; runtime
   `user_docs` search/recent now filters by current scope, and ingest list/delete
   management is scoped.
@@ -71,7 +73,7 @@ test is `scripts/TEST_AGENT_ARCHITECTURE_CONTRACT.mjs`.
   that bucket, but approvals, cooldown-style feature state, sticker registries,
   and some watch/runtime state still need transactional storage or locks.
 - Replay fixtures exist for trigger/window/media behavior, but sticker and
-  account-browser workflows still need multi-turn scenario fixtures.
+  browser-profile behavior still needs broader multi-turn scenario coverage.
 - Memory has the right taxonomy and recall gate, but conflict/freshness handling
   is still mostly curator prompt and convention rather than a strong data model.
 - General desktop automation remains deliberately out of scope. New desktop

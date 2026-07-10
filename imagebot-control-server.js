@@ -6,13 +6,14 @@ import { execFile } from "node:child_process";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { openclawStateDir } from "./plugins/imagebot-shared/openclaw-paths.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const APP_DIR = path.join(ROOT, "app");
 const RUNTIME_DIR = path.resolve(process.env.IMAGEBOT_CONTROL_RUNTIME_DIR || path.join(ROOT, ".runtime"));
 const LOG_DIR = path.resolve(process.env.IMAGEBOT_CONTROL_LOG_DIR || path.join(ROOT, "logs"));
-const OPENCLAW_HOME = path.join(os.homedir(), ".openclaw");
-const OPENCLAW_CONFIG = path.join(OPENCLAW_HOME, "openclaw.json");
+const OPENCLAW_STATE_ROOT = openclawStateDir();
+const OPENCLAW_CONFIG = path.resolve(process.env.OPENCLAW_CONFIG_PATH || path.join(OPENCLAW_STATE_ROOT, "openclaw.json"));
 const MODEL_PROFILE_PATH = path.join(ROOT, "scripts", "IMAGEBOT_MODEL_PROFILES.json");
 const FEATURE_HEALTH_SCRIPT = path.join(ROOT, "scripts", "CHECK_IMAGEBOT_FEATURE_HEALTH.mjs");
 const HOST = process.env.IMAGEBOT_CONTROL_HOST || "127.0.0.1";
@@ -236,15 +237,15 @@ function getModelCatalog() {
     reasoningEfforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
     textVerbosity: ["low", "medium", "high"],
     profiles: [
-      { id: "fast", label: "Fast", model: "openai/gpt-5.5", reasoningEffort: "low", textVerbosity: "low", maxTokens: 768 },
-      { id: "balanced", label: "Balanced", model: "openai/gpt-5.5", reasoningEffort: "medium", textVerbosity: "low", maxTokens: 1024 },
-      { id: "deep", label: "Deep", model: "openai/gpt-5.5", reasoningEffort: "high", textVerbosity: "low", maxTokens: 1536 },
-      { id: "ds-fast", label: "DS Flash High", model: "deepseek/deepseek-v4-flash", reasoningEffort: "high", textVerbosity: "low", maxTokens: 1024 },
-      { id: "ds-pro", label: "DS Pro High", model: "deepseek/deepseek-v4-pro", reasoningEffort: "high", textVerbosity: "low", maxTokens: 1536 },
-      { id: "ds-flash-off", label: "DS Flash Off", model: "deepseek/deepseek-v4-flash", reasoningEffort: "off", textVerbosity: "low", maxTokens: 1024 },
-      { id: "ds-flash-max", label: "DS Flash Max", model: "deepseek/deepseek-v4-flash", reasoningEffort: "max", textVerbosity: "low", maxTokens: 2048 },
-      { id: "ds-pro-off", label: "DS Pro Off", model: "deepseek/deepseek-v4-pro", reasoningEffort: "off", textVerbosity: "low", maxTokens: 1536 },
-      { id: "ds-pro-max", label: "DS Pro Max", model: "deepseek/deepseek-v4-pro", reasoningEffort: "max", textVerbosity: "medium", maxTokens: 3072 }
+      { id: "fast", label: "Fast", model: "openai/gpt-5.5", reasoningEffort: "low", textVerbosity: "low" },
+      { id: "balanced", label: "Balanced", model: "openai/gpt-5.5", reasoningEffort: "medium", textVerbosity: "low" },
+      { id: "deep", label: "Deep", model: "openai/gpt-5.5", reasoningEffort: "high", textVerbosity: "low" },
+      { id: "ds-fast", label: "DS Flash High", model: "deepseek/deepseek-v4-flash", reasoningEffort: "high", textVerbosity: "low" },
+      { id: "ds-pro", label: "DS Pro High", model: "deepseek/deepseek-v4-pro", reasoningEffort: "high", textVerbosity: "low" },
+      { id: "ds-flash-off", label: "DS Flash Off", model: "deepseek/deepseek-v4-flash", reasoningEffort: "off", textVerbosity: "low" },
+      { id: "ds-flash-max", label: "DS Flash Max", model: "deepseek/deepseek-v4-flash", reasoningEffort: "max", textVerbosity: "low" },
+      { id: "ds-pro-off", label: "DS Pro Off", model: "deepseek/deepseek-v4-pro", reasoningEffort: "off", textVerbosity: "low" },
+      { id: "ds-pro-max", label: "DS Pro Max", model: "deepseek/deepseek-v4-pro", reasoningEffort: "max", textVerbosity: "medium" }
     ]
   };
   const catalog = readJsonFile(MODEL_PROFILE_PATH, fallback);
@@ -303,7 +304,7 @@ function validateModelPayload(body) {
   const model = String(body.model || profile.model || "").trim();
   const reasoningEffort = String(body.reasoningEffort || profile.reasoningEffort || "medium").trim();
   const textVerbosity = String(body.textVerbosity || profile.textVerbosity || "low").trim();
-  const maxTokens = Number(body.maxTokens || profile.maxTokens || 1024);
+  const maxTokens = Number(body.maxTokens ?? profile.maxTokens ?? 0) || 0;
 
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.:-]+$/.test(model)) {
     throw new Error("Invalid model id. Use provider/model, for example openai/gpt-5.5.");
@@ -314,8 +315,8 @@ function validateModelPayload(body) {
   if (!catalog.textVerbosity.includes(textVerbosity)) {
     throw new Error("Invalid text verbosity");
   }
-  if (!Number.isInteger(maxTokens) || maxTokens < 256 || maxTokens > 8192) {
-    throw new Error("Max tokens must be an integer between 256 and 8192.");
+  if (maxTokens !== 0 && (!Number.isInteger(maxTokens) || maxTokens < 256 || maxTokens > 8192)) {
+    throw new Error("Max tokens must be 0/unset or an integer between 256 and 8192.");
   }
 
   return {
@@ -873,7 +874,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && url.pathname === "/api/open-config") {
-      execFile("explorer.exe", [OPENCLAW_HOME], { windowsHide: true }, () => {});
+      execFile("explorer.exe", [OPENCLAW_STATE_ROOT], { windowsHide: true }, () => {});
       writeJson(res, 200, { ok: true });
       return;
     }

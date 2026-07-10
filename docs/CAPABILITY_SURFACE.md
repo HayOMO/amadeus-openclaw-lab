@@ -17,22 +17,21 @@ The action-level architecture contract lives in
 
 - Chat, persona profile selection, image understanding, image generation/editing, public web/search/snapshot, public video metadata/subtitles/bounded download, Pixiv ranking/detail/download through a dedicated gallery-dl connector, media transforms, audio transcription, Telegram sticker-set preparation/review/publish plus known-set inspect/download/copy workflows, lightweight document ingestion, local RAG, gacha archive, local group adventure game state, Windows media-session playback control, diagnostics.
 - Inbound image routing is model-aware. If the current window/session is pinned
-  to a native-vision model such as `openai/gpt-5.5`, images are delivered to
+  to a native-vision model such as `openai/gpt-5.6-sol`, images are delivered to
   that model directly and the separate `image` understanding tool is skipped.
   If the current model is text-only, such as DeepSeek V4 Flash/Pro, the runtime
   first uses the configured `agents.defaults.imageModel` vision route
-  (`openai/gpt-5.5`) to convert images into textual context for the chat model.
+  (`openai/gpt-5.6-sol`) to convert images into textual context for the chat model.
   Image creation/editing is configured separately through
   `agents.defaults.imageGenerationModel`; do not treat `imageModel` as the
   generation model.
 - OpenAI is the active chat/image provider. DeepSeek provider registration and
   `ds-fast` / `ds-pro` model profiles are supported, but registering the key
   does not switch the default model by itself.
-- `spark` is an experimental OpenAI auth-route model profile for short-term
-  testing only. It is marked `toolPolicy=chat-only`: the prompt gets a compact
-  policy note and `imagebot-creative-ops` blocks OpenClaw tool calls through
-  `before_tool_call`, leaving only provider-native chat, vision, or hosted
-  search if that route supplies them.
+- Codex model discovery reads the backend-refreshed model cache, preserves each
+  entry's checked input modalities, and excludes hidden entries or models with
+  `supported_in_api=false`. This currently exposes Sol, Terra, and Luna as
+  native-vision GPT-5.6 models while excluding the non-backend Spark route.
 - The Telegram text repeater is a runtime pre-drop/pre-model script, not an LLM
   tool. It is configured through
   `imagebot-interaction-core.config.textRepeater`, watches short non-command
@@ -50,9 +49,13 @@ The action-level architecture contract lives in
   scripts, with mutating model/persona controls scoped to the current window
   owner.
 - Outbound Telegram delivery only through the Telegram account/group allowlist.
-- Browser automation uses bot-owned Playwright contexts, not the owner browser
-  profile. Ordinary public page reads and browser-backed image downloads use a
-  fresh context per call.
+- Full interactive browser automation is available through OpenClaw `browser`.
+  Use it for page-stateful browsing, clicking, scrolling, file upload, Google
+  Lens, and Chrome/OpenClaw browser-profile workflows when API/source-specific
+  tools are insufficient.
+- Lightweight public page reads and browser-backed image downloads can still use
+  bot-owned Playwright contexts through `web_snapshot`, `web_card`, and download
+  helpers.
 - Account-backed web reading is allowed only through platform-specific
   bot-owned Playwright profiles and the `web_snapshot` / `web_card` risk guard:
   tiered low-volume page reads, cooldown/budget limits, bounded actions,

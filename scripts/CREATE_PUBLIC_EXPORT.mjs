@@ -168,8 +168,8 @@ async function writeSanitizedConfig() {
 
   const modelState = {
     schema: 1,
-    mode: "balanced",
-    model: "openai/gpt-5.5",
+    profile: "balanced",
+    model: "openai/gpt-5.6-sol",
     reasoningEffort: "medium",
     textVerbosity: "low",
     note: "Public seed only. Runtime choices should live outside git under ~/.openclaw/imagebot/model-state.json.",

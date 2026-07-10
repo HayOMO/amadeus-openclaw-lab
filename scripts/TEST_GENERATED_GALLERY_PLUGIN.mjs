@@ -13,13 +13,12 @@ const sharp = require("sharp");
 
 const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-gallery-test-"));
 const archiveRoot = path.join(tmpRoot, "archive");
-const homeRoot = path.join(tmpRoot, "home");
+const stateRoot = path.join(tmpRoot, "state");
 const monthDir = path.join(archiveRoot, "2026-06");
 const manifestPath = path.join(archiveRoot, "manifest.jsonl");
 
 process.env.TELEGRAM_IMAGEBOT_MEDIA_ARCHIVE_DIR = archiveRoot;
-process.env.USERPROFILE = homeRoot;
-process.env.HOME = homeRoot;
+process.env.OPENCLAW_STATE_DIR = stateRoot;
 
 const tools = new Map();
 pluginModule.default.register({
@@ -87,7 +86,7 @@ async function runTool(name, params, ctx = undefined) {
 
 try {
   await fs.mkdir(monthDir, { recursive: true });
-  await fs.mkdir(homeRoot, { recursive: true });
+  await fs.mkdir(stateRoot, { recursive: true });
   await writeArchiveFile("2026-06/older.png");
   await writeArchiveFile("2026-06/newer.png");
   await writeArchiveFile("2026-06/downloaded.png");
@@ -212,7 +211,7 @@ try {
   assert.equal(resend.details.media.mediaUrls.length, 1);
   assert.match(resend.content[0].text, /MEDIA:/);
   const resendPath = resend.details.media.mediaUrls[0];
-  assert.ok(path.resolve(resendPath).startsWith(path.join(homeRoot, ".openclaw", "media", "gallery-resend")));
+  assert.ok(path.resolve(resendPath).startsWith(path.join(stateRoot, "media", "gallery-resend")));
   await fs.stat(resendPath);
 
   const noMatch = await tools.get("generated_gallery_resend").execute("test-call", { id: sha("0").slice(0, 16) });

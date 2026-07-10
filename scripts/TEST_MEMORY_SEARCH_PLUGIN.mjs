@@ -3,13 +3,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-const originalHome = process.env.HOME;
-const originalUserProfile = process.env.USERPROFILE;
+const originalStateDir = process.env.OPENCLAW_STATE_DIR;
 const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-memory-search-test-"));
-process.env.HOME = tempHome;
-process.env.USERPROFILE = tempHome;
+process.env.OPENCLAW_STATE_DIR = tempHome;
 
-const memoryDir = path.join(tempHome, ".openclaw", "agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-memory");
+const memoryDir = path.join(tempHome, "agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-memory");
 await fs.mkdir(path.join(memoryDir, "users"), { recursive: true });
 await fs.mkdir(path.join(memoryDir, "group"), { recursive: true });
 const groupMeme = "\u5510\u7b11";
@@ -43,7 +41,7 @@ await fs.writeFile(
   }),
   "utf8"
 );
-const windowStorePath = path.join(tempHome, ".openclaw", "agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-windows.json");
+const windowStorePath = path.join(tempHome, "agents", "imagebot", "sessions", "sessions.json.telegram-imagebot-windows.json");
 await fs.writeFile(
   windowStorePath,
   JSON.stringify({
@@ -97,6 +95,14 @@ const memorySearch = tools.get("memory_search");
 assert.ok(memorySearch, "memory_search tool should register");
 assert.ok(hooks.get("before_prompt_build")?.length, "memory prompt hook should register");
 assert.deepEqual(memorySearch.parameters.required, [], "memory_search should handle missing query inside the tool instead of schema-looping");
+__testing.clearMemoryDocInventoryCache();
+__testing.clearMemoryFileTextCache();
+assert.equal(__testing.memoryDocInventoryCacheStats().entries, 0, "memory doc inventory cache should be clearable");
+assert.deepEqual(
+  __testing.memoryFileTextCacheStats(),
+  { entries: 0, hits: 0, misses: 0, maxEntries: 256 },
+  "memory file text cache should be clearable"
+);
 
 const missingQuery = await memorySearch.execute("missing-query-test", {});
 assert.equal(missingQuery.details.status, "skipped");
@@ -111,6 +117,25 @@ const result = await memorySearch.execute("keyword-test", {
 assert.equal(result.details.status, "ok");
 assert.equal(result.details.count, 1);
 assert.equal(result.details.results[0].mode, "keyword");
+const firstInventoryStats = __testing.memoryDocInventoryCacheStats();
+const firstFileStats = __testing.memoryFileTextCacheStats();
+assert.ok(firstInventoryStats.scopes.includes("all"), "keyword search should cache the requested memory doc inventory scope");
+assert.ok(firstFileStats.entries >= 1, "keyword search should cache memory file text by mtime signature");
+assert.ok(firstFileStats.misses >= 1, "cold keyword search should read memory file text");
+
+const hotResult = await memorySearch.execute("keyword-hot-test", {
+  query: "Alice official references",
+  mode: "keyword",
+  count: 1
+});
+assert.equal(hotResult.details.status, "ok");
+const hotFileStats = __testing.memoryFileTextCacheStats();
+assert.ok(hotFileStats.hits > firstFileStats.hits, "hot keyword search should reuse cached memory file text");
+assert.equal(
+  __testing.memoryDocInventoryCacheStats().entries,
+  firstInventoryStats.entries,
+  "hot keyword search should reuse cached memory doc inventory"
+);
 
 const memoryHint = await hooks.get("before_prompt_build")[0](
   { prompt: groupMemeQuestion },
@@ -153,7 +178,7 @@ const noHint = await hooks.get("before_prompt_build")[0](
 );
 assert.equal(noHint, undefined);
 
-process.env.HOME = originalHome;
-process.env.USERPROFILE = originalUserProfile;
+if (originalStateDir === undefined) delete process.env.OPENCLAW_STATE_DIR;
+else process.env.OPENCLAW_STATE_DIR = originalStateDir;
 await fs.rm(tempHome, { recursive: true, force: true });
 console.log("memory-search plugin tests passed");

@@ -33,6 +33,8 @@ const firstStats = __testing.manualCacheStats();
 assert.equal(firstStats.cached, true, "manual sections should be cached after first search");
 assert.ok(firstStats.files > 0, "cache should record manual file count");
 assert.ok(firstStats.sections > 0, "cache should record manual section count");
+assert.equal(firstStats.inventoryCached, true, "manual inventory should be cached after first search");
+assert.ok(firstStats.inventoryCheckedAt > 0, "manual inventory cache should record check time");
 
 const hot = await __testing.searchManuals({
   query: "background job manual tool usage",
@@ -40,6 +42,7 @@ const hot = await __testing.searchManuals({
 });
 const secondStats = __testing.manualCacheStats();
 assert.equal(secondStats.loadedAt, firstStats.loadedAt, "hot search should reuse the same cache load");
+assert.equal(secondStats.inventoryCheckedAt, firstStats.inventoryCheckedAt, "hot search should not rescan manual inventory within the recheck window");
 assert.deepEqual(
   hot.map((item) => `${item.id}/${item.title}`),
   cold.map((item) => `${item.id}/${item.title}`),

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const TOOL_NAME = "chat_toolbox";
 const MAX_TEXT = 2000;
@@ -123,17 +123,13 @@ const KIND_GROUP_ROUTES = {
   }
 };
 
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
-
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function storeRoot(config = {}) {
   const configured = String(config.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "chat-toolbox"));
+  return path.resolve(configured || openclawStatePath("chat-toolbox"));
 }
 
 function statePath(config = {}) {

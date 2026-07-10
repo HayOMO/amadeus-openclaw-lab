@@ -271,7 +271,7 @@ function fillModelFormFromProfile(profile) {
   elements.modelInput.value = profile.model || "";
   elements.reasoningSelect.value = profile.reasoningEffort || "medium";
   elements.verbositySelect.value = profile.textVerbosity || "low";
-  elements.maxTokensInput.value = profile.maxTokens || 1024;
+  elements.maxTokensInput.value = profile.maxTokens || "";
   suppressModelEvents = false;
 }
 
@@ -283,7 +283,7 @@ function markCustomIfEdited() {
     elements.modelInput.value.trim() !== String(profile.model || "") ||
     elements.reasoningSelect.value !== String(profile.reasoningEffort || "") ||
     elements.verbositySelect.value !== String(profile.textVerbosity || "") ||
-    Number(elements.maxTokensInput.value) !== Number(profile.maxTokens || 0);
+    Number(elements.maxTokensInput.value || 0) !== Number(profile.maxTokens || 0);
   if (changed) {
     elements.profileSelect.value = "custom";
   }
@@ -301,7 +301,7 @@ function renderModelConfig(config) {
   setSelectOptions(elements.reasoningSelect, config.reasoningEfforts || ["low", "medium", "high"], current.reasoningEffort || "medium");
   setSelectOptions(elements.verbositySelect, config.textVerbosity || ["low", "medium", "high"], current.textVerbosity || "low");
   elements.modelInput.value = current.model || knownModels[0] || "openai/gpt-5.5";
-  elements.maxTokensInput.value = current.maxTokens || 1024;
+  elements.maxTokensInput.value = current.maxTokens || "";
   elements.modelConfigState.textContent = current.profileId === "custom" ? "Custom" : titleCase(current.profileId || "Current");
   elements.modelConfigHint.textContent = `Active config: ${current.model || "unknown"} / ${current.reasoningEffort || "?"} / ${current.textVerbosity || "?"}. Restart gateway after applying.`;
   suppressModelEvents = false;
@@ -382,7 +382,7 @@ async function applyModelConfig(restart) {
         model: elements.modelInput.value.trim(),
         reasoningEffort: elements.reasoningSelect.value,
         textVerbosity: elements.verbositySelect.value,
-        maxTokens: Number(elements.maxTokensInput.value),
+        maxTokens: Number(elements.maxTokensInput.value || 0),
         restart
       })
     });

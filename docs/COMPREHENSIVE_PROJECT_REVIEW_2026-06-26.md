@@ -135,6 +135,12 @@ subresources are checked by a shared public-network request guard. The visible
 login helper and login verification script now target the platform-specific
 profiles.
 
+2026-07-10 superseding decision: the platform-specific profile design was
+retired as permission-workaround debt. The active contract has one Bot-owned
+`bot` profile plus one explicit `isolated` profile; ordinary Chrome
+`profile=user` is prohibited. `web_snapshot` / `web_card` are always ephemeral
+and login-free. The older text below is retained only as review history.
+
 相关文件：`plugins/imagebot-practical-tools/index.js`、`plugins/imagebot-shared/browser-context-pool.js`。
 
 `web_snapshot` 使用固定 `browser-profiles/web-snapshot-pool` 和 `launchPersistentContext`。关闭 pool 不删除 userDataDir，因此 cookie/localStorage/登录态可能跨用户、跨群、跨时间保留。工具又支持 click、fill、press 等动作。若该 profile 登录微博、Bilibili、知乎等账号，普通群消息可能间接使用该账号。

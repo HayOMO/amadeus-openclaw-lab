@@ -1,0 +1,120 @@
+diff --git a/dist/tool-result-truncation-CFLypc-Q.js b/dist/tool-result-truncation-CFLypc-Q.js
+index c3ccea4..f42a43e 100644
+--- a/dist/tool-result-truncation-CFLypc-Q.js
++++ b/dist/tool-result-truncation-CFLypc-Q.js
+@@ -48,6 +48,7 @@ const XL_CONTEXT_TOOL_RESULT_TOKENS = 2e5;
+ const MIN_KEEP_CHARS = 2e3;
+ const RECOVERY_MIN_KEEP_CHARS = 0;
+ const IMAGE_BLOCK_MIN_DATA_CHARS = 1024;
++const BROWSER_SNAPSHOT_HISTORY_MAX_CHARS = 2400;
+ const DEFAULT_SUFFIX = (truncatedChars) => formatContextLimitTruncationNotice(truncatedChars);
+ const COMPACT_RECOVERY_SUFFIX = (truncatedChars) => `[... ${Math.max(1, Math.floor(truncatedChars))} chars truncated; narrow args]`;
+ function resolveSuffixFactory(suffix) {
+@@ -194,6 +195,79 @@ function getToolResultImageDataLength(msg) {
+ function getToolResultPayloadLength(msg) {
+ 	return getToolResultTextLength(msg) + getToolResultImageDataLength(msg);
+ }
++function isBrowserSnapshotToolResult(msg) {
++	if (!msg || msg.role !== "toolResult") return false;
++	if (msg.toolName !== "browser") return false;
++	const details = msg.details;
++	if (details && typeof details === "object") {
++		const kind = details.externalContent && typeof details.externalContent === "object" ? details.externalContent.kind : "";
++		if (kind === "snapshot") return true;
++		if (details.format === "ai" && typeof details.url === "string") return true;
++	}
++	const content = Array.isArray(msg.content) ? msg.content : [];
++	return content.some((block) => block && typeof block === "object" && block.type === "text" && typeof block.text === "string" && block.text.includes("Source: Browser"));
++}
++function formatBrowserSnapshotArchiveNotice(msg, originalChars) {
++	const details = msg && typeof msg === "object" && msg.details && typeof msg.details === "object" ? msg.details : {};
++	const parts = ["[browser snapshot archived from prompt history"];
++	if (typeof details.url === "string" && details.url) parts.push(`url=${details.url}`);
++	if (typeof details.title === "string" && details.title) parts.push(`title=${details.title}`);
++	if (Number.isFinite(Number(details.refs))) parts.push(`refs=${Number(details.refs)}`);
++	parts.push(`chars=${Math.max(0, originalChars)}]`);
++	return `${parts.join(" ")}\nRe-snapshot the page if exact current refs, visible text, or page layout are needed again.`;
++}
++function compactBrowserSnapshotToolResult(msg, maxChars = BROWSER_SNAPSHOT_HISTORY_MAX_CHARS) {
++	if (!isBrowserSnapshotToolResult(msg)) return {
++		message: msg,
++		changed: false
++	};
++	const textLength = getToolResultTextLength(msg);
++	if (textLength <= maxChars) return {
++		message: msg,
++		changed: false
++	};
++	return {
++		message: {
++			...msg,
++			content: [{
++				type: "text",
++				text: formatBrowserSnapshotArchiveNotice(msg, textLength)
++			}],
++			details: {
++				...(msg.details && typeof msg.details === "object" ? msg.details : {}),
++				promptHistoryCompacted: true,
++				originalTextChars: textLength
++			}
++		},
++		changed: true
++	};
++}
++function trailingToolResultStartIndex(messages) {
++	let index = messages.length - 1;
++	while (index >= 0 && messages[index]?.role === "toolResult") index -= 1;
++	return index + 1;
++}
++function compactHistoricalBrowserSnapshotsInMessages(messages, preserveTrailingToolResults = true) {
++	if (!Array.isArray(messages) || messages.length === 0) return {
++		messages,
++		compactedCount: 0
++	};
++	const preserveFrom = preserveTrailingToolResults ? trailingToolResultStartIndex(messages) : messages.length;
++	let compactedCount = 0;
++	let changed = false;
++	const next = messages.map((message, index) => {
++		if (index >= preserveFrom) return message;
++		const compacted = compactBrowserSnapshotToolResult(message);
++		if (!compacted.changed) return message;
++		compactedCount += 1;
++		changed = true;
++		return compacted.message;
++	});
++	return {
++		messages: changed ? next : messages,
++		compactedCount
++	};
++}
+ function formatImageBlockPruneNotice(block, dataChars) {
+ 	const parts = ["[saved image preview pruned from tool result history"];
+ 	if (typeof block.fileName === "string" && block.fileName) parts.push(`file=${block.fileName}`);
+@@ -304,7 +378,9 @@ function truncateToolResultMessage(msg, maxChars, options = {}) {
+ function truncateOversizedToolResultsInMessages(messages, contextWindowTokens, maxCharsOverride, aggregateMaxCharsOverride) {
+ 	const maxChars = Math.max(1, maxCharsOverride ?? calculateMaxToolResultChars(contextWindowTokens));
+ 	const aggregateBudgetChars = calculateRecoveryAggregateToolResultChars(contextWindowTokens, maxChars, aggregateMaxCharsOverride);
+-	const branch = messages.map((message, index) => ({
++	const browserSnapshotCompaction = compactHistoricalBrowserSnapshotsInMessages(messages);
++	const workingMessages = browserSnapshotCompaction.messages;
++	const branch = workingMessages.map((message, index) => ({
+ 		id: `message-${index}`,
+ 		type: "message",
+ 		message
+@@ -317,13 +393,13 @@ function truncateOversizedToolResultsInMessages(messages, contextWindowTokens, m
+ 		preserveRecentImageToolResults: 1
+ 	});
+ 	if (plan.replacements.length === 0) return {
+-		messages,
+-		truncatedCount: 0
++		messages: workingMessages,
++		truncatedCount: browserSnapshotCompaction.compactedCount
+ 	};
+ 	const replacementIds = new Set(plan.replacements.map((replacement) => replacement.entryId));
+ 	return {
+ 		messages: applyToolResultReplacementsToBranch(branch, plan.replacements).map((entry) => entry.message),
+-		truncatedCount: replacementIds.size
++		truncatedCount: replacementIds.size + browserSnapshotCompaction.compactedCount
+ 	};
+ }
+ function calculateRecoveryAggregateToolResultChars(contextWindowTokens, maxCharsOverride, aggregateMaxCharsOverride) {

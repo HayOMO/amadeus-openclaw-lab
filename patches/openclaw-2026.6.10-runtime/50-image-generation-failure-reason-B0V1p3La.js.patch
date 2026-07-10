@@ -1,0 +1,11 @@
+diff --git a/dist/openclaw-tools-B0V1p3La.js b/dist/openclaw-tools-B0V1p3La.js
+--- a/dist/openclaw-tools-B0V1p3La.js
++++ b/dist/openclaw-tools-B0V1p3La.js
+@@ -3777,6 +3777,7 @@ function buildMediaGenerationReplyInstruction(params) {
+ 	return [
+ 		`${params.completionLabel[0]?.toUpperCase() ?? "T"}${params.completionLabel.slice(1)} generation task failed for the original chat.`,
+ 		"Use the current visible-reply contract: call message(action=\"send\") when message-tool replies are required, otherwise write the normal final reply.",
++		"Tell the user the failure reason from the internal event result/error plainly; do not collapse it to a generic failure message.",
+ 		"Keep internal task/session details private and do not copy the internal event text verbatim."
+ 	].join(" ");
+ }

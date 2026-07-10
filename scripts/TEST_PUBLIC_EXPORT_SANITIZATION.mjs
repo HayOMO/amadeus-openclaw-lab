@@ -58,8 +58,18 @@ execFileSync(process.execPath, ["scripts/CREATE_PUBLIC_EXPORT.mjs", "--force", "
   cwd: repoRoot,
   stdio: "pipe"
 });
+execFileSync(process.execPath, ["scripts/BUILD_IMAGEBOT_CONFIG.mjs", "--template"], {
+  cwd: outDir,
+  stdio: "pipe"
+});
+assert.throws(
+  () => execFileSync(process.execPath, ["scripts/BUILD_IMAGEBOT_CONFIG.mjs"], { cwd: outDir, stdio: "pipe" }),
+  /template (?:placeholder|Telegram chat id|operator sender id)/,
+  "public template placeholders should fail a real config build unless --template is used",
+);
 
 const publicSettings = JSON.parse(await fs.readFile(path.join(outDir, "config", "imagebot", "settings.json"), "utf8"));
+const publicModelState = JSON.parse(await fs.readFile(path.join(outDir, "config", "imagebot", "model-state.json"), "utf8"));
 assert.equal(publicSettings.botUsernames?.[0], "YOUR_BOT_USERNAME");
 assert.equal(publicSettings.mainGroupId, "-1000000000000");
 assert.equal(publicSettings.testGroupId, "-1000000000001");
@@ -69,6 +79,8 @@ assert.equal(publicSettings.groupRoles?.["-1000000000000"], "production");
 assert.equal(publicSettings.groupRoles?.["-1000000000001"], "test");
 assert.ok(publicSettings.toolAccess?.operatorOnlyTools?.includes("knowledge_ingest"));
 assert.ok(publicSettings.toolAccess?.operatorOnlyTools?.includes("script_action"));
+assert.equal(publicModelState.profile, "balanced");
+assert.equal(publicModelState.model, "openai/gpt-5.6-sol");
 
 if (privateValues.length) {
   for await (const filePath of walk(outDir)) {

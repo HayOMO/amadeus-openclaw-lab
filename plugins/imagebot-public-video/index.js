@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
 import { assertPublicUrl as assertSharedPublicUrl } from "../imagebot-shared/public-network-guard.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const TOOL_NAME = "public_video";
 const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
@@ -16,10 +16,6 @@ const SUBTITLE_MAX_CHARS = 16_000;
 const runtimeRequire = createRequire(import.meta.url);
 
 let ytDlpRunner = null;
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -58,12 +54,12 @@ function hash(value, len = 12) {
 
 function mediaRoot(config = {}) {
   const configured = String(config.mediaDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "media", "public-video"));
+  return path.resolve(configured || openclawStatePath("media", "public-video"));
 }
 
 function storeRoot(config = {}) {
   const configured = String(config.storeDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "public-video"));
+  return path.resolve(configured || openclawStatePath("public-video"));
 }
 
 function metadataRoot(config = {}) {

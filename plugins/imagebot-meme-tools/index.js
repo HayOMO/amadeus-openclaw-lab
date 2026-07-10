@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
 import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const TOOL_NAME = "meme_transform";
 const MAX_MEDIA_BYTES = 60 * 1024 * 1024;
@@ -18,10 +18,6 @@ const OUTPUT_MIME = new Map([
   ["webp", "image/webp"]
 ]);
 const toolTurnCounters = new Map();
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -100,18 +96,17 @@ function safeBaseName(value, fallback = "meme") {
 
 function mediaRoot(config = {}) {
   const configured = String(config.mediaDir || "").trim();
-  return path.resolve(configured || path.join(homeDir(), ".openclaw", "media", "meme-tools"));
+  return path.resolve(configured || openclawStatePath("media", "meme-tools"));
 }
 
 function allowedMediaRoots(config = {}) {
-  const home = homeDir();
   const defaults = [
-    path.join(home, ".openclaw", "media", "inbound"),
-    path.join(home, ".openclaw", "media", "tool-image-generation"),
-    path.join(home, ".openclaw", "media", "downloaded"),
-    path.join(home, ".openclaw", "media", "gallery-resend"),
-    path.join(home, ".openclaw", "media", "gacha-archive"),
-    path.join(home, ".openclaw", "media", "practical-tools"),
+    openclawStatePath("media", "inbound"),
+    openclawStatePath("media", "tool-image-generation"),
+    openclawStatePath("media", "downloaded"),
+    openclawStatePath("media", "gallery-resend"),
+    openclawStatePath("media", "gacha-archive"),
+    openclawStatePath("media", "practical-tools"),
     mediaRoot(config)
   ];
   const extra = Array.isArray(config.allowedMediaRoots) ? config.allowedMediaRoots : [];

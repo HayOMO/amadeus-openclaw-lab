@@ -7,7 +7,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const settingsPath = path.join(repoRoot, "config", "imagebot", "settings.json");
 const docsPath = path.join(repoRoot, "docs", "BOT_TOOL_SURFACE_AND_DEPENDENCIES.md");
-const builtins = new Set(["image", "image_generate", "message"]);
+const builtins = new Set(["browser", "image", "image_generate", "message"]);
 const allowedInfrastructureDeps = new Set(["imagebot-shared", "imagebot-background-jobs"]);
 
 async function readText(relativePath) {

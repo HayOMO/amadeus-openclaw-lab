@@ -612,6 +612,132 @@
       "checks": [
         "node scripts/TEST_IMAGEBOT_MODEL_FALLBACK.mjs"
       ]
+    },
+    {
+      "id": "telegram-image-generation-reply-dedupe",
+      "file": "48-telegram-image-generation-reply-dedupe-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "image_generate starts with a visible replied Telegram progress notice and upload_photo chat action",
+        "generated media payloads without explicit reply metadata still reply to the triggering Telegram message",
+        "ambiguous durable Telegram adapter sends are treated as delivered instead of being direct-sent a second time",
+        "exact duplicate durable visible payloads are suppressed within the current dispatch only"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "durable-no-send-reason",
+      "file": "49-durable-no-send-reason-BROH42tr.js.patch",
+      "target": "dist/kernel-BROH42tr.js",
+      "protects": [
+        "durable channel delivery preserves the concrete suppressed send reason so Telegram can avoid unsafe direct fallback duplicates"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "image-generation-failure-reason",
+      "file": "50-image-generation-failure-reason-B0V1p3La.js.patch",
+      "target": "dist/openclaw-tools-B0V1p3La.js",
+      "protects": [
+        "image generation completion wakeups instruct the assistant to report the concrete failure reason from the tool event instead of a generic failure"
+      ],
+      "checks": [
+        "node scripts/TEST_OPENCLAW_TOOLS_MEDIA_REFERENCE_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "browser-upload-inputref-fallback",
+      "file": "51-browser-upload-inputref-fallback-pw-ai-kfCLlm0Q.js.patch",
+      "target": "dist/pw-ai-kfCLlm0Q.js",
+      "protects": [
+        "browser upload falls back from stale snapshot inputRef to the current file input element without requiring another model turn"
+      ],
+      "checks": [
+        "node scripts/TEST_BROWSER_UPLOAD_INPUTREF_FALLBACK_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "browser-snapshot-history-compaction",
+      "file": "52-browser-snapshot-history-compaction-CFLypc-Q.js.patch",
+      "target": "dist/tool-result-truncation-CFLypc-Q.js",
+      "protects": [
+        "older browser snapshots are compacted in prompt history while the newest browser result stays fully visible for the next model step"
+      ],
+      "checks": [
+        "node scripts/TEST_TOOL_RESULT_IMAGE_HISTORY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "browser-profile-tool-description-registration",
+      "file": "53-browser-profile-tool-description-plugin-registration-CIf1lyqW.js.patch",
+      "target": "dist/plugin-registration-CIf1lyqW.js",
+      "protects": [
+        "browser tool description follows the Bot-owned default, names the isolated alternate, and blocks ordinary Chrome attachment"
+      ],
+      "checks": [
+        "node scripts/TEST_BROWSER_PROFILE_TOOL_DESCRIPTION_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "browser-profile-tool-description-service",
+      "file": "54-browser-profile-tool-description-plugin-service-oo3g2he-.js.patch",
+      "target": "dist/plugin-service-oo3g2he-.js",
+      "protects": [
+        "deferred browser tool description follows the Bot-owned default, names the isolated alternate, and does not expose ordinary Chrome"
+      ],
+      "checks": [
+        "node scripts/TEST_BROWSER_PROFILE_TOOL_DESCRIPTION_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "browser-screenshot-observation-media",
+      "file": "55-browser-screenshot-observation-media-plugin-service-oo3g2he-.js.patch",
+      "target": "dist/plugin-service-oo3g2he-.js",
+      "protects": [
+        "browser screenshot tool results remain model-observation media and are not automatically attached to Telegram replies"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "explicit-outbound-tool-media",
+      "file": "56-explicit-outbound-tool-media-embedded-agent-message-tool-source-reply-BNDmht0w.js.patch",
+      "target": "dist/embedded-agent-message-tool-source-reply-BNDmht0w.js",
+      "protects": [
+        "tool-result media is not implicitly attached to later assistant replies unless details.media.outbound is explicitly true"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "generated-tools-explicit-outbound-media",
+      "file": "57-generated-tools-explicit-outbound-media-B0V1p3La.js.patch",
+      "target": "dist/openclaw-tools-B0V1p3La.js",
+      "protects": [
+        "image, music, video, and TTS generation results remain auto-deliverable by marking their produced media outbound:true"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs",
+        "node scripts/TEST_OPENCLAW_TOOLS_MEDIA_REFERENCE_PATCH.mjs"
+      ]
+    },
+    {
+      "id": "telegram-ammodel-dynamic-catalog",
+      "file": "58-telegram-ammodel-dynamic-catalog-Dxj27QDQ.js.patch",
+      "target": "dist/bot-Dxj27QDQ.js",
+      "protects": [
+        "Telegram /ammodel exposes only Codex backend API models and carries verified input modalities from the Codex models cache"
+      ],
+      "checks": [
+        "node scripts/TEST_TELEGRAM_AMMODEL_RUNTIME.mjs",
+        "node scripts/TEST_TELEGRAM_MEDIA_DELIVERY_PATCH.mjs"
+      ]
     }
   ]
 }

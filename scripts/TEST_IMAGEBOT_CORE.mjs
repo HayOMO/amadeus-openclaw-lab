@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 
 const tests = [
   ["node", ["scripts/TEST_IMAGEBOT_CONFIG_SOURCE.mjs"]],
+  ["node", ["scripts/TEST_IMAGEBOT_CODEX_MODEL_CATALOG.mjs"]],
   ["node", ["scripts/TEST_REPO_HYGIENE.mjs"]],
   ["node", ["scripts/TEST_PUBLIC_EXPORT_SANITIZATION.mjs"]],
   ["node", ["scripts/TEST_AGENT_PERSONA_CATALOG.mjs"]],
@@ -25,6 +26,8 @@ const tests = [
   ["node", ["scripts/TEST_MEMORY_SEARCH_PLUGIN.mjs"]],
   ["node", ["scripts/TEST_PERSONA_SEARCH_PLUGIN.mjs"]],
   ["node", ["scripts/TEST_ZHIHU_OPENAPI_PLUGIN.mjs"]],
+  ["node", ["scripts/TEST_OPENCLAW_STATE_PATHS.mjs"]],
+  ["node", ["scripts/TEST_MEDIA_RUNTIME_RESOLVER.mjs"]],
   ["node", ["scripts/TEST_AUDIO_TRANSCRIBE_PLUGIN.mjs"]],
   ["node", ["scripts/TEST_PUBLIC_VIDEO_PLUGIN.mjs"]],
   ["node", ["scripts/TEST_PIXIV_RESOURCE_PLUGIN.mjs"]],

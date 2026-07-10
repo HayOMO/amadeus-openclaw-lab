@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import vm from "node:vm";
@@ -54,6 +55,19 @@ const bot = await readDistFile("bot-", "buildTelegramImagebotAmmodelKeyboard");
 const modelOverrides = await readDistFile("model-overrides-", "applyModelOverrideToSessionEntry");
 const { t: applyModelOverrideToSessionEntry } = await import(pathToFileURL(modelOverrides.filePath).href);
 const projectCatalog = JSON.parse(await fsp.readFile(path.join(repoRoot, "scripts", "IMAGEBOT_MODEL_PROFILES.json"), "utf8"));
+const codexHome = await fsp.mkdtemp(path.join(os.tmpdir(), "imagebot-codex-models-"));
+await fsp.writeFile(path.join(codexHome, "models_cache.json"), `${JSON.stringify({
+  fetched_at: "2026-07-10T00:00:00Z",
+  models: [
+    { slug: "gpt-5.6-sol", display_name: "GPT-5.6 Sol", visibility: "list", supported_in_api: true, input_modalities: ["text", "image"], supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max", "ultra"].map((effort) => ({ effort })) },
+    { slug: "gpt-5.6-terra", display_name: "GPT-5.6 Terra", visibility: "list", supported_in_api: true, input_modalities: ["text", "image"], supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max"].map((effort) => ({ effort })) },
+    { slug: "gpt-5.6-luna", display_name: "GPT-5.6 Luna", visibility: "list", supported_in_api: true, input_modalities: ["text", "image"], supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max"].map((effort) => ({ effort })) },
+    { slug: "gpt-5.5", display_name: "Runtime label must not replace curated label", visibility: "list", supported_in_api: true, input_modalities: ["text", "image"], supported_reasoning_levels: ["minimal", "low", "medium", "high", "xhigh"].map((effort) => ({ effort })) },
+    { slug: "gpt-5.4-pro", display_name: "Generic API model", visibility: "list", supported_in_api: false, input_modalities: ["text", "image"], supported_reasoning_levels: [{ effort: "high" }] },
+    { slug: "gpt-5.3-codex-spark", display_name: "Unsupported backend model", visibility: "list", supported_in_api: false, input_modalities: ["text"], supported_reasoning_levels: [{ effort: "off" }] },
+    { slug: "gpt-hidden", display_name: "Hidden Codex model", visibility: "hide", supported_in_api: true, input_modalities: ["text", "image"], supported_reasoning_levels: [{ effort: "high" }] }
+  ]
+}, null, 2)}\n`, "utf8");
 
 const context = {
   console,
@@ -61,6 +75,7 @@ const context = {
   fs,
   path,
   Date,
+  process: { env: { CODEX_HOME: codexHome } },
   __projectCatalog: JSON.parse(JSON.stringify(projectCatalog)),
   __sessions: {},
   __sessionWrites: [],
@@ -118,6 +133,12 @@ async function updateSessionStoreEntry(params) {
 function writeTelegramImagebotAmmodelDefaultState(_cfg, agentId, state) {
   globalThis.__defaultStateWrites.push({ agentId, state: cloneForTest(state) });
 }
+function resolveDefaultAgentId() {
+  return "imagebot";
+}
+function resolveAgentDir(_cfg, agentId) {
+  return "agent-dir::" + agentId;
+}
 const TELEGRAM_IMAGEBOT_AMMODEL_MODELS = globalThis.__projectCatalog.models;
 const TELEGRAM_IMAGEBOT_AMMODEL_PROFILES = globalThis.__projectCatalog.profiles;
 const TELEGRAM_IMAGEBOT_AMMODEL_REASONING_LEVELS = globalThis.__projectCatalog.reasoningEfforts;
@@ -169,7 +190,7 @@ globalThis.__ammodelRuntime = {
 `, context);
 
 const runtime = context.__ammodelRuntime;
-const catalog = runtime.loadTelegramImagebotAmmodelCatalog({
+const catalog = await runtime.loadTelegramImagebotAmmodelCatalog({
   plugins: {
     entries: {
       "imagebot-creative-ops": {
@@ -177,12 +198,26 @@ const catalog = runtime.loadTelegramImagebotAmmodelCatalog({
       },
     },
   },
-});
+}, "imagebot");
 
 assert.equal(
-  catalog.models.find((model) => model.id === "openai/gpt-5.5")?.enabled,
+  catalog.models.find((model) => model.id === "openai/gpt-5.6-sol")?.enabled,
   true,
-  "project /ammodel catalog must load GPT-5.5",
+  "project /ammodel catalog must load the signed-in account's GPT-5.6 Codex model",
+);
+for (const id of ["openai/gpt-5.6-terra", "openai/gpt-5.6-luna"]) {
+  assert.deepEqual(plain(catalog.models.find((model) => model.id === id)?.nativeCapabilities), ["text", "vision"], `${id} must carry verified native vision into /ammodel`);
+}
+assert.equal(catalog.models.some((model) => model.id === "openai/gpt-5.3-codex-spark"), false, "Codex models unsupported by the backend API must stay out of /ammodel");
+assert.equal(catalog.models.find((model) => model.id === "openai/gpt-5.5")?.label, "GPT-5.5", "curated metadata should override a matching live Codex label");
+assert.equal(catalog.models.some((model) => model.id === "openai/gpt-5.4-pro"), false, "generic OpenAI API catalog models must not leak into /ammodel");
+assert.equal(catalog.models.some((model) => model.id === "deepseek/deepseek-reasoner"), false, "DeepSeek provider discovery must remain disabled");
+assert.equal(catalog.models.some((model) => model.id === "openai/gpt-hidden"), false, "hidden Codex models must stay hidden");
+assert.ok(catalog.models.some((model) => model.id === "deepseek/deepseek-v4-pro"), "exact curated DeepSeek fallbacks should remain available");
+assert.deepEqual(
+  plain(runtime.getTelegramImagebotAmmodelReasoningForModel(catalog, "openai/gpt-5.6-sol")),
+  ["low", "medium", "high", "xhigh", "max"],
+  "Codex reasoning levels should use the live model/list response while filtering unsupported ultra",
 );
 assert.deepEqual(
   plain(runtime.getTelegramImagebotAmmodelReasoningForModel(catalog, "openai/gpt-5.5")),
@@ -198,9 +233,14 @@ assert.deepEqual(
 const modelKeyboard = runtime.buildTelegramImagebotAmmodelKeyboard(catalog, "models");
 const modelCallbacks = callbacks(modelKeyboard);
 assert.ok(
-  modelCallbacks.includes("/ammodel model openai/gpt-5.5"),
-  "first-level model menu must open the GPT-5.5 reasoning submenu",
+  modelCallbacks.includes("/ammodel model openai/gpt-5.6-sol"),
+  "first-level model menu must include the live GPT-5.6 Codex model",
 );
+for (const id of ["openai/gpt-5.6-terra", "openai/gpt-5.6-luna"]) {
+  assert.ok(modelCallbacks.includes(`/ammodel model ${id}`), `first-level model menu must include ${id}`);
+}
+assert.ok(!modelCallbacks.includes("/ammodel model openai/gpt-5.4-pro"), "first-level model menu must exclude generic OpenAI API catalog models");
+assert.ok(!modelCallbacks.includes("/ammodel model deepseek/deepseek-reasoner"), "first-level model menu must exclude dynamically discovered DeepSeek models");
 assert.ok(
   !modelCallbacks.some((callback) => /\bthink\b/.test(callback)),
   "first-level model menu must not one-tap switch reasoning levels",
@@ -242,6 +282,10 @@ const parsedModelOnly = runtime.parseTelegramImagebotAmmodelArgs("model openai/g
 assert.equal(parsedModelOnly.action, "model");
 assert.equal(parsedModelOnly.model.id, "openai/gpt-5.5");
 
+const parsedDiscoveredModel = runtime.parseTelegramImagebotAmmodelArgs("model openai/gpt-5.6-sol", catalog);
+assert.equal(parsedDiscoveredModel.action, "model");
+assert.equal(parsedDiscoveredModel.model.id, "openai/gpt-5.6-sol");
+
 const parsedModelThink = runtime.parseTelegramImagebotAmmodelArgs("model openai/gpt-5.5 think medium", catalog);
 assert.equal(parsedModelThink.action, "model_think");
 assert.equal(parsedModelThink.model.id, "openai/gpt-5.5");
@@ -252,7 +296,7 @@ assert.deepEqual(plain(parsedThinkOnly), { action: "think", level: "high" });
 
 const parsedBalanced = runtime.parseTelegramImagebotAmmodelArgs("balanced", catalog);
 assert.equal(parsedBalanced.action, "profile");
-assert.equal(parsedBalanced.profile.model, "openai/gpt-5.5");
+assert.equal(parsedBalanced.profile.model, "openai/gpt-5.6-sol");
 assert.equal(parsedBalanced.profile.reasoningEffort, "medium");
 
 runtime.setDefaultModel({ provider: "openai", model: "gpt-5.4-mini" });
@@ -386,6 +430,8 @@ assert.equal(migratedStore.legacyUserSource.providerOverride, "openai");
 assert.equal(migratedStore.legacyUserSource.modelOverride, "gpt-5.5");
 assert.equal(migratedStore.legacyUserSource.modelOverrideSource, "default");
 assert.equal(runtime.getSessionStoreWrites().length, 1);
+
+await fsp.rm(codexHome, { recursive: true, force: true });
 
 console.log("telegram /ammodel runtime behavior tests passed", {
   bot: bot.name,

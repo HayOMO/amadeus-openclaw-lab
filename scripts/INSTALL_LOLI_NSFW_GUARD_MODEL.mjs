@@ -1,13 +1,13 @@
 import path from "node:path";
-import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { ensureModelFiles, screenMediaBatch } from "../plugins/imagebot-shared/loli-nsfw-vision-guard.mjs";
+import { openclawStatePath } from "../plugins/imagebot-shared/openclaw-paths.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 
 const config = {
-  modelDir: path.join(process.env.USERPROFILE || process.env.HOME || os.homedir(), ".openclaw", "models", "wd-v1-4-vit-tagger-v2"),
+  modelDir: openclawStatePath("models", "wd-v1-4-vit-tagger-v2"),
   dependencyDirs: [
     path.join(repoRoot, "plugins", "imagebot-practical-tools"),
     path.join(repoRoot, "plugins", "imagebot-memory-search")

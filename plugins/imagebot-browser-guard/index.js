@@ -1,24 +1,15 @@
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
-import {
-  assertPublicHostname,
-  isBlockedHostname
-} from "../imagebot-shared/public-network-guard.mjs";
+import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
-const DEFAULT_ALLOWED_PROFILES = ["openclaw"];
+const DEFAULT_ALLOWED_PROFILES = ["bot", "isolated"];
 const WINDOWS_PATH_RE = /^[A-Za-z]:[\\/]/;
 const UNC_PATH_RE = /^\\\\/;
-const SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
-const BLOCKED_SCHEMES = new Set([
-  "file",
-  "javascript",
-  "chrome",
-  "chrome-extension",
-  "edge",
-  "devtools",
-  "about"
-]);
+const MAX_STAGED_UPLOAD_BYTES = 120 * 1024 * 1024;
+const browserTargetAliases = new Map();
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -30,6 +21,10 @@ function normalizeString(value) {
 
 function normalizeProfileName(value) {
   return normalizeString(value).toLowerCase();
+}
+
+function sessionAliasKey(event, ctx) {
+  return String(ctx?.sessionKey || event?.sessionKey || ctx?.runId || event?.runId || "__global");
 }
 
 function normalizeAllowedProfiles(config) {
@@ -51,11 +46,16 @@ function normalizeAbsolutePath(value) {
   return path.resolve(expanded).replace(/\//g, "\\").toLowerCase();
 }
 
+function localPathFromUploadValue(raw) {
+  const value = normalizeString(raw);
+  if (!value) return "";
+  if (value.toLowerCase().startsWith("file://")) return decodeURIComponent(value.replace(/^file:\/\//i, ""));
+  return value;
+}
+
 function defaultAllowedPathPrefixes() {
-  const home = os.homedir();
   return [
-    path.join(home, ".openclaw", "media", "inbound"),
-    path.join(home, ".openclaw", "media", "tool-image-generation")
+    openclawStatePath("media")
   ];
 }
 
@@ -68,17 +68,35 @@ function normalizeAllowedPathPrefixes(config) {
     .filter(Boolean);
 }
 
-function collectProfileValues(value, found = []) {
-  if (Array.isArray(value)) {
-    for (const item of value) collectProfileValues(item, found);
-    return found;
+function uploadStagingDir(config) {
+  const configured = normalizeString(config?.uploadStagingDir);
+  return normalizeAbsolutePath(configured || openclawStatePath("media", "inbound"));
+}
+
+function mergeUniqueStringArrays(...values) {
+  const merged = [];
+  const seen = new Set();
+  for (const value of values) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      const normalized = normalizeString(item);
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      merged.push(normalized);
+    }
   }
-  if (!isRecord(value)) return found;
-  for (const [key, item] of Object.entries(value)) {
-    if (normalizeProfileName(key) === "profile" && typeof item === "string") found.push(item);
-    else collectProfileValues(item, found);
-  }
-  return found;
+  return merged;
+}
+
+function effectivePluginConfig(apiConfig, contextConfig) {
+  const base = isRecord(apiConfig) ? apiConfig : {};
+  const context = isRecord(contextConfig) ? contextConfig : {};
+  return {
+    ...base,
+    ...context,
+    allowedProfiles: mergeUniqueStringArrays(base.allowedProfiles, context.allowedProfiles),
+    allowedPathPrefixes: mergeUniqueStringArrays(base.allowedPathPrefixes, context.allowedPathPrefixes)
+  };
 }
 
 function collectStringValues(value, found = []) {
@@ -101,45 +119,118 @@ function isLocalPathLike(raw) {
 }
 
 function isAllowedLocalPath(raw, allowedRoots) {
-  const value = normalizeString(raw);
-  const candidate = value.toLowerCase().startsWith("file://")
-    ? decodeURIComponent(value.replace(/^file:\/\//i, ""))
-    : value;
-  const normalized = normalizeAbsolutePath(candidate);
+  const normalized = normalizeAbsolutePath(localPathFromUploadValue(raw));
   return allowedRoots.some((root) => normalized === root || normalized.startsWith(`${root}\\`));
 }
 
-async function findUnsafeStrings(params, allowedRoots, networkGuardOptions = {}) {
+function isDirectChildOfRoot(raw, root) {
+  const normalized = normalizeAbsolutePath(localPathFromUploadValue(raw));
+  return path.dirname(normalized) === root;
+}
+
+function safeUploadName(sourcePath) {
+  const ext = path.extname(sourcePath).slice(0, 16);
+  const base = path.basename(sourcePath, path.extname(sourcePath))
+    .replace(/[^A-Za-z0-9_.-]+/g, "-")
+    .slice(0, 48) || "upload";
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${base}${ext}`;
+}
+
+async function stageBrowserUploadPaths(params, allowedRoots, stagingRoot, mediaConfig = {}) {
+  if (!isRecord(params) || normalizeString(params.action).toLowerCase() !== "upload") return params;
+  if (!Array.isArray(params.paths)) return params;
+
+  const stagedPaths = [];
+  for (const item of params.paths) {
+    const uploadValue = typeof item === "string" ? mediaReferenceToLocalPath(item, mediaConfig) : item;
+    if (typeof uploadValue !== "string" || !isLocalPathLike(uploadValue) || isDirectChildOfRoot(uploadValue, stagingRoot)) {
+      stagedPaths.push(uploadValue);
+      continue;
+    }
+    if (!isAllowedLocalPath(uploadValue, allowedRoots)) {
+      stagedPaths.push(item);
+      continue;
+    }
+    const source = localPathFromUploadValue(uploadValue);
+    const stat = await fs.stat(source);
+    if (!stat.isFile()) throw new Error("browser upload source is not a file");
+    if (stat.size > MAX_STAGED_UPLOAD_BYTES) throw new Error("browser upload source is too large to stage");
+    await fs.mkdir(stagingRoot, { recursive: true });
+    const staged = path.join(stagingRoot, safeUploadName(source));
+    await fs.copyFile(source, staged);
+    stagedPaths.push(staged);
+  }
+  const adjusted = { ...params, paths: stagedPaths };
+  if (!normalizeString(adjusted.selector) && (normalizeString(adjusted.inputRef) || normalizeString(adjusted.ref))) {
+    delete adjusted.inputRef;
+    delete adjusted.ref;
+    adjusted.selector = "input[type=file]";
+  }
+  return adjusted;
+}
+
+function rewriteBrowserTargetAliases(params, aliasMap) {
+  if (!isRecord(params) || !aliasMap?.size) return params;
+  const targetId = normalizeString(params.targetId);
+  if (!targetId || !aliasMap.has(targetId)) return params;
+  return { ...params, targetId: aliasMap.get(targetId) };
+}
+
+function parseJsonMaybe(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text || (!text.startsWith("{") && !text.startsWith("["))) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function extractResultObjects(result, found = []) {
+  const parsed = parseJsonMaybe(result);
+  if (!parsed) return found;
+  found.push(parsed);
+  if (Array.isArray(parsed?.content)) {
+    for (const item of parsed.content) {
+      if (typeof item?.text === "string") extractResultObjects(item.text, found);
+    }
+  }
+  if (isRecord(parsed?.details)) found.push(parsed.details);
+  return found;
+}
+
+function rememberBrowserTargetAliases(event, ctx) {
+  if (event?.toolName !== "browser" || event?.error) return;
+  const key = sessionAliasKey(event, ctx);
+  const aliasMap = browserTargetAliases.get(key) || new Map();
+  const visit = (value) => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (!isRecord(value)) return;
+    const targetId = normalizeString(value.targetId);
+    for (const aliasKey of ["tabId", "suggestedTargetId"]) {
+      const alias = normalizeString(value[aliasKey]);
+      if (targetId && alias && alias !== targetId) aliasMap.set(alias, targetId);
+    }
+    for (const child of Object.values(value)) visit(child);
+  };
+  for (const object of extractResultObjects(event.result)) visit(object);
+  if (aliasMap.size > 0) browserTargetAliases.set(key, aliasMap);
+}
+
+async function findUnsafeLocalPaths(params, allowedRoots) {
   const strings = collectStringValues(params);
   const violations = [];
   for (const raw of strings) {
     const value = normalizeString(raw);
     if (!value) continue;
     if (isLocalPathLike(value)) {
-      if (!isAllowedLocalPath(value, allowedRoots)) violations.push(`local-path:${value}`);
-      continue;
-    }
-    if (!SCHEME_RE.test(value)) continue;
-    const scheme = value.slice(0, value.indexOf(":")).toLowerCase();
-    if (BLOCKED_SCHEMES.has(scheme)) {
-      violations.push(`scheme:${value}`);
-      continue;
-    }
-    if (scheme !== "http" && scheme !== "https" && scheme !== "data") continue;
-    if (scheme === "data") {
-      if (!value.toLowerCase().startsWith("data:image/")) violations.push(`scheme:${value}`);
-      continue;
-    }
-    try {
-      const parsed = new URL(value);
-      if (isBlockedHostname(parsed.hostname)) violations.push(`url:${value}`);
-      else {
-        await assertPublicHostname(parsed.hostname, networkGuardOptions).catch(() => {
-          violations.push(`url:${value}`);
-        });
-      }
-    } catch {
-      violations.push(`url:${value}`);
+      if (!isAllowedLocalPath(value, allowedRoots)) violations.push("local-path:outside-openclaw-media");
     }
   }
   return violations;
@@ -154,53 +245,53 @@ function withDefaultProfile(params, defaultProfile) {
   };
 }
 
-function isBrowserProfileMutation(params) {
-  if (!isRecord(params)) return false;
-  const pathValue = normalizeString(params.path);
-  return pathValue === "/profiles" || pathValue.startsWith("/profiles/");
-}
-
 export default {
   id: "imagebot-browser-guard",
   name: "Imagebot Browser Guard",
-  description: "Restricts browser tool calls to isolated managed browsing only.",
+  description: "Uses the Bot-owned browser by default, permits an isolated profile, and blocks ordinary user-browser sessions.",
   register(api) {
-    registerLifecycleHook(api, "before_tool_call", async (event) => {
+    registerLifecycleHook(api, "before_tool_call", async (event, ctx) => {
       if (event.toolName !== "browser") return;
 
-      const pluginConfig = event?.context?.pluginConfig ?? api.config;
+      const pluginConfig = effectivePluginConfig(api.config, event?.context?.pluginConfig);
       const allowedProfiles = normalizeAllowedProfiles(pluginConfig);
       const allowedRoots = normalizeAllowedPathPrefixes(pluginConfig);
-      const networkGuardOptions = isRecord(pluginConfig?.publicNetworkGuard) ? pluginConfig.publicNetworkGuard : {};
-      const requestedProfiles = collectProfileValues(event.params).map((entry) => normalizeProfileName(entry));
-      const disallowedProfile = requestedProfiles.find((entry) => entry && !allowedProfiles.includes(entry));
-      if (disallowedProfile) {
+      const stagingRoot = uploadStagingDir(pluginConfig);
+      const requestedProfile = normalizeProfileName(event?.params?.profile);
+      if (requestedProfile && !allowedProfiles.includes(requestedProfile)) {
         return {
           block: true,
-          blockReason: `browser profile "${disallowedProfile}" is blocked; allowed profile: ${allowedProfiles.join(", ")}`
+          blockReason: `browser profile is not allowed for imagebot: ${requestedProfile}`
         };
       }
 
-      if (isBrowserProfileMutation(event.params)) {
-        return {
-          block: true,
-          blockReason: "browser profile management is blocked for this bot"
-        };
-      }
-
-      const adjustedParams = withDefaultProfile(event.params, allowedProfiles[0]);
-      const violations = await findUnsafeStrings(adjustedParams, allowedRoots, networkGuardOptions);
+      const aliasMap = browserTargetAliases.get(sessionAliasKey(event, ctx));
+      const adjustedParams = await stageBrowserUploadPaths(
+        rewriteBrowserTargetAliases(withDefaultProfile(event.params, allowedProfiles[0]), aliasMap),
+        allowedRoots,
+        stagingRoot,
+        pluginConfig
+      );
+      const violations = await findUnsafeLocalPaths(adjustedParams, allowedRoots);
       if (violations.length > 0) {
         return {
           block: true,
-          blockReason: "browser access is restricted to public web pages and current Telegram media paths only"
+          blockReason: `browser local file access is restricted to bot media paths (${[...new Set(violations)].join(", ")})`
         };
       }
 
+      event.params = adjustedParams;
       return { params: adjustedParams };
     }, {
       name: "imagebot-browser-guard-before-tool-call",
-      description: "Restrict browser tool calls to the isolated managed profile and safe media paths."
+      description: "Add browser defaults, stage bot-local uploads, and resolve tab aliases."
+    });
+
+    registerLifecycleHook(api, "after_tool_call", async (event, ctx) => {
+      rememberBrowserTargetAliases(event, ctx);
+    }, {
+      name: "imagebot-browser-guard-after-tool-call",
+      description: "Remember browser tab aliases so later actions can use the visible tab id."
     });
   }
 };

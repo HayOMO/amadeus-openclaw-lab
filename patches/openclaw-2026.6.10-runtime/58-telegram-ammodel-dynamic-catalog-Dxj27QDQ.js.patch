@@ -1,0 +1,84 @@
+diff --git a/dist/bot-Dxj27QDQ.js b/dist/bot-Dxj27QDQ.js
+--- a/dist/bot-Dxj27QDQ.js
++++ b/dist/bot-Dxj27QDQ.js
+@@ -2903,6 +2903,7 @@ function getTelegramImagebotAmmodelReasoningForModel(catalog = null, modelRef) {
+ 	if (modelLevels.length) return modelLevels;
+ 	const ref = splitTelegramImagebotAmmodelRef(modelRef);
+ 	if (ref?.provider === "deepseek") return ["off", "high", "max"];
++	if (ref?.provider === "openai") return ["minimal", "low", "medium", "high", "xhigh"];
+ 	return catalog?.reasoningEfforts ?? TELEGRAM_IMAGEBOT_AMMODEL_REASONING_LEVELS;
+ }
+ function chunkTelegramImagebotAmmodelButtons(buttons, size = 2) {
+@@ -3206,7 +3207,7 @@ function parseTelegramImagebotPersonaArgs(rawArgs, catalog = null) {
+ 	const persona = findTelegramImagebotPersona(catalog, args);
+ 	return persona ? { action: "set", persona } : { action: "unknown", raw: args };
+ }
+-function loadTelegramImagebotAmmodelCatalog(cfg) {
++async function loadTelegramImagebotAmmodelCatalog(cfg, agentId) {
+ 	const fallback = {
+ 		models: TELEGRAM_IMAGEBOT_AMMODEL_MODELS,
+ 		profiles: TELEGRAM_IMAGEBOT_AMMODEL_PROFILES,
+@@ -3236,9 +3237,45 @@ function loadTelegramImagebotAmmodelCatalog(cfg) {
+ 			maxTokens: Number(profile?.maxTokens) || 0
+ 		})).filter((profile) => profile.id && splitTelegramImagebotAmmodelRef(profile.model)) : fallback.profiles;
+ 		const reasoningEfforts = Array.isArray(parsed?.reasoningEfforts) ? parsed.reasoningEfforts.map((level) => normalizeLowercaseStringOrEmpty(level)).filter(Boolean) : fallback.reasoningEfforts;
++		const curatedModels = models.length ? models : fallback.models;
++		let mergedModels = curatedModels;
++		try {
++			const home = normalizeOptionalString(process.env.USERPROFILE || process.env.HOME)?.trim();
++			const codexHome = normalizeOptionalString(process.env.CODEX_HOME)?.trim() || (home ? path.join(home, ".codex") : "");
++			const codexCache = codexHome ? JSON.parse(fs.readFileSync(path.join(codexHome, "models_cache.json"), "utf8")) : null;
++			const codexModels = Array.isArray(codexCache?.models) ? codexCache.models.filter((model) => {
++				const modalities = Array.isArray(model?.input_modalities) ? model.input_modalities.map((item) => normalizeLowercaseStringOrEmpty(item)).filter(Boolean) : [];
++				return normalizeLowercaseStringOrEmpty(model?.visibility) === "list" && model?.supported_in_api === true && modalities.includes("text");
++			}) : [];
++			if (codexModels.length) {
++				const curatedById = new Map(curatedModels.map((model) => [model.id, model]));
++				const supportedLevels = new Set(reasoningEfforts);
++				const liveOpenAiModels = codexModels.map((model) => {
++					const modelId = String(model?.slug || model?.model || model?.id || "").trim();
++					const id = `openai/${modelId}`;
++					if (!modelId || !splitTelegramImagebotAmmodelRef(id)) return null;
++					const curated = curatedById.get(id);
++					const inputModalities = Array.isArray(model?.input_modalities) ? model.input_modalities.map((item) => normalizeLowercaseStringOrEmpty(item)).filter(Boolean) : [];
++					return {
++						id,
++						label: curated?.label || String(model?.display_name || model?.displayName || modelId),
++						provider: "openai",
++						enabled: true,
++						inputModalities,
++						nativeCapabilities: inputModalities.map((item) => item === "image" ? "vision" : item),
++						reasoningEfforts: Array.isArray(model?.supported_reasoning_levels) ? model.supported_reasoning_levels.map((level) => normalizeLowercaseStringOrEmpty(level?.effort || level)).filter((level) => supportedLevels.has(level)) : []
++					};
++				}).filter(Boolean);
++				mergedModels = [
++					...liveOpenAiModels,
++					...curatedModels.filter((model) => normalizeLowercaseStringOrEmpty(model.provider) !== "openai")
++				];
++			}
++		} catch {}
++		const availableModels = new Set(mergedModels.map((model) => model.id));
+ 		return {
+-			models: models.length ? models : fallback.models,
+-			profiles: profiles.length ? profiles : fallback.profiles,
++			models: mergedModels,
++			profiles: (profiles.length ? profiles : fallback.profiles).filter((profile) => availableModels.has(profile.model)),
+ 			reasoningEfforts: reasoningEfforts.length ? reasoningEfforts : fallback.reasoningEfforts
+ 		};
+ 	} catch {
+@@ -11670,7 +11707,6 @@ const createTelegramMessageProcessor = (deps) => {
+ 		});
+ 		if (!command) return false;
+ 		const senderId = msg.from?.id ? String(msg.from.id) : "";
+-		const catalog = loadTelegramImagebotAmmodelCatalog(freshCfg);
+ 		let target;
+ 		try {
+ 			target = resolveTelegramImagebotAmmodelTarget({
+@@ -11690,6 +11726,7 @@ const createTelegramMessageProcessor = (deps) => {
+ 			await sendImagebotControlText(msg, "model target failed; retry later");
+ 			return true;
+ 		}
++		const catalog = await loadTelegramImagebotAmmodelCatalog(freshCfg, target.agentId);
+ 		const callbackEdit = msg.__imagebotAmmodelCallback;
+ 		const sendModelMessage = async (text, keyboard = null) => {
+ 			const replyMarkup = keyboard ? buildTelegramImagebotAmmodelKeyboard(catalog, keyboard.view, keyboard.modelRef) : null;

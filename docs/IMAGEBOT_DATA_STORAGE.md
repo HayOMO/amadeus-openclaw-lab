@@ -7,7 +7,14 @@ tokens, logs, or memories.
 ## Main Roots
 
 - Project source: `%USERPROFILE%\Desktop\Amadeus`
-- OpenClaw runtime state: `%USERPROFILE%\.openclaw`
+- OpenClaw runtime state: `%OPENCLAW_STATE_DIR%` when explicitly set; otherwise
+  `%USERPROFILE%\.openclaw` on this machine.
+
+All runtime paths below are shown with the current default root. The config
+builder, control server, and active plugins resolve them through
+`OPENCLAW_STATE_DIR`, so the tree can be moved as a unit after a verified copy.
+`OPENCLAW_HOME` is also honored for OpenClaw's home-directory override, but the
+more precise state override is preferred for storage placement.
 
 The Desktop may contain shortcuts to these roots, but it should not contain a
 copied runtime data tree.
@@ -44,8 +51,12 @@ These are backup-worthy. The gallery archive keeps the media files and
 - Downloaded working files: `%USERPROFILE%\.openclaw\media\downloaded`
 - Gallery resend staging: `%USERPROFILE%\.openclaw\media\gallery-resend`
 - Gallery preview cache: `%USERPROFILE%\.openclaw\media\gallery-preview`
-- Practical-tools account browser profiles:
-  `%USERPROFILE%\.openclaw\practical-tools\browser-profiles\account`
+- Ordinary Chrome profile (owner data; prohibited for imagebot):
+  `%USERPROFILE%\AppData\Local\Google\Chrome\User Data\Default`
+- Bot-owned persistent browser profile:
+  `%USERPROFILE%\.openclaw\browser\bot\user-data`
+- Separate isolated browser profile:
+  `%USERPROFILE%\.openclaw\browser\isolated\user-data`
 - Ordinary public `web_snapshot` / `web_card` calls and browser-backed image
   downloads use ephemeral Playwright contexts and do not keep a persistent
   profile.

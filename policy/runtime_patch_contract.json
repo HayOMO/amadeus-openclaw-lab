@@ -3,13 +3,14 @@
   "purpose": "Machine-checkable ownership and retirement contract for OpenClaw runtime patches. A patch may stay only when the public plugin/config surface cannot express the behavior without using a more fragile internal path.",
   "hostVersion": "2026.6.10",
   "latestChecked": {
-    "date": "2026-06-28",
+    "date": "2026-07-10",
     "installed": "2026.6.10",
     "npmStable": "2026.6.10",
     "sourceUrls": [
       "https://docs.openclaw.ai/plugins/hooks",
       "https://docs.openclaw.ai/tools/plugin",
       "https://docs.openclaw.ai/plugins/manifest",
+      "https://docs.openclaw.ai/models",
       "https://docs.openclaw.ai/reference/transcript-hygiene",
       "https://github.com/openclaw/openclaw/releases",
       "https://www.npmjs.com/package/openclaw/v/2026.6.10"
@@ -269,6 +270,13 @@
       "whyRuntimePatch": "The default /ammodel state is synchronized inside the Telegram adapter before prompt construction. Without an adapter-level no-op check, unchanged defaults repeatedly rewrite session state and mark live model switches during ordinary messages.",
       "retireWhen": "OpenClaw exposes stable pre-prompt session model synchronization that can apply only changed provider/model/reasoning defaults without patching the channel adapter."
     },
+    "telegram-ammodel-dynamic-catalog": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["Telegram command config", "Telegram callback routing", "Codex backend models cache"],
+      "whyRuntimePatch": "The /ammodel inline menu and callback payloads are assembled inside OpenClaw's bundled Telegram adapter, while public plugin hooks cannot replace that built-in command UI. The adapter must read the backend-refreshed Codex models cache, retain only visible supported_in_api models, preserve input_modalities, and then merge Amaduse's curated non-Codex fallbacks and reasoning policies.",
+      "retireWhen": "OpenClaw exposes a stable configurable model-picker command or Telegram command-rendering extension that can consume the Codex backend model catalog with capability metadata and preserve per-model reasoning choices without patching the bundled adapter."
+    },
     "telegram-ammodel-fallback-default": {
       "ownerClass": "telegram-channel-bridge",
       "maintenanceRisk": "low",
@@ -289,6 +297,76 @@
       "publicSurfaceChecked": ["reply_payload_sending", "model fallback lifecycle", "session transcript SDK"],
       "whyRuntimePatch": "OpenClaw already emits model fallback notices from the agent runner, but the default copy is English and does not explain imagebot's window-local fallback behavior. The notice is built inside host reply assembly before Telegram delivery, so plugin prompt text cannot reliably prepend the status message without asking the model to self-report runtime state.",
       "retireWhen": "OpenClaw exposes configurable fallback notice copy or a stable pre-delivery status-notice hook that can localize model fallback transitions per agent without patching the bundled runner."
+    },
+    "telegram-image-generation-reply-dedupe": {
+      "ownerClass": "telegram-channel-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["Telegram sendChatAction", "Telegram reply_parameters", "reply_payload_sending", "message_send durable delivery"],
+      "whyRuntimePatch": "Image generation starts and final media delivery are coordinated inside the Telegram adapter before plugin hooks can reliably attach the current message reply target or visible progress notice. The same adapter also decides whether a durable send should fall back to direct Telegram delivery, so ambiguous send identities must be handled there to avoid duplicate visible replies.",
+      "retireWhen": "OpenClaw exposes stable Telegram pre-tool progress hooks, current-message media reply defaults, and durable send ambiguity handling so generated media can reply to the trigger without patching the bundled adapter."
+    },
+    "durable-no-send-reason": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["message_send durable delivery", "reply_payload_sending", "channel delivery result"],
+      "whyRuntimePatch": "The durable channel kernel collapses all suppressed sends to no_visible_result, hiding adapter_returned_no_identity and hook-cancel reasons from Telegram delivery. The Telegram adapter needs that concrete reason to avoid direct fallback after a send that may already have landed while still preserving legacy fallback for unknown suppression.",
+      "retireWhen": "OpenClaw's durable delivery result natively preserves suppressed send reasons or exposes a stable ambiguity flag that channel adapters can use before choosing a direct-delivery fallback."
+    },
+    "image-generation-failure-reason": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["tool schema config", "background task completion", "reply_payload_sending"],
+      "whyRuntimePatch": "The built-in detached media-generation completion prompt is host-owned and did not explicitly require the completion agent to surface the provider/tool error text, so failures could be collapsed into a generic user-facing message despite the event carrying result/error.",
+      "retireWhen": "OpenClaw media-generation completion events natively require user-visible failure reasons or expose a configurable completion-reply instruction."
+    },
+    "browser-snapshot-history-compaction": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["browser snapshot", "prompt history tool-result truncation", "visual search browser loops"],
+      "whyRuntimePatch": "Browser snapshots are useful to the model on the immediate next step, but old page trees remain in prompt history across later browser actions. The existing OpenClaw truncation only reacts to large per-result or aggregate budgets, so multi-page visual-search loops can repeatedly resend tens of thousands of stale snapshot characters even though the current page can be re-snapshotted. Plugin hooks cannot change provider prompt history after the runtime has assembled it.",
+      "retireWhen": "OpenClaw natively compacts older browser snapshots in prompt history while preserving the most recent tool result, or exposes a stable provider-prompt history transform hook for tool-specific history compaction."
+    },
+    "browser-profile-tool-description-registration": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["browser tool schema", "tool_search browser description", "configured browser default profile"],
+      "whyRuntimePatch": "The built-in browser tool description must match imagebot's Bot-owned default and isolated alternate profile, and must not steer imagebot into profile=user, which attaches to an ordinary Chrome session. Prompt files cannot reliably override a tool's own schema description after tool_search returns it.",
+      "retireWhen": "OpenClaw renders browser tool descriptions from the resolved browser.defaultProfile or uses profile-neutral wording that tells agents omitted profile means configured default."
+    },
+    "browser-profile-tool-description-service": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["browser tool schema", "deferred browser tool loading", "configured browser default profile"],
+      "whyRuntimePatch": "The plugin service has a second browser tool description copy used by deferred loading. It also hardcoded the isolated openclaw default and can reintroduce the same wrong steering even after the registration copy is patched.",
+      "retireWhen": "OpenClaw deduplicates browser tool description generation and uses the resolved configured default profile in the single source of truth."
+    },
+    "browser-screenshot-observation-media": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["browser screenshot tool result", "reply payload media extraction", "message_sending"],
+      "whyRuntimePatch": "Browser screenshots are observation artifacts for model reasoning, but the host media extractor can treat details.media as a pending outbound attachment. Plugin hooks cannot reliably distinguish screenshot observation media after the host has extracted final reply media.",
+      "retireWhen": "OpenClaw marks browser screenshots as observation-only media, or the final reply media extractor requires explicit outbound intent for all tool-result media."
+    },
+    "explicit-outbound-tool-media": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["tool_result_persist", "reply_payload_sending", "message_sending"],
+      "whyRuntimePatch": "OpenClaw implicitly attached any tool-result details.media to the next assistant reply, so browser screenshots or other observation artifacts could be sent to Telegram even when they were unrelated to the user-facing answer. The extractor is host-owned and runs after ordinary plugin result formatting.",
+      "retireWhen": "OpenClaw final reply media extraction only sends tool media when the tool result marks explicit outbound intent, or exposes a stable hook to classify tool-result media before extraction."
+    },
+    "generated-tools-explicit-outbound-media": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "medium",
+      "publicSurfaceChecked": ["image_generate", "music generation", "video generation", "TTS generation", "reply_payload_sending"],
+      "whyRuntimePatch": "After final reply extraction requires explicit outbound media, host-owned generated media tools must mark their own outputs as outbound:true so successful image, music, video, and TTS generation remains auto-deliverable without weakening the observation-media guard.",
+      "retireWhen": "OpenClaw built-in generated media tools natively annotate delivered outputs with explicit outbound intent, or the delivery path has a stable typed result channel for generated artifacts."
+    },
+    "browser-upload-inputref-fallback": {
+      "ownerClass": "host-agent-bridge",
+      "maintenanceRisk": "low",
+      "publicSurfaceChecked": ["browser upload", "file input refs", "Google Images visual search upload"],
+      "whyRuntimePatch": "The built-in browser upload route trusts an inputRef captured from a prior snapshot. On dynamic upload dialogs such as Google Images, that ref can go stale after the camera click, causing the whole workflow to fail even though an active input[type=file] is present. Plugin hooks can stage paths but cannot reliably rewrite the browser tool's already-normalized inputRef before the route executes.",
+      "retireWhen": "OpenClaw browser upload natively retries stale input refs against the current file input, or exposes a stable pre-upload argument normalizer for browser tools."
     },
     "telegram-loli-guard-url-import": {
       "ownerClass": "telegram-channel-bridge",

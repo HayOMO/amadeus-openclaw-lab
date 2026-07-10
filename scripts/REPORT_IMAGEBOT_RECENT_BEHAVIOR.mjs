@@ -1,15 +1,11 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { openclawStatePath } from "../plugins/imagebot-shared/openclaw-paths.mjs";
 
 const DEFAULT_AGENT = "imagebot";
 const DEFAULT_COUNT = 6;
 const MAX_TEXT = 1200;
-
-function homeDir() {
-  return process.env.USERPROFILE || process.env.HOME || os.homedir() || process.cwd();
-}
 
 function clip(value, max = MAX_TEXT) {
   const text = String(value ?? "").replace(/\r\n/g, "\n").trim();
@@ -22,7 +18,7 @@ function isRecord(value) {
 }
 
 function defaultSessionsDir(agent = DEFAULT_AGENT) {
-  return path.join(homeDir(), ".openclaw", "agents", agent, "sessions");
+  return openclawStatePath("agents", agent, "sessions");
 }
 
 function readArgValue(args, index) {

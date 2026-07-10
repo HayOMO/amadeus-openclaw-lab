@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
 import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
+import { resolveFfmpeg, resolveFfprobe } from "../imagebot-shared/media-runtime.mjs";
+import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 
 const TOOL_NAME = "video_keyframes";
 const MEDIA_BRIEF_TOOL = "media_brief";
@@ -12,7 +12,6 @@ const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
 const DEFAULT_MAX_FRAMES = 12;
 const HARD_MAX_FRAMES = 16;
 const COMMAND_TIMEOUT_MS = 45_000;
-const runtimeRequire = createRequire(import.meta.url);
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -31,7 +30,7 @@ function readFrameCount(params) {
 }
 
 function resolveHomePath(...parts) {
-  return path.join(os.homedir(), ".openclaw", ...parts);
+  return openclawStatePath(...parts);
 }
 
 function resolveAllowedInput(videoPath) {
@@ -45,13 +44,6 @@ function resolveAllowedInput(videoPath) {
     throw new Error("video path is outside the bot media directory");
   }
   return resolved;
-}
-
-function commandPath(moduleName) {
-  const mod = runtimeRequire(moduleName);
-  const candidate = mod?.path ?? mod?.default?.path;
-  if (!candidate) throw new Error(`${moduleName} did not expose a binary path`);
-  return candidate;
 }
 
 function runCommand(command, args, { signal, timeoutMs = COMMAND_TIMEOUT_MS } = {}) {
@@ -114,7 +106,7 @@ async function fileExists(filePath) {
 }
 
 async function probeDurationSeconds(videoPath, signal) {
-  const ffprobe = commandPath("@ffprobe-installer/ffprobe");
+  const ffprobe = resolveFfprobe(import.meta.url);
   const { stdout } = await runCommand(ffprobe, [
     "-v", "error",
     "-show_entries", "format=duration",
@@ -126,7 +118,7 @@ async function probeDurationSeconds(videoPath, signal) {
 }
 
 async function probeMediaJson(videoPath, signal) {
-  const ffprobe = commandPath("@ffprobe-installer/ffprobe");
+  const ffprobe = resolveFfprobe(import.meta.url);
   const { stdout } = await runCommand(ffprobe, [
     "-v", "error",
     "-show_entries", "format=duration,size,bit_rate:stream=codec_type,codec_name,width,height,avg_frame_rate,duration",
@@ -173,7 +165,7 @@ async function extractContactSheet(params, signal) {
     "scale=360:-1:force_original_aspect_ratio=decrease",
     `tile=${cols}x${rows}:padding=8:margin=8:color=black`
   ].join(",");
-  const ffmpeg = commandPath("@ffmpeg-installer/ffmpeg");
+  const ffmpeg = resolveFfmpeg(import.meta.url);
   await runCommand(ffmpeg, [
     "-hide_banner",
     "-loglevel", "error",

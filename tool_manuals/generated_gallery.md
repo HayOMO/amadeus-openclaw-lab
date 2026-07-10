@@ -32,7 +32,8 @@ image looked like this", or replies to an image while asking for archive lookup.
 - Results are ordered by combined aHash+dHash Hamming distance; lower
   `visualDistance` means more similar.
 - It is a lookup/ranking signal, not a human visual judgment. If the distinction
-  matters, inspect the returned preview or selected media with `image`.
+  matters, inspect a returned visual preview directly. Use `image` only when the
+  selected media is available solely as an additional path.
 - Use ordinary `query` search for filenames, ids, prompt words, tools, dates, or
   source text.
 

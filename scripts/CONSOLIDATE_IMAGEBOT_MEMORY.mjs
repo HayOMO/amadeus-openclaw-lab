@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { openclawStateDir } from "../plugins/imagebot-shared/openclaw-paths.mjs";
 
 const args = new Map();
 const flags = new Set();
@@ -47,8 +47,8 @@ const dryRun = flags.has("dry-run");
 const force = flags.has("force");
 const closeWindows = flags.has("close-windows");
 
-const openclawHome = process.env.OPENCLAW_HOME || path.join(os.homedir(), ".openclaw");
-const sessionsDir = path.join(openclawHome, "agents", agentId, "sessions");
+const openclawState = openclawStateDir();
+const sessionsDir = path.join(openclawState, "agents", agentId, "sessions");
 const sessionsIndexPath = path.join(sessionsDir, "sessions.json");
 const windowStorePath = path.join(sessionsDir, "sessions.json.telegram-imagebot-windows.json");
 const memoryDir = path.join(sessionsDir, "sessions.json.telegram-imagebot-memory");

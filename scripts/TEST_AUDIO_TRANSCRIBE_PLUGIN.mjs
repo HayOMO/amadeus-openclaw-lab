@@ -3,15 +3,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { createRequire } from "node:module";
 import plugin, { __testing } from "../plugins/imagebot-audio-transcribe/index.js";
+import { resolveFfmpeg } from "../plugins/imagebot-shared/media-runtime.mjs";
 
-const require = createRequire(import.meta.url);
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-audio-transcribe-test-"));
 const mediaRoot = path.join(root, "media");
 await fs.mkdir(mediaRoot, { recursive: true });
 
-const ffmpeg = require("../plugins/imagebot-audio-transcribe/node_modules/@ffmpeg-installer/ffmpeg").path;
+const ffmpeg = resolveFfmpeg(import.meta.url);
 const audioPath = path.join(mediaRoot, "tone.wav");
 const mediaUriAudioPath = path.join(mediaRoot, "inbound", "tone.wav");
 const madeAudio = spawnSync(ffmpeg, [

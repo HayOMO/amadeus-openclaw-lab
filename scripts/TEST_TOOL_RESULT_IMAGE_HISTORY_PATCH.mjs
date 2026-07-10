@@ -103,8 +103,55 @@ assert.equal(JSON.stringify(nestedAfter).includes(nestedImageData), false);
 assert.match(JSON.stringify(nestedAfter), /embedded image data pruned from tool result history/);
 assert.equal(recentAfter.content.some((block) => block?.type === "image" && block.data === recentImageData), true);
 
+const browserSnapshotText = [
+  "SECURITY NOTICE: external browser content",
+  "<<<EXTERNAL_UNTRUSTED_CONTENT>>>",
+  "Source: Browser",
+  ...Array.from({ length: 700 }, (_, index) => `- link "candidate ${index}" [ref=e${index}]: https://example.test/${index}`)
+].join("\n");
+const oldBrowserSnapshot = {
+  role: "toolResult",
+  toolName: "browser",
+  content: [{ type: "text", text: browserSnapshotText }],
+  details: {
+    format: "ai",
+    url: "https://example.test/old",
+    refs: 700,
+    externalContent: { kind: "snapshot" }
+  }
+};
+const latestBrowserSnapshot = {
+  role: "toolResult",
+  toolName: "browser",
+  content: [{ type: "text", text: browserSnapshotText }],
+  details: {
+    format: "ai",
+    url: "https://example.test/latest",
+    refs: 700,
+    externalContent: { kind: "snapshot" }
+  }
+};
+const browserSnapshotHistory = truncateOversizedToolResultsInMessages(
+  [
+    { role: "user", content: "visual search" },
+    oldBrowserSnapshot,
+    { role: "assistant", content: [{ type: "text", text: "I used that page and need another snapshot." }] },
+    latestBrowserSnapshot
+  ],
+  200_000,
+  64_000,
+  128_000
+);
+assert.equal(browserSnapshotHistory.truncatedCount, 1);
+assert.match(JSON.stringify(browserSnapshotHistory.messages[1]), /browser snapshot archived from prompt history/);
+assert.ok(JSON.stringify(browserSnapshotHistory.messages[1]).length < 1200);
+assert.equal(browserSnapshotHistory.messages[3].content[0].text, browserSnapshotText);
+
 const selectionSource = await fs.readFile(path.join(distDir, "selection-BfRwHcjH.js"), "utf8");
 assert.match(selectionSource, /function estimateImageBlockChars/);
 assert.match(selectionSource, /Math\.max\(IMAGE_CHAR_ESTIMATE, data\.length\)/);
+const truncationSource = await fs.readFile(path.join(distDir, "tool-result-truncation-CFLypc-Q.js"), "utf8");
+assert.match(truncationSource, /BROWSER_SNAPSHOT_HISTORY_MAX_CHARS/);
+assert.match(truncationSource, /browser snapshot archived from prompt history/);
 
 console.log("tool result image history runtime patch tests passed");

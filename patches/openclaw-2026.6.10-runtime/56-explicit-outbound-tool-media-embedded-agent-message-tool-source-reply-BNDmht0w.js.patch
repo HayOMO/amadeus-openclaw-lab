@@ -1,0 +1,39 @@
+diff --git a/dist/embedded-agent-message-tool-source-reply-BNDmht0w.js b/dist/embedded-agent-message-tool-source-reply-BNDmht0w.js
+index 14c3146..bca88b6 100644
+--- a/dist/embedded-agent-message-tool-source-reply-BNDmht0w.js
++++ b/dist/embedded-agent-message-tool-source-reply-BNDmht0w.js
+@@ -352,22 +352,22 @@ function collectStructuredMediaUrls(media) {
+ 	if (Array.isArray(media.attachments)) for (const attachment of media.attachments) pushAttachment(attachment);
+ 	return uniqueStrings(urls);
+ }
+-function isNonOutboundToolResultMedia(media) {
+-	return media.outbound === false;
++function isOutboundToolResultMedia(media) {
++	return media.outbound === true;
+ }
+ function hasImageContentBlock(content) {
+ 	for (const item of content) {
+ 		if (!item || typeof item !== "object") continue;
+ 		if (item.type === "image") return true;
+ 	}
+ 	return false;
+ }
+ function extractToolResultMediaArtifact(result) {
+ 	if (!result || typeof result !== "object") return;
+ 	const record = result;
+ 	const detailsMedia = readToolResultDetailsMedia(record);
+ 	if (detailsMedia) {
+-		if (isNonOutboundToolResultMedia(detailsMedia)) return;
++		if (!isOutboundToolResultMedia(detailsMedia)) return;
+ 		const mediaUrls = collectStructuredMediaUrls(detailsMedia);
+ 		if (mediaUrls.length > 0) return {
+ 			mediaUrls,
+@@ -380,7 +380,7 @@ function extractToolResultMediaArtifact(result) {
+ 	if (!content) return;
+ 	if (hasImageContentBlock(content)) {
+ 		const details = record.details;
+-		const p = normalizeOptionalString(details?.path) ?? "";
++		const p = detailsMedia && isOutboundToolResultMedia(detailsMedia) ? normalizeOptionalString(details?.path) ?? "" : "";
+ 		if (p) return { mediaUrls: [p] };
+ 	}
+ }
