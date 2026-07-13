@@ -9,10 +9,15 @@ when_to_read: Before public/current fact lookup, citation/source finding, Zhihu 
 
 ## Text Search
 
-- Provider-native/current-model hosted search may be available even when there
-  is no visible tool literally named `web_search`.
+- Provider-native/current-model hosted `web_search` is the default first search
+  for public web evidence. It may be available even when there is no ordinary
+  callable tool literally named `web_search`; catalog invisibility alone is not
+  evidence that native search is unavailable and must not trigger a fallback.
 - `explicit_web_text_search`: bounded generic public text search. Returns
-  source leads: title, URL, snippet, and related metadata.
+  source leads: title, URL, snippet, and related metadata. Use it only when the
+  current model explicitly lacks native search, an actual native attempt
+  errors/returns empty or insufficient evidence, or the user specifically asks
+  for a generic result list.
 - `zhihu action=search`: Zhihu station answers/articles.
 - `zhihu action=global_search`: Chinese/community web lookup.
 - `zhihu action=hot_list`: Zhihu hot-list/trending questions.
@@ -48,15 +53,21 @@ These are source hints, not a workflow.
   when available.
 - `reverse_image_search`: fast source/artist/similar lookup from an existing
   image, especially anime, game, illustration, and Pixiv-style material. It is
-  not a general photo-understanding or place-identification tool. Accepts
+  for explicit source, artist, original-post, or same-image questions and for
+  evidence after an actual native-search attempt is insufficient. It is not the
+  default first step for character, object, photo, or place identification merely
+  because the input is anime art, a sticker, or an illustration. Accepts
   current/reply media handles or local media paths. Omitting `providers` uses
   the default SauceNAO/IQDB route; explicit providers can add sources such as
   ascii2d. Similar-only candidates do not prove that the depicted subject,
   place, or source is the same as the input image.
 - Google Lens / Google Images through the full `browser` tool is the broadest
   general visual-search capability, especially for photos, objects, products,
-  and places. Google login is not required for this capability. This is a
-  capability distinction, not a mandatory fallback step. If it yields no exact or strong
+  and places. When browser search is actually needed, use the persistent
+  `profile="bot"`; do not use an isolated or lightweight page-reader context for
+  Google. If Google is blocked, Yandex Images is the preferred browser-search
+  alternate; do not silently improvise Bing. This is a capability distinction,
+  not a mandatory fallback step. If it yields no exact or strong
   match, keep the uncertainty instead of promoting a merely similar result to
   an identification.
 - `download_image_url` / `download_image_urls`: store selected direct public

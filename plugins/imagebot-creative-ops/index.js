@@ -1061,15 +1061,15 @@ const commandCatalogTool = {
 const DEFAULT_MODEL_CATALOG = {
   version: 1,
   models: [
-    { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", provider: "openai", enabled: true, reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], nativeCapabilities: ["text", "vision"] },
-    { id: "openai/gpt-5.6-terra", label: "GPT-5.6 Terra", provider: "openai", enabled: true, reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], nativeCapabilities: ["text", "vision"] },
-    { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna", provider: "openai", enabled: true, reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], nativeCapabilities: ["text", "vision"] },
-    { id: "openai/gpt-5.5", label: "GPT-5.5", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], nativeCapabilities: ["text", "vision"] },
-    { id: "openai/gpt-5.4", label: "GPT-5.4", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], nativeCapabilities: ["text", "vision"] },
-    { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], nativeCapabilities: ["text", "vision"] },
+    { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", provider: "openai", enabled: true, reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], nativeCapabilities: ["text", "vision", "hosted_search"], nativeSearch: { protocol: "openai-chatgpt-responses-web-search", resultModalities: ["text", "image"] } },
+    { id: "openai/gpt-5.6-terra", label: "GPT-5.6 Terra", provider: "openai", enabled: true, reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], nativeCapabilities: ["text", "vision", "hosted_search"], nativeSearch: { protocol: "openai-chatgpt-responses-web-search", resultModalities: ["text", "image"] } },
+    { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna", provider: "openai", enabled: true, reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], nativeCapabilities: ["text", "vision", "hosted_search"], nativeSearch: { protocol: "openai-chatgpt-responses-web-search", resultModalities: ["text", "image"] } },
+    { id: "openai/gpt-5.5", label: "GPT-5.5", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], nativeCapabilities: ["text", "vision", "hosted_search"], nativeSearch: { protocol: "openai-chatgpt-responses-web-search", resultModalities: ["text", "image"] } },
+    { id: "openai/gpt-5.4", label: "GPT-5.4", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], nativeCapabilities: ["text", "vision", "hosted_search"], nativeSearch: { protocol: "openai-chatgpt-responses-web-search", resultModalities: ["text", "image"] } },
+    { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini", provider: "openai", enabled: true, reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], nativeCapabilities: ["text", "vision", "hosted_search"], nativeSearch: { protocol: "openai-chatgpt-responses-web-search", resultModalities: ["text", "image"] } },
     { id: "openai/gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", provider: "openai", enabled: false, reasoningEfforts: ["off"], nativeCapabilities: ["text"], toolPolicy: CHAT_ONLY_TOOL_POLICY },
-    { id: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash", provider: "deepseek", enabled: true, reasoningEfforts: ["off", "high", "max"] },
-    { id: "deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro", provider: "deepseek", enabled: true, reasoningEfforts: ["off", "high", "max"] }
+    { id: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash", provider: "deepseek", enabled: true, reasoningEfforts: ["off", "high", "max"], nativeCapabilities: ["text", "hosted_search"], nativeSearch: { protocol: "deepseek-anthropic-web-search", resultModalities: ["text"] } },
+    { id: "deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro", provider: "deepseek", enabled: true, reasoningEfforts: ["off", "high", "max"], nativeCapabilities: ["text", "hosted_search"], nativeSearch: { protocol: "deepseek-anthropic-web-search", resultModalities: ["text"] } }
   ],
   reasoningEfforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
   textVerbosity: ["low", "medium", "high"],
@@ -1110,6 +1110,11 @@ function publicModel(model) {
     enabled: model?.enabled !== false,
     toolPolicy: String(model?.toolPolicy || ""),
     nativeCapabilities: Array.isArray(model?.nativeCapabilities) ? model.nativeCapabilities.map((item) => String(item || "").trim()).filter(Boolean) : [],
+    nativeSearch: model?.nativeSearch && typeof model.nativeSearch === "object" ? {
+      protocol: String(model.nativeSearch.protocol || ""),
+      resultModalities: Array.isArray(model.nativeSearch.resultModalities) ? model.nativeSearch.resultModalities.map((item) => String(item || "").trim()).filter(Boolean) : [],
+      source: String(model.nativeSearch.source || "")
+    } : null,
     notes: String(model?.notes || "")
   };
 }

@@ -9,6 +9,8 @@ const models = normalizeCodexModelsCache({
       visibility: "list",
       supported_in_api: true,
       input_modalities: ["text", "image"],
+      supports_search_tool: true,
+      web_search_tool_type: "text_and_image",
       supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }, { effort: "high" }]
     },
     {
@@ -16,14 +18,18 @@ const models = normalizeCodexModelsCache({
       display_name: "GPT-5.6-Terra",
       visibility: "list",
       supported_in_api: true,
-      input_modalities: ["text", "image"]
+      input_modalities: ["text", "image"],
+      supports_search_tool: true,
+      web_search_tool_type: "text_and_image"
     },
     {
       slug: "gpt-5.6-luna",
       display_name: "GPT-5.6-Luna",
       visibility: "list",
       supported_in_api: true,
-      input_modalities: ["text", "image"]
+      input_modalities: ["text", "image"],
+      supports_search_tool: true,
+      web_search_tool_type: "text_and_image"
     },
     {
       slug: "future-text-model",
@@ -50,7 +56,8 @@ const models = normalizeCodexModelsCache({
 for (const id of ["openai/gpt-5.6-sol", "openai/gpt-5.6-terra", "openai/gpt-5.6-luna"]) {
   const model = models.find((item) => item.id === id);
   assert.ok(model, `missing visible backend model ${id}`);
-  assert.deepEqual(model.nativeCapabilities, ["text", "vision"], `${id} must preserve verified image input`);
+  assert.deepEqual(model.nativeCapabilities, ["text", "vision", "hosted_search"], `${id} must preserve verified image input and hosted search`);
+  assert.deepEqual(model.nativeSearch?.resultModalities, ["text", "image"], `${id} must preserve native image-search results`);
 }
 assert.deepEqual(
   models.find((item) => item.id === "openai/future-text-model")?.nativeCapabilities,

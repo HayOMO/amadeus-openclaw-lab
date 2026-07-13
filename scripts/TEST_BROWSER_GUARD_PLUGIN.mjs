@@ -38,6 +38,7 @@ assert.equal(publicPage.params.url, "https://example.com/page");
 
 await afterHook({
   toolName: "browser",
+  params: { action: "open", profile: "isolated", targetUrl: "https://example.com" },
   result: {
     content: [
       {
@@ -52,6 +53,7 @@ const aliasRewrite = await hook({
   params: { action: "act", targetId: "t1", kind: "click", ref: "e39" }
 }, { sessionKey: "browser-alias-test" });
 assert.equal(aliasRewrite.params.targetId, "REAL_TARGET_ID");
+assert.equal(aliasRewrite.params.profile, "isolated", "later tab actions must inherit the profile that owns the tab");
 
 const allowedMediaPath = path.join(mediaRoot, "inbound.png");
 await fs.writeFile(allowedMediaPath, "browser-upload-test");
@@ -117,6 +119,9 @@ assert.match(ordinaryChromeProfile.blockReason, /profile is not allowed/);
 
 const isolatedProfile = await hook({ toolName: "browser", params: { profile: "isolated", url: "https://example.com" } });
 assert.equal(isolatedProfile.params.profile, "isolated");
+
+const isolatedGoogle = await hook({ toolName: "browser", params: { profile: "isolated", action: "open", targetUrl: "https://www.google.com/search?q=test" } });
+assert.equal(isolatedGoogle.params.profile, "bot", "Google browser work must use the persistent Bot profile");
 
 const profileMutation = await hook({ toolName: "browser", params: { path: "/profiles" } });
 assert.equal(profileMutation.params.path, "/profiles");

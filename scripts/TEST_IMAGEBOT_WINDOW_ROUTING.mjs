@@ -280,7 +280,7 @@ assert.equal(
     chatId,
     isGroup: true,
     senderId: "100",
-    now: Date.parse("2026-06-18T00:10:00.000Z"),
+    now: Date.parse("2026-06-18T00:30:00.000Z"),
   }),
   "window-C",
   "a recent active sender window should let a plain group message enter the window",
@@ -313,7 +313,7 @@ const idleReplacementWindow = idleHarness.resolveTelegramImagebotWindowContext({
   senderId: "100",
   senderName: "Alice",
   botId,
-  now: Date.parse("2026-06-18T00:10:01.000Z"),
+  now: Date.parse("2026-06-18T00:30:01.000Z"),
 });
 assert.equal(idleReplacementWindow.source, "new-sender-window");
 assert.notEqual(idleReplacementWindow.windowId, "window-C");

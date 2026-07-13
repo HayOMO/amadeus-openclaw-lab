@@ -1,6 +1,7 @@
 param(
   [switch]$Fast,
-  [switch]$SkipPrewarm
+  [switch]$SkipPrewarm,
+  [switch]$PrewarmModel
 )
 
 $ErrorActionPreference = "Stop"
@@ -175,7 +176,12 @@ function Wait-ForGatewayReady {
 
 function Invoke-ImagebotPrewarm {
   if ($SkipPrewarm) {
-    Write-Host "Skipping Codex prewarm."
+    Write-Host "Skipping model prewarm."
+    return
+  }
+
+  if (-not $PrewarmModel) {
+    Write-Host "Skipping model wake-up; models start on the next real request."
     return
   }
 

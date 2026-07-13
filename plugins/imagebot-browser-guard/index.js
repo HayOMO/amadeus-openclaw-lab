@@ -10,6 +10,7 @@ const WINDOWS_PATH_RE = /^[A-Za-z]:[\\/]/;
 const UNC_PATH_RE = /^\\\\/;
 const MAX_STAGED_UPLOAD_BYTES = 120 * 1024 * 1024;
 const browserTargetAliases = new Map();
+const browserTargetProfiles = new Map();
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -206,6 +207,8 @@ function rememberBrowserTargetAliases(event, ctx) {
   if (event?.toolName !== "browser" || event?.error) return;
   const key = sessionAliasKey(event, ctx);
   const aliasMap = browserTargetAliases.get(key) || new Map();
+  const profileMap = browserTargetProfiles.get(key) || new Map();
+  const profile = normalizeProfileName(event?.params?.profile);
   const visit = (value) => {
     if (Array.isArray(value)) {
       for (const item of value) visit(item);
@@ -213,14 +216,17 @@ function rememberBrowserTargetAliases(event, ctx) {
     }
     if (!isRecord(value)) return;
     const targetId = normalizeString(value.targetId);
+    if (targetId && profile) profileMap.set(targetId, profile);
     for (const aliasKey of ["tabId", "suggestedTargetId"]) {
       const alias = normalizeString(value[aliasKey]);
       if (targetId && alias && alias !== targetId) aliasMap.set(alias, targetId);
+      if (alias && profile) profileMap.set(alias, profile);
     }
     for (const child of Object.values(value)) visit(child);
   };
   for (const object of extractResultObjects(event.result)) visit(object);
   if (aliasMap.size > 0) browserTargetAliases.set(key, aliasMap);
+  if (profileMap.size > 0) browserTargetProfiles.set(key, profileMap);
 }
 
 async function findUnsafeLocalPaths(params, allowedRoots) {
@@ -245,6 +251,28 @@ function withDefaultProfile(params, defaultProfile) {
   };
 }
 
+function browserUrl(params) {
+  return normalizeString(params?.targetUrl || params?.url);
+}
+
+function isGoogleUrl(raw) {
+  const value = normalizeString(raw);
+  if (!value) return false;
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return /^(?:[^.]+\.)*google\.[a-z.]+$/i.test(hostname);
+  } catch {
+    return false;
+  }
+}
+
+function enforceSearchProfile(params, defaultProfile) {
+  if (!isRecord(params)) return params;
+  if (normalizeProfileName(params.profile) !== "isolated") return params;
+  if (!isGoogleUrl(browserUrl(params))) return params;
+  return { ...params, profile: defaultProfile };
+}
+
 export default {
   id: "imagebot-browser-guard",
   name: "Imagebot Browser Guard",
@@ -265,9 +293,15 @@ export default {
         };
       }
 
-      const aliasMap = browserTargetAliases.get(sessionAliasKey(event, ctx));
+      const stateKey = sessionAliasKey(event, ctx);
+      const aliasMap = browserTargetAliases.get(stateKey);
+      const profileMap = browserTargetProfiles.get(stateKey);
+      const targetProfile = profileMap?.get(normalizeString(event?.params?.targetId));
       const adjustedParams = await stageBrowserUploadPaths(
-        rewriteBrowserTargetAliases(withDefaultProfile(event.params, allowedProfiles[0]), aliasMap),
+        rewriteBrowserTargetAliases(
+          enforceSearchProfile(withDefaultProfile(event.params, targetProfile || allowedProfiles[0]), allowedProfiles[0]),
+          aliasMap
+        ),
         allowedRoots,
         stagingRoot,
         pluginConfig

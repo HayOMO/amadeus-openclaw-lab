@@ -28,10 +28,14 @@ export function normalizeCodexModelsCache(value) {
   return models.map((model) => {
     const slug = String(model?.slug || model?.model || model?.id || "").trim();
     const inputModalities = normalizeStringList(model?.input_modalities ?? model?.inputModalities);
+    const supportsSearchTool = model?.supports_search_tool === true || model?.supportsSearchTool === true;
+    const webSearchToolType = String(model?.web_search_tool_type || model?.webSearchToolType || "").trim().toLowerCase();
     if (!MODEL_ID_PATTERN.test(slug)) return null;
     if (String(model?.visibility || "").trim().toLowerCase() !== "list") return null;
     if (model?.supported_in_api !== true && model?.supportedInApi !== true) return null;
     if (!inputModalities.includes("text")) return null;
+    const nativeCapabilities = inputModalities.map((item) => item === "image" ? "vision" : item);
+    if (supportsSearchTool) nativeCapabilities.push("hosted_search");
     return {
       id: `openai/${slug}`,
       model: slug,
@@ -41,8 +45,17 @@ export function normalizeCodexModelsCache(value) {
       reasoningEfforts: normalizeReasoningEfforts(model?.supported_reasoning_levels ?? model?.supportedReasoningEfforts),
       defaultReasoningEffort: String(model?.default_reasoning_level || model?.defaultReasoningEffort || "").trim().toLowerCase(),
       inputModalities,
-      nativeCapabilities: inputModalities.map((item) => item === "image" ? "vision" : item),
-      capabilitySource: "codex-models-cache.input_modalities"
+      nativeCapabilities,
+      supportsSearchTool,
+      webSearchToolType,
+      ...(supportsSearchTool ? {
+        nativeSearch: {
+          protocol: "openai-chatgpt-responses-web-search",
+          resultModalities: webSearchToolType === "text_and_image" ? ["text", "image"] : ["text"],
+          source: "codex-models-cache"
+        }
+      } : {}),
+      capabilitySource: "codex-models-cache"
     };
   }).filter(Boolean);
 }

@@ -566,7 +566,7 @@
       "file": "44-telegram-window-idle-timeout-Dxj27QDQ.js.patch",
       "target": "dist/bot-Dxj27QDQ.js",
       "protects": [
-        "Telegram imagebot windows idle for more than 10 minutes are closed while their session files remain available for memory consolidation",
+        "Telegram imagebot windows idle for more than 30 minutes are closed while their session files remain available for memory consolidation",
         "the next addressed sender message after an idle close opens a direct new-sender window instead of going through /amnew replacement logic",
         "reply, callback, and recent-active routing ignore idle-expired windows before resolving the target session"
       ],
@@ -676,7 +676,7 @@
       "file": "53-browser-profile-tool-description-plugin-registration-CIf1lyqW.js.patch",
       "target": "dist/plugin-registration-CIf1lyqW.js",
       "protects": [
-        "browser tool description follows the Bot-owned default, names the isolated alternate, and blocks ordinary Chrome attachment"
+        "browser tool description makes the Bot-owned profile the ordinary and Google-search default, limits isolated use to explicit exceptions, preserves profile continuity guidance, and blocks ordinary Chrome attachment"
       ],
       "checks": [
         "node scripts/TEST_BROWSER_PROFILE_TOOL_DESCRIPTION_PATCH.mjs"
@@ -687,7 +687,7 @@
       "file": "54-browser-profile-tool-description-plugin-service-oo3g2he-.js.patch",
       "target": "dist/plugin-service-oo3g2he-.js",
       "protects": [
-        "deferred browser tool description follows the Bot-owned default, names the isolated alternate, and does not expose ordinary Chrome"
+        "deferred browser tool description makes the Bot-owned profile the ordinary and Google-search default, limits isolated use to explicit exceptions, preserves profile continuity guidance, and does not expose ordinary Chrome"
       ],
       "checks": [
         "node scripts/TEST_BROWSER_PROFILE_TOOL_DESCRIPTION_PATCH.mjs"

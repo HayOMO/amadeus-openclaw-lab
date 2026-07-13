@@ -19,14 +19,16 @@ needs it.
 - `image`: load an additional image path/URL that is not already visible to the
   current multimodal model; do not re-inspect native prompt images.
 - Provider-native/current-model search may exist without being a normal callable
-  tool. If no native search tool is visible, use the explicit search tools.
+  tool and remains the default public-search route. Tool-catalog invisibility is
+  not a fallback condition; use explicit search only after an actual native
+  error/empty/insufficient result or when the current model lacks native search.
 - `zhihu`: Zhihu OpenAPI search, Chinese-community lookup, and hot-list lookup.
 - `explicit_web_text_search`: bounded generic text-search fallback.
 - `web_image_search`: public image-reference search.
 - `danbooru_resource`: Danbooru tag/rating/score/favorite-count image lookup
   and optional local download.
-- `reverse_image_search`: source, artist, character, or original-post lookup from
-  an image.
+- `reverse_image_search`: explicit source, artist, original-post, or same-image
+  lookup from an image; not the default first step for ordinary identity questions.
 - `download_image_url`, `download_image_urls`: safe public image attachment cache.
 - `pixiv_resource`: Pixiv ranking/detail/download helper backed by `gallery-dl`.
 - `public_video`: public video metadata, subtitles/transcripts, bounded download,

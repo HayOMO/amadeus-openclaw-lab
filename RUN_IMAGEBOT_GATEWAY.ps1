@@ -561,6 +561,11 @@ function Invoke-SessionRepairOnce {
 Set-Location -LiteralPath $Root
 Write-LogLine "Starting OpenClaw imagebot gateway from $Root"
 Write-LogLine "Command: openclaw gateway run --bind loopback"
+
+# Keep runtime, memory, and browser prewarming separate from model wake-up.
+if ([string]::IsNullOrWhiteSpace($env:OPENCLAW_SKIP_STARTUP_MODEL_PREWARM)) {
+  $env:OPENCLAW_SKIP_STARTUP_MODEL_PREWARM = "1"
+}
 Write-LogLine "Watchdog enabled: maxRestarts=$MaxRestarts restartDelaySeconds=$RestartDelaySeconds stableSeconds=$StableSeconds healthGraceSeconds=$HealthProbeGraceSeconds healthIntervalSeconds=$HealthProbeIntervalSeconds healthFailures=$HealthProbeFailures"
 Invoke-SessionRepairOnce -RootPath $Root -RepairScriptPath $SessionRepairScript -WindowStoreRepairScriptPath $WindowStoreRepairScript
 

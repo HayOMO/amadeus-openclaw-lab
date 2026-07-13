@@ -1,376 +1,148 @@
-# Amaduse Imagebot
+<div align="center">
 
-Local-first OpenClaw compatibility and agent-tooling setup for a Telegram
-image/chat bot.
+# Amadeus OpenClaw Lab
 
-For public migration planning, see `docs\PUBLIC_REPO_PLAN.md`. The public repo
-should stay as one repository with two explicit layers: OpenClaw compatibility
-patches, and agent/tooling integration. References and attribution are tracked
-in `docs\ATTRIBUTION_AND_REFERENCES.md`.
+**A local-first Telegram imagebot lab for OpenClaw compatibility, multimodal tools, memory, and media workflows.**
 
-This repository keeps the reproducible parts of the bot:
+[简体中文](README.zh-CN.md) | **English**
 
-- Telegram/OpenClaw setup scripts.
-- Gateway start/stop/status wrappers.
-- Local control panel frontend and native wrapper source.
-- Local web text/image/reverse-image search plugin.
-- Zhihu Open Platform search/hot-list plugin.
-- DeepSeek provider setup script and model profile entries for optional
-  text-only helper routes.
-- Pixiv ranking/detail/download resource plugin backed by `gallery-dl`.
-- Local small-video / Telegram animation keyframe extraction plugin.
-- Lightweight image-skill cache for reusable character/style references.
-- Meme/sticker transform plugin for captioned memes, reaction images, and
-  sticker-style WebP outputs.
-- Knowledge-library registry over persona notes, prompt library, tool manuals,
-  memory, and user-ingested notes.
-- Interaction-core plugin for Telegram trigger, stable identity, and window-routing diagnostics.
-- Manifest-driven feature core for mixed LLM/script features such as daily check-in and playful waifu/card gacha.
-- Bounded desktop media-session control for local playback apps such as NetEase Cloud Music.
-- Static Amadeus/Kurisu persona notes, including the active role card in `persona\active_system.md`, plus a hidden `persona_search` tool for role-fidelity correction.
-- A draft persona-agent catalog in `config\imagebot\agents.catalog.json`; see
-  `docs\AGENT_PERSONA_MODEL_FOUNDATION.md`.
-- Runtime patch records for the current supported OpenClaw version, `2026.6.10`.
+[![CI](https://github.com/HayOMO/amadeus-openclaw-lab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/HayOMO/amadeus-openclaw-lab/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2f855a.svg)](LICENSE)
+[![Node.js 24](https://img.shields.io/badge/Node.js-24-43853d.svg)](.nvmrc)
+[![OpenClaw 2026.6.10](https://img.shields.io/badge/OpenClaw-2026.6.10-c24156.svg)](docs/PATCH_COMPATIBILITY.md)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078d4.svg)](docs/LOCAL_OPERATOR_GUIDE.md)
 
-It intentionally does not store bot tokens, OpenClaw secrets, logs, sessions, generated images, Telegram memories, or built binaries. The launcher source, icon, and build/bind scripts are project content; the local `native\bin\AmaduseImagebot.exe` and Desktop shortcut are machine-local generated outputs.
+<img src="native/native-launcher-preview-v2.png" alt="Amadeus control panel" width="840">
 
-## Current Shape
+</div>
 
-- Bot username: `@YOUR_BOT_USERNAME`.
-- Main group is configured locally through OpenClaw config scripts.
-- Gateway listens on `127.0.0.1:18789`.
-- Default chat profile: `balanced`, currently backed by `openai/gpt-5.5`.
-  Model profile switches are runtime config, not persona identity.
-- Image model: `openai/gpt-image-2`.
-- Telegram group handling keeps `requireMention=true`; the runtime patch prevents the `plugin-owned-runtime` path from bypassing trigger filtering for `imagebot`, and drops unaddressed group messages before they enter Telegram reply-chain / conversation-context cache.
-- Telegram slash commands are sourced from `scripts\IMAGEBOT_COMMANDS.json`. The OpenClaw config is generated from `config\imagebot\settings.json` plus `config\imagebot\prompt\*.md`; `scripts\APPLY_CHAT_BALANCE_MODE.ps1` is only a thin apply wrapper. OpenClaw receives only `menu=true` catalog commands for local trigger filtering, and `scripts\SYNC_IMAGEBOT_TELEGRAM_COMMANDS.ps1` publishes the same visible command set to Telegram's command menu. The runtime patch also treats those custom commands as control commands so `/amnew` can pass the local group trigger gate.
-- Runtime state, memories, media workspaces, and the archived gallery live outside git. See `docs\IMAGEBOT_DATA_STORAGE.md` before backup, restore, or retention changes.
-- The `/amhelp` and `/am*` command family use the `command_catalog` tool from `imagebot-creative-ops` as a product command registry. See `IMAGEBOT_COMMANDS.md`.
-- Command policy is intentionally narrow: deterministic control/script actions live under `/am*`. Ordinary abilities such as image generation, PDF/video/webpage/QR/text handling, gallery lookup, memory search, and prompt cards are model-selected tools behind delivered trigger messages, bot replies, mentions, or configured prefixes, not separate Telegram commands.
-- Interaction policy is centralized through `interaction_pipeline`: group messages are supposed to enter the model only through explicit commands, bot replies, mentions, or configured prefixes, and window routing uses Telegram user ids plus reply-session metadata.
-- Mixed features use `feature_catalog` / `feature_action`: deterministic state and safety live in the feature tool, while the model decides when to call it and wraps the structured result. Sample features include daily check-in (`features\checkin.json`) and Safebooru/Danbooru score-band anime card gacha (`features\waifu_gacha.json`).
-- Image generation concurrency is window-scoped: one in-flight generation per active Telegram window/session, with up to 6 different windows allowed to run concurrently through the agent global lane.
-- Allowed tools are kept narrow: image reading/generation, Zhihu Open Platform search/hot-list, explicit broad-web text fallback, public image/Pixiv resource search, scripted reverse image search, a Bot-owned browser plus a separate isolated browser, media transforms, audio/video helpers, bounded desktop media playback control, and lightweight playful features.
+> [!IMPORTANT]
+> This is an **unofficial, personal integration lab**, not an OpenClaw distribution or a hosted bot service. It targets one pinned OpenClaw runtime and expects operators to provide their own local credentials.
 
-## Layer Boundary
+## What It Is
 
-This repository should stay one repo, but the ownership boundary must stay
-visible:
+Amadeus combines a governed OpenClaw compatibility layer with a plugin-first agent tooling layer. The project is built around a real Telegram group bot, but the public repository contains only reproducible code, templates, tests, and documentation.
 
-- OpenClaw compatibility layer: `patches\openclaw-2026.6.10-runtime`,
-  `policy\runtime_patch_contract.json`, patch scripts, and patch tests. This
-  layer bridges OpenClaw runtime gaps and should shrink as upstream surfaces
-  improve.
-- Agent tooling layer: `plugins`, `tool_manuals`, `features`,
-  `config\imagebot`, control-panel code, memory/search policies, and replay
-  tests. Product behavior belongs here unless OpenClaw cannot expose the needed
-  behavior through a public surface.
+- **Model routing:** Codex-backed GPT catalog discovery, per-window model selection, multimodal capability metadata, and DeepSeek fallback routes.
+- **Search and evidence:** provider-native web search first, image search results when available, exact-source tools for Pixiv/Danbooru/reverse search, and browser escalation only when page interaction is actually needed.
+- **Media workflows:** image generation and editing, sticker/GIF-to-WebM conversion, video inspection, transcription, and bounded public-video download.
+- **Memory:** scoped user/group/window memory, hybrid retrieval, controlled prompt injection, and a dedicated high-reasoning curator path.
+- **Telegram runtime:** per-sender conversation windows, reply continuity, persistent user model/persona choices, bounded progress updates, and deterministic control commands.
+- **Browser boundary:** a dedicated logged-in bot profile plus a separate isolated profile for risky sites; the owner's ordinary browser profile is outside the tool surface.
 
-Before adding a feature, decide which layer owns it. If it crosses both layers,
-document why in the patch contract or extension playbook instead of spreading
-the behavior through prompt text, plugins, and runtime patches at once.
+## Architecture
 
-See `docs\IMAGEBOT_ARCHITECTURE.md` for the generated-config layout and
-`docs\REPO_MAP.md` for the current repository map.
-
-For future feature work, start with:
-
-- `docs\REPO_MAP.md`: where things live and what must stay out of git.
-- `docs\AGENT_ARCHITECTURE_ALIGNMENT.md`: mature-agent design anchor for
-  prompt/tool/manual/memory/workflow changes.
-- `docs\AGENT_ARCHITECTURE_AUDIT.md`: current audit matrix for capability
-  honesty, mutation gates, memory/browser boundaries, and trace/eval coverage.
-- `policy\agent_architecture_contract.json`: machine-checkable contract for
-  capability honesty, side-effect gates, memory/browser boundaries, and
-  trace/eval coverage.
-- `docs\EXTENSION_PLAYBOOK.md`: how to choose between prompt, manual, command,
-  feature, plugin, background job, or runtime patch work.
-- `docs\FEATURE_EXPANSION_PLAN.md`: current next-feature backlog and suggested
-  implementation order.
-- `docs\GITHUB_BOT_IDEA_STUDY.md`: external bot-project patterns worth
-  borrowing before adding the next larger feature.
-- `docs\STICKER_PRODUCTION_WORKFLOW.md`: sticker workbench boundary, action
-  groups, and two-layer tool-description notes.
-- `docs\MEMORY_ARCHITECTURE.md`: local memory stack, recall gate, and curator
-  design notes.
-
-## Common Commands
-
-Install local plugin dependencies after cloning or moving the project:
-
-```powershell
-npm run setup:plugins
+```mermaid
+flowchart LR
+    TG["Telegram message"] --> RT["OpenClaw runtime"]
+    RT --> WR["Window and identity routing"]
+    WR --> AG["Selected model and persona"]
+    AG --> TOOLS["Progressively disclosed tools"]
+    TOOLS --> SEARCH["Native search and evidence"]
+    TOOLS --> MEDIA["Image, video, sticker, audio"]
+    TOOLS --> BROWSER["Bot or isolated browser"]
+    TOOLS --> MEMORY["Scoped memory and knowledge"]
+    SEARCH & MEDIA & BROWSER & MEMORY --> TG
 ```
 
-Build and lint the generated OpenClaw config:
+The repository deliberately keeps two ownership layers visible:
+
+| Layer | Main paths | Rule |
+| --- | --- | --- |
+| OpenClaw compatibility | `patches/`, `policy/runtime_patch_contract.json` | Patch only host behavior that cannot be expressed safely through public plugin/config surfaces. Every patch has verification and a retirement condition. |
+| Agent tooling | `plugins/`, `tool_manuals/`, `features/`, `config/imagebot/` | Product behavior, tool contracts, memory, search, media, and interaction policy live here. |
+
+## Quick Start
+
+### Requirements
+
+- Windows 11 or Windows Server
+- Node.js 24 (`.nvmrc`)
+- Python 3.13 for the full test suite
+- OpenClaw `2026.6.10`
+- Your own Telegram/OpenAI/DeepSeek/resource credentials as needed
+
+### Install and validate
 
 ```powershell
+npm ci
+npm run setup:plugins
+npm run setup:media
+npm run verify:media
 npm run build:config
 npm run lint:config
-npm run health:features
 ```
 
-`health:features` checks local plugin manifests, exposed tool manuals, and
-test/replay references. It currently allows two expected warnings: hidden
-`web_text_search` remains behind `explicit_web_text_search`, and
-`plugins\imagebot-shared` is a helper directory rather than a runtime plugin.
-
-Apply the current chat balance / memory / web reference config:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\APPLY_CHAT_BALANCE_MODE.ps1
-```
-
-The apply wrapper now:
-
-- generates config batches from `config\imagebot\settings.json` and `config\imagebot\prompt\*.md`,
-- lints the active prompt source against known stale spoiler/refusal wording before writing generated batches,
-- keeps the base Telegram system prompt focused on default reply preferences and a capability-only tool index; active persona cards are selected by `persona_config` / agent-ops prompt hooks and are injected before the tool prompt,
-- exposes Zhihu, provider-native search, `explicit_web_text_search`, `web_card`, and `web_snapshot` as complementary source-reading routes,
-- search policy: stable chat can answer directly; public/current/source-dependent work should retrieve evidence; source snippets are leads, and source pages can be read with `web_card` / `web_snapshot` when snippets are incomplete or the page state matters,
-- browser posture: `browser` defaults to the OpenClaw-managed `bot` profile and may explicitly select the separate `isolated` profile; ordinary Chrome `profile=user` is prohibited; `web_snapshot` / `web_card` always use fresh, login-free Playwright contexts,
-- enables per-agent tool loop detection for repeated no-progress tool usage,
-- explicitly sets `agents.defaults.maxConcurrent=6`, while each `:window:<id>` session lane remains serial,
-- enables OpenClaw's bounded Telegram progress draft for public stage updates,
-  with `commentary` disabled so private model reasoning is never streamed.
-
-The Telegram-visible tool status is handled by the native progress draft and
-the imagebot runtime patch as one bounded, editable status surface per request.
-- No tool status appears for pure model replies. Evidence claims should line up with actual search, page, or reference tool results from the current turn.
-- adds a scripted `reverse_image_search` path for SauceNAO/IQDB lookups on Telegram-delivered images,
-- adds a scripted `video_keyframes` path for Telegram-delivered small videos, video notes, and animation/GIF messages,
-- uses a Telegram status message for slow media tools such as image generation; if the turn actually stalls, that status message is edited to a retry notice instead of adding another misleading reply,
-- exposes exactly two full-browser states, `bot` and `isolated`; lightweight page readers remain ephemeral,
-- keeps local/private/internal/file URLs outside the public page-reading path.
-
-Current routing note:
-
-- OpenClaw browser itself is not pinned to a dedicated per-app proxy in this repo right now.
-- Telegram still explicitly uses `http://127.0.0.1:7897`.
-- Public browser/web traffic is currently expected to follow Clash/Verge rule routing on the host.
-
-Start the gateway:
-
-```powershell
-.\START_IMAGEBOT_GATEWAY.cmd
-```
-
-Stop the gateway:
-
-```powershell
-.\STOP_IMAGEBOT_GATEWAY.cmd
-```
-
-Telegram display-name status (`Amadeus [ONLINE]` / `Amadeus [OFFLINE]`) uses Telegram Bot API `setMyName`, which is heavily rate-limited. Automatic display-name updates are currently disabled in start/stop scripts. Use `SET_IMAGEBOT_STATUS_NAME.ps1` manually only after the Telegram cooldown has had time to clear.
-
-Model profiles:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\SET_IMAGEBOT_MODEL_MODE.ps1 -Mode balanced
-powershell -ExecutionPolicy Bypass -File .\scripts\SET_IMAGEBOT_MODEL_MODE.ps1 -Mode custom -Model openai/gpt-5.5 -ReasoningEffort high -TextVerbosity low -MaxTokens 1536
-```
-
-Profiles live in `scripts\IMAGEBOT_MODEL_PROFILES.json`. The script writes
-validated OpenClaw config for the launcher/control panel, including model,
-reasoning effort, verbosity, and optional max-token caps. Leave max tokens
-unset/0 to use provider/OpenClaw defaults; set 256-8192 only for an explicit
-temporary output cap. Telegram `/ammodel` is a
-pre-model runtime command: it directly pins the current window/session with
-OpenClaw's session-level model override, so the next clean turn in that window
-should use the selected model without restarting the gateway or starting a
-model run just to switch.
-
-The local file declares only the `openai/*` provider wildcard. Telegram
-`/ammodel` reads Codex's backend-refreshed `models_cache.json`, keeps only
-visible models marked `supported_in_api=true`, and carries each model's
-`input_modalities` into the runtime catalog. Exact curated DeepSeek fallbacks
-remain available, but hidden, non-backend, and unrelated provider models are
-not exposed automatically.
-
-`config\imagebot\model-state.json` is the repository default seed. Mutable
-chat-side model state lives outside git at
-`~\.openclaw\imagebot\model-state.json` (override with
-`OPENCLAW_IMAGEBOT_MODEL_STATE_FILE` only for tests/repairs). Generated runtime
-config reads that local state first, then falls back to the tracked seed;
-template/public builds can pass `--template` to use only the seed. `/ammodel`
-and `SET_IMAGEBOT_MODEL_MODE.ps1` write the local state file so ordinary model
-experiments do not dirty the checkout.
-
-Chat model fallbacks are configured by `config\imagebot\settings.json` under
-`modelFallbacks`; the default chain is DeepSeek V4 Flash, then DeepSeek V4 Pro.
-When a GPT subscription/quota/rate-limit failure triggers fallback, OpenClaw can
-persist the fallback model for that current window only. Future new windows
-still seed from the local `/ammodel` default. The turn that enters fallback
-also gets a short Chinese status notice before the assistant reply.
-
-Telegram chat-side control uses `/ammodel`. The button flow is model first,
-then that model's raw thinking levels, with a Back button:
-
-```text
-/ammodel
-/ammodel models
-/ammodel model openai/gpt-5.5
-/ammodel model openai/gpt-5.5 think xhigh
-/ammodel model deepseek/deepseek-v4-flash
-/ammodel model deepseek/deepseek-v4-flash think max
-/ammodel think high
-```
-
-The chat command does not rewrite global OpenClaw config. Session-level chat
-switching is intentionally limited to model plus thinking level; use the
-launcher or `scripts\SET_IMAGEBOT_MODEL_MODE.ps1` for global defaults such as
-verbosity and max tokens.
-
-Store a DeepSeek API key and register the DeepSeek provider:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\SET_DEEPSEEK_API_KEY.ps1
-```
-
-The key is written to `~\.openclaw\secrets\deepseek-api-key.token`, OpenClaw
-receives a file-backed secret reference, and the default model is not switched.
-After setup, use `/ammodel` and select DeepSeek V4 Flash/Pro, then choose
-`off`, `high`, or `max`.
-
-Check status:
-
-```powershell
-.\STATUS_IMAGEBOT_GATEWAY.cmd
-```
-
-Open the app-style control panel:
-
-```powershell
-.\IMAGEBOT_APP.cmd
-```
-
-The control panel shows gateway status, model configuration, redacted log
-summary, and Feature Health contract checks from `npm run health:features`.
-The launcher starts the local server with a high-entropy control token stored
-under `.runtime`; browser API calls must send that token in
-`X-Imagebot-Control-Token`, and POST requests are restricted to the local
-origin with JSON bodies. Raw logs stay local and are opened through the log
-folder action rather than returned by `/api/status`.
-
-Build the project-local native launcher and bind the current user's Desktop shortcut to this checkout:
-
-```powershell
-npm run build:launcher
-npm run bind:launcher
-```
-
-Keep launcher maintenance in this repository. The Desktop should only contain the shortcut, not a copied project directory or standalone launcher source. The native launcher owns the gateway lifecycle in normal GUI mode: opening it starts or synchronizes the local OpenClaw gateway, and closing it stops the gateway before the launcher exits. Use the start/stop scripts directly only when you intentionally want headless background operation.
-
-Store the Zhihu Open Platform Access Secret:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\SET_ZHIHU_ACCESS_SECRET.ps1
-```
-
-The secret is written to `~\.openclaw\secrets\zhihu-access-secret.token` and is ignored by git. If the secret is missing, expired, out of quota, or the free trial is no longer available, the bot is prompted to fall back to `explicit_web_text_search` once instead of looping on Zhihu.
-
-Install and configure Pixiv resources:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\INSTALL_PIXIV_RESOURCE_DEPS.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\SET_PIXIV_REFRESH_TOKEN.ps1
-```
-
-If a refresh token is needed, run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\GET_PIXIV_REFRESH_TOKEN.ps1
-```
-
-The refresh token is written to `~\.openclaw\secrets\pixiv-refresh.token` and is ignored by git. The bot stores bounded Pixiv metadata under `~\.openclaw\resources\pixiv` and downloaded media under `~\.openclaw\media\pixiv-resource`.
-
-Sync Telegram's visible command menu after changing `customCommands`:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\SYNC_IMAGEBOT_TELEGRAM_COMMANDS.ps1
-```
-
-The sync script clears stale commands from common Telegram command scopes
-before publishing the current visible menu, so deleted commands should stop
-appearing when typing `/` after Telegram's client-side cache refreshes.
-
-## Runtime Patches
-
-OpenClaw updates can overwrite local runtime edits under `node_modules\openclaw\dist`.
-
-Patch files live in:
-
-```text
-patches\openclaw-2026.6.10-runtime
-```
-
-Re-apply them after reinstalling/updating the same OpenClaw version:
+Apply the pinned compatibility patches, then start the gateway:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\APPLY_RUNTIME_PATCHES.ps1
+.\START_IMAGEBOT_GATEWAY.cmd
 ```
 
-Check whether the installed runtime already contains the repo patch set:
+The gateway is loopback-only by default at `127.0.0.1:18789`. Models wake on a real request; browser and memory runtimes can be prewarmed independently.
+
+## Validation
+
+The GitHub workflow mirrors the local Windows validation path:
+
+```powershell
+npm ci
+python -m pip install -r requirements-test.txt
+.\scripts\INSTALL_IMAGEBOT_PLUGIN_DEPS.ps1 -Force
+npm run setup:media
+npm run verify:media
+npm run audit:plugins
+npm run prepare:runtime:ci
+npm run lint:config
+npm run health:features
+npm run test:all
+npm run test:patches
+```
+
+CI also performs Gitleaks and TruffleHog secret scans. Actions have read-only repository permissions and do not deploy or operate a bot.
+
+## Repository Map
+
+| Path | Purpose |
+| --- | --- |
+| `plugins/` | Agent tools, memory, search, media, browser policy, and feature runtimes |
+| `patches/openclaw-2026.6.10-runtime/` | Version-pinned OpenClaw compatibility patches |
+| `tool_manuals/` | Progressive-disclosure tool guidance |
+| `config/imagebot/` | Reproducible configuration and prompt sources |
+| `features/` | Manifest-driven deterministic features |
+| `policy/` | Machine-checkable architecture and patch contracts |
+| `scripts/` | Setup, verification, migration, diagnostics, and tests |
+| `docs/` | Architecture, security, storage, decisions, and operator guides |
+
+Start with the [repository map](docs/REPO_MAP.md), [architecture overview](docs/IMAGEBOT_ARCHITECTURE.md), [agent architecture alignment](docs/AGENT_ARCHITECTURE_ALIGNMENT.md), and [local operator guide](docs/LOCAL_OPERATOR_GUIDE.md).
+
+## Safety and Publication Boundary
+
+The public export excludes or sanitizes:
+
+- bot tokens and API credentials;
+- Telegram group/operator identifiers;
+- sessions, logs, memories, and generated media;
+- machine-local runtime state and binaries;
+- owner browser data and logged-in profile contents.
+
+See [Security Policy](SECURITY.md), [Data Storage](docs/IMAGEBOT_DATA_STORAGE.md), and [Public Repository Plan](docs/PUBLIC_REPO_PLAN.md) before adapting this project.
+
+## Runtime Compatibility
+
+Compatibility patches are pinned to **OpenClaw 2026.6.10**. Updating OpenClaw without re-exporting and verifying the patch set is unsupported.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\VERIFY_RUNTIME_PATCHES.ps1
 ```
 
-Re-export patches from the current installed OpenClaw runtime:
+Patch ownership and retirement rules are documented in [Patch Compatibility](docs/PATCH_COMPATIBILITY.md) and the [runtime patch contract](policy/runtime_patch_contract.json).
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\EXPORT_RUNTIME_PATCHES.ps1
-```
+## Contributing
 
-The patch manifest is `patches\openclaw-2026.6.10-runtime\manifest.json`; see `docs\PATCH_COMPATIBILITY.md`.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. New behavior should prefer stable OpenClaw APIs and project plugins over runtime patches, and every public change must pass the full local CI path plus secret scanning.
 
-## Git Safety
+## License and Attribution
 
-Before pushing, run:
-
-```powershell
-git status --short
-git diff --cached --name-only
-npm run test:all
-npm run test:patches
-```
-
-Create a local backup commit for the reproducible repo state without pushing:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\BACKUP_IMAGEBOT_TO_GITHUB.ps1 -NoPush
-```
-
-The backup script skips push by default. Use `-Push` only after checking the
-remote and staged diff; private source-tree push URLs should stay disabled
-unless you intentionally re-enable them for a manual publish.
-
-Memory contents are intentionally not synced to GitHub. The local memory export path is ignored by Git, so opening the repository later cannot accidentally publish group memory.
-
-Export a local text memory backup to the Desktop:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\EXPORT_IMAGEBOT_MEMORY_DESKTOP_BACKUP.ps1
-```
-
-This writes `path\to\amadeus-openclaw-lab-Memory-Backup\latest` and a timestamped snapshot under `path\to\amadeus-openclaw-lab-Memory-Backup\snapshots`. It includes user, group, and window memory Markdown. It excludes raw sessions, logs, media, tokens, OpenClaw runtime state, and the regenerable semantic index.
-
-There is also a one-click wrapper:
-
-```text
-BACKUP_IMAGEBOT_MEMORY_TO_DESKTOP.cmd
-```
-
-Restore that memory snapshot after stopping the gateway:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\RESTORE_IMAGEBOT_MEMORY_BACKUP.ps1 -Force
-```
-
-Install the daily GitHub backup task:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\INSTALL_GITHUB_BACKUP_TASK.ps1
-```
-
-Do not add files from `~\.openclaw`, logs, media, sessions, token files, generated Telegram memory, imagebot ops-memory logs, or `backups\imagebot-memory`.
+Released under the [MIT License](LICENSE). Third-party references and design influences are recorded in [NOTICE](NOTICE) and [Attribution and References](docs/ATTRIBUTION_AND_REFERENCES.md).

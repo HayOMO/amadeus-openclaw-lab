@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { backgroundToolParameters, enqueueBackgroundTool, shouldRunInBackground } from "../imagebot-background-jobs/index.js";
 import { assertPublicUrl as assertSharedPublicUrl } from "../imagebot-shared/public-network-guard.mjs";
 import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
+import { resolveFfmpeg } from "../imagebot-shared/media-runtime.mjs";
 
 const TOOL_NAME = "public_video";
 const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
@@ -146,7 +147,9 @@ async function metadata(config = {}, params = {}) {
   const id = meta.id || hash(parsed.toString(), 16);
   const outPath = path.join(metadataRoot(config), `${sanitizeFilename(id)}.json`);
   await writeJson(outPath, info);
-  return { url: parsed.toString(), metadata: meta, metadataPath: outPath, raw: info };
+  // Keep yt-dlp's full extractor payload on disk. Returning it through the tool
+  // result can exceed OpenClaw's middleware limits and duplicates compact data.
+  return { url: parsed.toString(), metadata: meta, metadataPath: outPath };
 }
 
 function maxBytes(config = {}, params = {}) {
@@ -185,6 +188,20 @@ async function newestFile(dir, sinceMs, exts = null) {
   return files.find((file) => file.stat.mtimeMs >= sinceMs - 2000 && (!exts || exts.has(path.extname(file.filePath).toLowerCase())));
 }
 
+async function newestOutputFile(dir, outputStem, sinceMs, exts = null) {
+  const prefix = `${path.basename(outputStem)}.`;
+  const fragmentPattern = /\.f\d+\.[^.]+$/i;
+  const files = await listFiles(dir);
+  return files.find((file) => {
+    const name = path.basename(file.filePath);
+    return file.stat.mtimeMs >= sinceMs - 2000 &&
+      name.startsWith(prefix) &&
+      !fragmentPattern.test(name) &&
+      !/\.(?:part|ytdl|temp)$/i.test(name) &&
+      (!exts || exts.has(path.extname(file.filePath).toLowerCase()));
+  });
+}
+
 async function downloadVideo(config = {}, params = {}) {
   const meta = await metadata(config, params);
   const duration = Number(meta.metadata.duration || 0);
@@ -195,7 +212,8 @@ async function downloadVideo(config = {}, params = {}) {
   await fs.mkdir(outDir, { recursive: true });
   const id = sanitizeFilename(meta.metadata.id || hash(meta.url, 16));
   const title = sanitizeFilename(meta.metadata.title || "video", "video");
-  const output = path.join(outDir, `${Date.now()}-${id}-${title}.%(ext)s`);
+  const outputStem = path.join(outDir, `${Date.now()}-${id}-${title}`);
+  const output = `${outputStem}.%(ext)s`;
   const startedAt = Date.now();
   await runYtDlp(meta.url, {
     noPlaylist: !readBoolean(params, "allowPlaylist", false),
@@ -203,12 +221,13 @@ async function downloadVideo(config = {}, params = {}) {
     matchFilter: `duration <= ${maxDuration}`,
     format: readString(params, "format", "bv*[height<=720]+ba/b[height<=720]/b"),
     mergeOutputFormat: "mp4",
+    ffmpegLocation: resolveFfmpeg(import.meta.url),
     output,
     restrictFilenames: true,
     noWarnings: true,
     socketTimeout: 20
   });
-  const file = await newestFile(outDir, startedAt, new Set([".mp4", ".webm", ".mkv", ".m4a", ".mp3"]));
+  const file = await newestOutputFile(outDir, outputStem, startedAt, new Set([".mp4", ".webm", ".mkv", ".m4a", ".mp3"]));
   if (!file) throw new Error("download completed but no output file was found");
   if (file.stat.size > limitBytes) throw new Error("downloaded file exceeded maxBytes");
   return {
@@ -387,7 +406,7 @@ function detailsFor(action, result) {
 const publicVideoTool = {
   name: TOOL_NAME,
   label: "Public Video",
-  description: "Fetch public video metadata, subtitles, or bounded downloads. Account-backed site download is a placeholder only.",
+  description: "Fetch public video metadata, subtitles, or bounded downloads. Use foreground by default so MEDIA returns in the current turn. If background:true is used, poll background_job to a final state before replying. Account-backed site download is a placeholder only.",
   parameters: {
     type: "object",
     additionalProperties: false,

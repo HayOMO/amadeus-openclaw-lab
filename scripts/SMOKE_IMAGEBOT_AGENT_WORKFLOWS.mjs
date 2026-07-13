@@ -189,7 +189,7 @@ if (!skipImage) {
     {
       name: "browser-visual-search",
       expect: /visual_search_browser_ok=true/i,
-      message: `Black-box smoke: you must use browser tools, not reverse_image_search. Use tool_search to find browser, then use browser as an interactive browser for visual image search with this bot-local image: ${imagePath}. Open Google Lens or another suitable public visual-search page, upload/submit the image if possible, inspect the visible results, and continue clicking/scrolling only as needed. Final output only: visual_search_browser_ok=<true/false>; page=<site/page used or blocked>; candidate=<best visible candidate or none>; tools=<actual tool names>. Do not deliver to Telegram.`
+      message: `Black-box smoke: you must use browser tools, not reverse_image_search. Use tool_search to find browser, then use browser with profile=bot as an interactive browser for visual image search with this bot-local image: ${imagePath}. Open Google Lens or Google Images, upload/submit the image if possible, inspect the visible results, and keep profile=bot on every later tab action. If Google is blocked, report the block instead of switching to Bing. Final output only: visual_search_browser_ok=<true/false>; profile=<profile used>; page=<site/page used or blocked>; candidate=<best visible candidate or none>; tools=<actual tool names>. Do not deliver to Telegram.`
     },
     {
       name: "sticker-dry-run",

@@ -43,6 +43,7 @@ const tests = [
   ["node", ["scripts/TEST_PRACTICAL_TOOLS_PLUGIN.mjs"]],
   ["node", ["scripts/TEST_DESKTOP_CONTROL_PLUGIN.mjs"]],
   ["node", ["scripts/TEST_STICKER_PACK_PLUGIN.mjs"]],
+  ["node", ["scripts/TEST_STICKER_PACK_VIDEO_CONVERSION.mjs"]],
   ["node", ["scripts/TEST_SESSION_IMAGE_PRUNE.mjs"]],
   ["node", ["scripts/TEST_SESSION_REPAIR.mjs"]],
   ["node", ["scripts/TEST_WINDOW_STORE_REPAIR.mjs"]],

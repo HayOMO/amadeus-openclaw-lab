@@ -132,7 +132,7 @@ index be3d82b..59d1d2a 100644
  	return `${stamp}-${randomUUID().slice(0, 8)}`;
  }
 -const TELEGRAM_IMAGEBOT_ACTIVE_WINDOW_TRIGGER_MAX_AGE_MS = 30 * 60 * 1000;
-+const TELEGRAM_IMAGEBOT_WINDOW_IDLE_CLOSE_MS = 10 * 60 * 1000;
++const TELEGRAM_IMAGEBOT_WINDOW_IDLE_CLOSE_MS = 30 * 60 * 1000;
 +const TELEGRAM_IMAGEBOT_ACTIVE_WINDOW_TRIGGER_MAX_AGE_MS = TELEGRAM_IMAGEBOT_WINDOW_IDLE_CLOSE_MS;
  function isTelegramImagebotRecentlyActiveWindow(windowEntry, now = Date.now()) {
 -	const stamp = Date.parse(normalizeOptionalString(windowEntry?.lastActivityAt ?? windowEntry?.openedAt)?.trim() || "");

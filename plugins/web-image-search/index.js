@@ -2484,7 +2484,7 @@ const explicitTextTool = {
   name: EXPLICIT_TEXT_TOOL_NAME,
   label: "Explicit Web Text Search",
   description:
-    "Bounded DuckDuckGo public text search. Use for external-current public facts or source leads when native search/Zhihu is unavailable, unobservable, or insufficient. It is a lead finder; when a browser/source candidate already exists, continue from that evidence.",
+    "DuckDuckGo text-search fallback. Use provider-native web_search first. Call this only when native search is unavailable, fails, returns insufficient evidence, or the user explicitly wants generic result links. Treat snippets as leads; continue from an existing source candidate instead of restarting search.",
   async execute(_toolCallId, params, signal) {
     return executeTextSearch("EXPLICIT_WEB_TEXT_SEARCH", params, signal);
   }
@@ -3081,8 +3081,7 @@ const reverseTool = {
   name: REVERSE_TOOL_NAME,
   label: "Reverse Image Search",
   description:
-    "Fast reverse search from an existing image. SauceNAO/IQDB targets anime/game/illustration source and artist candidates. " +
-    "It is not general photo identification; similar-only results are not identity proof. Full-browser Google Lens/Images is broader for general photos.",
+    "Find the source, artist, or original post of an existing image with SauceNAO/IQDB. Use for explicit provenance or same-image questions, or after native search lacks evidence. Do not use as the default for identifying a character, object, or place. Similar results alone do not prove identity.",
   parameters: {
     type: "object",
     additionalProperties: false,

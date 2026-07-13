@@ -452,13 +452,14 @@
     "prompt": "config/imagebot/prompt/90-privacy.md",
     "manuals": [
       "tool_manuals/browser_sandbox.md",
+      "tool_manuals/account_browser_risk.md",
       "tool_manuals/internet_image_collection.md"
     ],
     "mustMention": [
       "untrusted content",
       "bot-owned Playwright",
       "not the owner's everyday browser profile",
-      "isolated OpenClaw-managed browser",
+      "profile=\"isolated\"",
       "private/internal/local URLs"
     ]
   },

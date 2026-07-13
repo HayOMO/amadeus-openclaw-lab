@@ -18,8 +18,14 @@
       ],
       "nativeCapabilities": [
         "text",
-        "vision"
+        "vision",
+        "hosted_search"
       ],
+      "nativeSearch": {
+        "protocol": "openai-chatgpt-responses-web-search",
+        "resultModalities": ["text", "image"],
+        "source": "codex-models-cache"
+      },
       "notes": "Verified from the Codex models cache: backend API route with native text and image input support."
     },
     {
@@ -36,8 +42,14 @@
       ],
       "nativeCapabilities": [
         "text",
-        "vision"
+        "vision",
+        "hosted_search"
       ],
+      "nativeSearch": {
+        "protocol": "openai-chatgpt-responses-web-search",
+        "resultModalities": ["text", "image"],
+        "source": "codex-models-cache"
+      },
       "notes": "Verified from the Codex models cache: backend API route with native text and image input support."
     },
     {
@@ -54,8 +66,14 @@
       ],
       "nativeCapabilities": [
         "text",
-        "vision"
+        "vision",
+        "hosted_search"
       ],
+      "nativeSearch": {
+        "protocol": "openai-chatgpt-responses-web-search",
+        "resultModalities": ["text", "image"],
+        "source": "codex-models-cache"
+      },
       "notes": "Verified from the Codex models cache: backend API route with native text and image input support."
     },
     {
@@ -72,8 +90,14 @@
       ],
       "nativeCapabilities": [
         "text",
-        "vision"
+        "vision",
+        "hosted_search"
       ],
+      "nativeSearch": {
+        "protocol": "openai-chatgpt-responses-web-search",
+        "resultModalities": ["text", "image"],
+        "source": "codex-models-cache"
+      },
       "notes": "Current ChatGPT/OpenAI subscription route."
     },
     {
@@ -90,8 +114,14 @@
       ],
       "nativeCapabilities": [
         "text",
-        "vision"
+        "vision",
+        "hosted_search"
       ],
+      "nativeSearch": {
+        "protocol": "openai-chatgpt-responses-web-search",
+        "resultModalities": ["text", "image"],
+        "source": "codex-models-cache"
+      },
       "notes": "OpenAI auth route with native text and image input support in OpenClaw."
     },
     {
@@ -108,8 +138,14 @@
       ],
       "nativeCapabilities": [
         "text",
-        "vision"
+        "vision",
+        "hosted_search"
       ],
+      "nativeSearch": {
+        "protocol": "openai-chatgpt-responses-web-search",
+        "resultModalities": ["text", "image"],
+        "source": "codex-models-cache"
+      },
       "notes": "Lighter OpenAI auth route with native text and image input support in OpenClaw."
     },
     {
@@ -137,6 +173,15 @@
         "high",
         "max"
       ],
+      "nativeCapabilities": [
+        "text",
+        "hosted_search"
+      ],
+      "nativeSearch": {
+        "protocol": "deepseek-anthropic-web-search",
+        "resultModalities": ["text"],
+        "source": "deepseek-anthropic-compatible-api"
+      },
       "notes": "Fast DeepSeek API route. DeepSeek API accepts thinking on/off and high/max effort; low/medium are compatibility aliases to high."
     },
     {
@@ -149,6 +194,15 @@
         "high",
         "max"
       ],
+      "nativeCapabilities": [
+        "text",
+        "hosted_search"
+      ],
+      "nativeSearch": {
+        "protocol": "deepseek-anthropic-web-search",
+        "resultModalities": ["text"],
+        "source": "deepseek-anthropic-compatible-api"
+      },
       "notes": "Stronger DeepSeek API route. DeepSeek API accepts thinking on/off and high/max effort; low/medium are compatibility aliases to high."
     }
   ],

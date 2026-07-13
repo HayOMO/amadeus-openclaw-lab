@@ -109,6 +109,11 @@ assert.equal(missingQuery.details.status, "skipped");
 assert.equal(missingQuery.details.reason, "missing_query");
 assert.match(missingQuery.content[0].text, /Do not retry memory_search/);
 
+const currentIdentityQuery = await memorySearch.execute("current-identity-test", { query: "助手这是谁", scope: "users" });
+assert.equal(currentIdentityQuery.details.status, "skipped");
+assert.equal(currentIdentityQuery.details.reason, "current_identity_query");
+assert.match(currentIdentityQuery.content[0].text, /current visual\/context evidence/);
+
 const result = await memorySearch.execute("keyword-test", {
   query: "Alice official references",
   mode: "keyword",
@@ -165,6 +170,29 @@ const wrappedHint = await hooks.get("before_prompt_build")[0](
 );
 assert.ok(wrappedHint.appendContext.includes(groupMemeQuestion));
 assert.ok(!wrappedHint.appendContext.includes("current_sender="));
+
+const currentImageIdentityPrompt = [
+  '"source_modality": "image"',
+  "[Telegram current turn]",
+  "current_sender=Alice [tg:10001]",
+  "[/Telegram current turn]",
+  "",
+  "助手这是谁",
+  "",
+  "[Reply chain - nearest first]",
+  "<media:sticker>",
+  "[Imagebot 媒体句柄]",
+  "- current.image.0: 当前 Telegram 图像"
+].join("\n");
+const currentImageIdentityHint = await hooks.get("before_prompt_build")[0](
+  { prompt: currentImageIdentityPrompt },
+  { agentId: "imagebot", sessionKey: "agent:imagebot:telegram:group:-100:sender:10001:window:image-id" }
+);
+assert.equal(currentImageIdentityHint, undefined, "current-media identity questions must not trigger memory recall");
+assert.equal(__testing.shouldOpenRecallGate(currentImageIdentityPrompt), false);
+
+const recalledImageIdentityPrompt = currentImageIdentityPrompt.replace("助手这是谁", "助手记得上次这是谁吗");
+assert.equal(__testing.shouldOpenRecallGate(recalledImageIdentityPrompt), true, "explicit prior-turn recall should remain available with media");
 
 const internalHint = await hooks.get("before_prompt_build")[0](
   { prompt: groupMemeQuestion },

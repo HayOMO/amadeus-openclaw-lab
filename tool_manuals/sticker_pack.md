@@ -26,7 +26,8 @@ in sets created by this bot.
   tool runs `delete_sticker` with `plan_id`. Non-delete mutation plans remain
   accepted for compatibility, but ordinary sticker creation/add/upload/copy
   should rely on user alignment instead.
-- `prepare`: convert one bot-local image into a transparent WebP sticker file.
+- `prepare`: convert one bot-local static image into transparent WebP, or one
+  local GIF/ordinary video into a Telegram-compliant VP9 WebM video sticker.
   Static rendering keeps the subject aspect ratio unless `framing=cover` is
   requested; transparent padding is used for the square working canvas.
 - `prepare_batch`: convert up to 20 bot-local images into sticker files and
@@ -150,7 +151,7 @@ For image preparation before this publishing step:
   `copyApproved`, `formatFilter`, and per-item `reason`/`note` are accepted by
   the tool code and documented here rather than kept in the global prompt.
 - `title`: sticker set title.
-- `input`: one bot-local image/sticker path, `MEDIA:` line, `media://...` URI,
+- `input`: one bot-local image/GIF/video/sticker path, `MEDIA:` line, `media://...` URI,
   or current/reply media handle such as `current.image.0` or `reply.image.0`
   when the current runtime context lists that handle.
 - `inputs`: array of bot-local image/sticker paths, `MEDIA:` lines,
@@ -162,7 +163,9 @@ For image preparation before this publishing step:
 - `keywords`: optional Telegram search keywords for regular/custom emoji
   stickers.
 - `format` / `stickerFormat`: `static`, `animated`, or `video`.
-  `animated` means Telegram `.TGS`; `video` means `.WEBM`.
+  `animated` means Telegram `.TGS`; `video` means `.WEBM`. TGS input must
+  already be compliant. GIF, animated WebP/APNG, MP4, MOV, M4V, AVI, MKV, and
+  ordinary WebM sources are video inputs, not TGS animations.
 - `framing`: `smart`, `contain`, or `cover`.
 - `padding`, `trim`, `trimThreshold`, `quality`: local static-sticker rendering
   controls.
@@ -194,9 +197,11 @@ For image preparation before this publishing step:
   `video`). Mixed-format publishing should pass the correct `format` per
   `InputSticker`; `.tgs` files are `animated`, not `video`.
 - Animated stickers use TGS with MIME `application/x-tgsticker`; video stickers
-  use WEBM with MIME `video/webm`. This tool can upload already compliant
-  TGS/WEBM files, but it does not convert arbitrary GIF/MP4 into compliant
-  animated/video stickers.
+  use WEBM with MIME `video/webm`. Moving local media is converted with FFmpeg
+  to VP9 WebM: no audio, at most 3 seconds and 30 FPS, one side exactly 512px,
+  the other at most 512px, and at most 256 KB. Existing WebM files are checked
+  and re-encoded when needed. TGS remains pass-through because it is vector
+  Lottie data rather than a normal video container.
 
 ## Notes
 

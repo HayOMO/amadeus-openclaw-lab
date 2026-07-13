@@ -9,7 +9,7 @@ const repoRoot = path.resolve(scriptDir, "..");
 const contractPath = path.join(repoRoot, "policy", "agent_architecture_contract.json");
 const settingsPath = path.join(repoRoot, "config", "imagebot", "settings.json");
 
-const BUILTIN_TOOLS = new Set(["browser", "image", "image_generate", "message"]);
+const BUILTIN_TOOLS = new Set(["browser", "image", "image_generate", "message", "web_search"]);
 
 async function readText(relativePath) {
   return fs.readFile(path.join(repoRoot, relativePath), "utf8");
@@ -55,6 +55,9 @@ async function loadRegisteredTools(settings) {
     },
     registerHook(name, fn, meta = {}) {
       hooks.push({ name, meta, fn });
+    },
+    registerWebSearchProvider() {
+      // Provider 插件扩展宿主的 web_search，不额外注册同名可调用工具。
     }
   };
   for (const relDir of settings.localPluginDirs) {
@@ -100,15 +103,23 @@ for (const toolName of allowedTools) {
   assert.ok(manualCoverage.has(toolName), `allowed tool has no tool manual frontmatter coverage: ${toolName}`);
 }
 
+const schemaViolations = [];
 for (const [toolName, tool] of tools) {
   const desc = String(tool.description || "");
-  assert.ok(desc.length <= contract.schemaLimits.maxToolDescriptionChars, `${toolName} description is too long for short exposure`);
+  if (desc.length > contract.schemaLimits.maxToolDescriptionChars) {
+    schemaViolations.push(`${toolName}: tool description ${desc.length}/${contract.schemaLimits.maxToolDescriptionChars}`);
+  }
   const props = tool.parameters?.properties || {};
-  assert.ok(Object.keys(props).length <= contract.schemaLimits.maxParameterCount, `${toolName} exposes too many top-level parameters`);
+  if (Object.keys(props).length > contract.schemaLimits.maxParameterCount) {
+    schemaViolations.push(`${toolName}: parameter count ${Object.keys(props).length}/${contract.schemaLimits.maxParameterCount}`);
+  }
   for (const paramDesc of allParameterDescriptions(tool.parameters)) {
-    assert.ok(paramDesc.length <= contract.schemaLimits.maxParameterDescriptionChars, `${toolName} parameter description is too long: ${paramDesc}`);
+    if (paramDesc.length > contract.schemaLimits.maxParameterDescriptionChars) {
+      schemaViolations.push(`${toolName}: parameter description ${paramDesc.length}/${contract.schemaLimits.maxParameterDescriptionChars}`);
+    }
   }
 }
+assert.deepEqual(schemaViolations, [], `tool schema limits exceeded:\n${schemaViolations.join("\n")}`);
 
 const capabilityDoc = await readText(contract.capabilitySurface.doc);
 const capabilityJson = await readJson(contract.capabilitySurface.json);

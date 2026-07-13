@@ -27,6 +27,10 @@ assert.deepEqual(settings.promptSegments, [
   "config/imagebot/prompt/30-tool-index.md"
 ], "base prompt must stay behavior/tool-index focused; persona and task routing are model/runtime decisions");
 assert.ok(prompt.includes("工具路由与回复形态："));
+assert.ok(prompt.includes("称呼与唤醒："));
+assert.ok(prompt.includes("“助手今天吃什么”是在叫你并问“今天吃什么”"));
+assert.ok(prompt.includes("称呼不是句子的主语"));
+assert.ok(prompt.includes("称呼本身不改变当前持久化人设"));
 assert.ok(!prompt.includes("运行身份："));
 assert.ok(!prompt.includes("群聊上下文："));
 assert.ok(!prompt.includes("隐私与交付："));
@@ -42,7 +46,11 @@ assert.ok(prompt.includes("`tool_call`"));
 assert.ok(prompt.includes("`command_catalog`"));
 assert.ok(prompt.includes("telegram_media_spoiler"));
 assert.ok(prompt.includes("生成 Telegram 媒体交付标记"));
-assert.ok(prompt.includes("提供方原生托管搜索可在运行时出现"));
+assert.ok(prompt.includes("`web_search` 由运行时按当前模型路由"));
+assert.ok(prompt.includes("模型切换与 fallback 后仍按实际提供方选择"));
+assert.ok(prompt.includes("默认先使用当前模型/提供方自己的原生 `web_search`"));
+assert.ok(prompt.includes("二次元、贴纸或插画类型本身不构成先反搜的条件"));
+assert.ok(prompt.includes("Google Search/Images/Lens 都必须走 `bot`"));
 assert.ok(prompt.includes("外部/当前证据"));
 assert.ok(prompt.includes("memory_search"));
 assert.ok(prompt.includes("按用户、群和窗口隔离"));
@@ -75,7 +83,7 @@ for (const tool of ["telegram_media_spoiler", "download_image_url", "download_im
 for (const tool of ["generated_gallery_recent", "generated_gallery_search", "generated_gallery_stats", "media_artifact_recent", "media_artifact_lineage", "artifact_recent", "artifact_search", "artifact_get", "image_skill_lookup", "image_skill_recent", "knowledge_sources", "knowledge_search", "knowledge_recent", "zhihu_search", "zhihu_global_search", "zhihu_hot_list"]) {
   assert.ok(!settings.allowedTools.includes(tool), `legacy split tool should not be directly exposed: ${tool}`);
 }
-assert.ok(!settings.allowedTools.includes("web_search"), "provider-native search must not be exposed as a fake callable tool");
+assert.ok(settings.allowedTools.includes("web_search"), "web_search must pass tool policy so OpenClaw can activate provider-native search");
 
 assert.ok(Array.isArray(settings.operatorSenderIds) && settings.operatorSenderIds.length >= 1, "operator sender ids must be configured");
 assert.equal(settings.toolAccess?.strategy, "default_chat_plus_operator_unlock");
@@ -98,6 +106,7 @@ for (const pathName of ["tools.allow", "agents.list[0].tools.allow"]) {
   assert.ok(op.value.includes("browser"), `${pathName} must expose OpenClaw browser for full interactive browser work`);
   assert.ok(op.value.includes("web_card"), `${pathName} must expose web_card`);
   assert.ok(op.value.includes("background_job"), `${pathName} must expose background_job`);
+  assert.ok(op.value.includes("web_search"), `${pathName} must permit provider-native web search`);
 }
 
 const browserConfigOp = configOps.find((item) => item.path === "browser");
@@ -130,6 +139,10 @@ assert.equal(webSearchOp.value.enabled, true);
 assert.equal(Object.hasOwn(webSearchOp.value, "provider"), false, "web_search must not force a global provider; keep model-native search routes open");
 assert.equal(webSearchOp.value.openaiCodex?.enabled, true, "OpenAI/Codex native web search should stay enabled for eligible models");
 assert.ok(webSearchOp.value.maxResults <= 6, "web_search should stay bounded for group-chat latency");
+const deepSeekSearchConfig = configOps.find((item) => item.path === "plugins.entries.imagebot-deepseek-search.config")?.value;
+assert.equal(deepSeekSearchConfig?.model, "deepseek-v4-flash", "DeepSeek managed search should remain available after model fallback");
+assert.equal(deepSeekSearchConfig?.baseUrl, "https://api.deepseek.com/anthropic", "DeepSeek native search must use the documented Anthropic-compatible route");
+assert.ok(deepSeekSearchConfig?.secretFile?.endsWith(`secrets${path.sep}deepseek-api-key.token`), "DeepSeek search must reuse the Bot-owned API credential file");
 
 const toolSearchOp = configOps.find((item) => item.path === "tools.toolSearch");
 assert.ok(toolSearchOp, "missing tools.toolSearch config");
@@ -393,6 +406,11 @@ for (const pluginId of ["imagebot-image-skills", "imagebot-meme-tools", "imagebo
   assert.ok(settings.localPluginDirs.includes(`plugins/${pluginId}`), `missing ${pluginId} plugin path`);
   assert.ok(configOps.some((op) => op.path === `plugins.entries.${pluginId}.enabled`), `missing ${pluginId} enable op`);
 }
+for (const pluginId of ["imagebot-deepseek-search"]) {
+  assert.ok(settings.allowedPluginIds.includes(pluginId), `missing ${pluginId} plugin allowlist`);
+  assert.ok(settings.localPluginDirs.includes(`plugins/${pluginId}`), `missing ${pluginId} plugin path`);
+  assert.ok(configOps.some((op) => op.path === `plugins.entries.${pluginId}.enabled`), `missing ${pluginId} enable op`);
+}
 for (const pluginId of ["imagebot-group-adventure"]) {
   assert.ok(settings.allowedPluginIds.includes(pluginId), `missing ${pluginId} plugin allowlist`);
   assert.ok(settings.localPluginDirs.includes(`plugins/${pluginId}`), `missing ${pluginId} plugin path`);
@@ -413,8 +431,9 @@ assert.equal(webImageConfig?.danbooru?.baseUrl, "https://danbooru.donmai.us", "d
 assert.ok(webImageConfig?.danbooru?.secretFile?.endsWith(`secrets${path.sep}danbooru-imagebot.json`), "danbooru_resource should use the shared Danbooru secret file");
 assert.ok(!Object.hasOwn(webImageConfig, "googleLens"), "Google Lens must stay a browser workflow, not a reverse_image_search plugin fallback");
 const toolIndexPrompt = await fs.readFile(path.join(repoRoot, "config", "imagebot", "prompt", "30-tool-index.md"), "utf8");
-assert.match(toolIndexPrompt, /`web_image_search` \/ `reverse_image_search`/, "tool index should describe image-search tools");
-assert.match(toolIndexPrompt, /默认 `bot` 是 Bot 独立、持久化且可带登录态的 profile/, "tool index should expose the Bot-owned browser policy");
+assert.match(toolIndexPrompt, /`web_image_search`/, "tool index should describe generic image search");
+assert.match(toolIndexPrompt, /`reverse_image_search`/, "tool index should describe reverse source search");
+assert.match(toolIndexPrompt, /省略 profile 或使用 `bot`.*默认 profile/, "tool index should expose the Bot-owned browser policy");
 assert.match(toolIndexPrompt, /`web_card` \/ `web_snapshot`/, "tool index should expose lightweight page readers");
 assert.match(toolIndexPrompt, /具体 action 和审批边界见对应手册与 schema/, "tool index should defer detailed workflows to manuals and schemas");
 assert.ok(toolIndexPrompt.length < 2_500, `tool index should stay capability-focused, got ${toolIndexPrompt.length} chars`);
@@ -485,6 +504,9 @@ assert.ok(stickerManual.includes("download_set"));
 assert.ok(stickerManual.includes("copy_set` / `import_set`"));
 assert.ok(stickerManual.includes("tool schema intentionally exposes only common fields"));
 assert.ok(stickerManual.includes("`animated` means Telegram `.TGS`; `video` means `.WEBM`"));
+assert.ok(stickerManual.includes("GIF/ordinary video"));
+assert.ok(stickerManual.includes("VP9 WebM"));
+assert.ok(stickerManual.includes("at most 3 seconds and 30 FPS"));
 assert.ok(stickerManual.includes("MIME `application/x-tgsticker`"));
 assert.ok(!stickerManual.includes("collect a larger candidate pool"));
 assert.ok(stickerManual.includes("directImportApproved"));
@@ -511,6 +533,9 @@ assert.ok(browserManual.includes('Do not use `profile="user"`'));
 assert.ok(browserManual.includes("blocked by the imagebot browser guard"));
 assert.ok(browserManual.includes('profile="bot"'));
 assert.ok(browserManual.includes('profile="isolated"'));
+assert.ok(browserManual.includes("do not use it for Google"));
+assert.match(browserManual, /prefer Yandex\s+Images/);
+assert.ok(browserManual.includes("Do not silently switch to Bing"));
 assert.ok(browserManual.includes("Xiaohongshu, Weibo, Bilibili, Baidu/Tieba, Zhihu, and Pixiv"));
 assert.match(browserManual, /Google and\s+LOFTER are not verified as logged in/);
 assert.ok(!browserManual.includes("ChatGPT / OpenAI"));
@@ -518,6 +543,8 @@ assert.match(browserManual, /broadest\s+general visual-search\s+capability/);
 assert.ok(browserManual.includes("not a required order"));
 
 const searchManual = await fs.readFile(path.join(repoRoot, "tool_manuals", "search_and_references.md"), "utf8");
+assert.ok(searchManual.includes("catalog invisibility alone is not"));
+assert.ok(searchManual.includes("default first step"));
 assert.ok(searchManual.includes("Source-Site Hints"));
 assert.ok(searchManual.includes("zh.moegirl.org.cn"));
 assert.ok(searchManual.includes("bounded generic public text search"));
@@ -525,7 +552,7 @@ assert.ok(searchManual.includes("source leads: title, URL, snippet"));
 assert.ok(searchManual.includes("Danbooru-native image search/read/download"));
 assert.ok(searchManual.includes("Returns image"));
 assert.ok(searchManual.includes("Omitting"));
-assert.ok(searchManual.includes("not a general photo-understanding or place-identification tool"));
+assert.ok(searchManual.includes("default first step for character, object, photo, or place identification"));
 assert.ok(searchManual.includes("Similar-only candidates do not prove"));
 assert.match(searchManual, /broadest\s+general visual-search capability/);
 assert.ok(searchManual.includes("not a mandatory fallback step"));
@@ -534,7 +561,7 @@ assert.ok(searchManual.includes("Page tools return page-level evidence"));
 assert.ok(prompt.includes("搜索工具给候选来源"));
 assert.ok(prompt.includes("页面工具读取候选页面"));
 assert.ok(prompt.includes("已作为原生多模态输入出现时，直接观察和回答，不要再调用 `image`"));
-assert.ok(prompt.includes("默认 `bot` 是 Bot 独立、持久化且可带登录态的 profile"));
+assert.ok(prompt.includes("省略 profile 或使用 `bot`"));
 assert.ok(prompt.includes("web_card"));
 assert.ok(prompt.includes("角色图像生成遇到知名角色且当前信息不足以稳定还原时"));
 assert.ok(prompt.includes("这是还原偏好，不是固定前置步骤"));
@@ -543,12 +570,15 @@ assert.ok(!prompt.includes("现有图片出处结合相似度、来源页、作�
 assert.ok(!prompt.includes("图像生成默认创建新图"));
 
 const webSearchPlugin = await fs.readFile(path.join(repoRoot, "plugins", "web-image-search", "index.js"), "utf8");
-assert.ok(webSearchPlugin.includes("external-current public facts"));
+assert.ok(webSearchPlugin.includes("Use provider-native web_search first."));
+assert.ok(webSearchPlugin.includes("native search is unavailable, fails, returns insufficient evidence"));
 assert.ok(webSearchPlugin.includes("continue from that evidence"));
 
 const stickerPackPlugin = await fs.readFile(path.join(repoRoot, "plugins", "imagebot-sticker-pack", "index.js"), "utf8");
 assert.ok(stickerPackPlugin.includes("add_from_sticker with a Telegram sticker file_id"));
 assert.ok(stickerPackPlugin.includes("current/reply media handle resolved by runtime"));
+assert.ok(stickerPackPlugin.includes('"libvpx-vp9"'));
+assert.ok(stickerPackPlugin.includes("validateVideoStickerProbe"));
 
 const backgroundJobsManual = await fs.readFile(path.join(repoRoot, "tool_manuals", "background_jobs.md"), "utf8");
 assert.ok(backgroundJobsManual.includes("background_job"));

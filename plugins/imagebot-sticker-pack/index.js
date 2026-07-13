@@ -18,6 +18,7 @@ import {
 } from "../imagebot-shared/mutation-authorization.mjs";
 import { registerLifecycleHook } from "../imagebot-shared/openclaw-lifecycle-hooks.mjs";
 import { mediaReferenceToLocalPath } from "../imagebot-shared/media-uri.mjs";
+import { resolveFfmpeg, resolveFfprobe } from "../imagebot-shared/media-runtime.mjs";
 import { openclawStatePath } from "../imagebot-shared/openclaw-paths.mjs";
 import { withStateFileLock, writeJsonAtomic } from "../imagebot-shared/state-file.mjs";
 
@@ -27,6 +28,9 @@ const STATIC_STICKER_BYTES = 512 * 1024;
 const ANIMATED_STICKER_BYTES = 64 * 1024;
 const VIDEO_STICKER_BYTES = 256 * 1024;
 const STICKER_SIZE = 512;
+const VIDEO_STICKER_MAX_SECONDS = 3;
+const VIDEO_STICKER_MAX_FPS = 30;
+const VIDEO_COMMAND_TIMEOUT_MS = 90_000;
 const MAX_BATCH_ITEMS = 20;
 const MAX_BATCH_CONCURRENCY = 4;
 const CONTACT_SHEET_TILE = 176;
@@ -107,9 +111,13 @@ const DEFAULT_TRUSTED_DIRECT_MUTATION_ACTIONS = new Set([
   "set_keywords",
   "set_emoji_list"
 ]);
-const ALLOWED_INPUT_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"]);
+const ALLOWED_INPUT_EXTS = new Set([
+  ".jpg", ".jpeg", ".png", ".webp", ".gif", ".apng", ".bmp",
+  ".mp4", ".m4v", ".mov", ".webm", ".avi", ".mkv"
+]);
 const ALLOWED_STICKER_EXTS = new Set([".webp", ".png", ".tgs", ".webm"]);
 const DOWNLOAD_STICKER_EXTS = new Set([".webp", ".png", ".tgs", ".webm"]);
+const VIDEO_SOURCE_EXTS = new Set([".gif", ".apng", ".mp4", ".m4v", ".mov", ".webm", ".avi", ".mkv"]);
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "Chrome/120.0 Safari/537.36";
@@ -276,6 +284,94 @@ async function withSharpFallback(action, payload, inProcess) {
     sharpModulePromise = null;
     return await runSharpWorker(action, payload);
   }
+}
+
+function runMediaCommand(command, args, { signal, timeoutMs = VIDEO_COMMAND_TIMEOUT_MS } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      callback();
+    };
+    const abort = () => finish(() => {
+      child.kill("SIGKILL");
+      reject(new Error("sticker video conversion aborted"));
+    });
+    const timer = setTimeout(() => finish(() => {
+      child.kill("SIGKILL");
+      reject(new Error("sticker video conversion timed out"));
+    }), timeoutMs);
+    if (signal?.aborted) return abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+    child.on("error", (error) => finish(() => reject(error)));
+    child.on("close", (code) => finish(() => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(clip(stderr || stdout || `${path.basename(command)} exited with code ${code}`, 1200)));
+    }));
+  });
+}
+
+function parseFrameRate(value) {
+  const text = String(value || "").trim();
+  if (!text) return 0;
+  const [numerator, denominator] = text.split("/").map(Number);
+  const result = denominator ? numerator / denominator : numerator;
+  return Number.isFinite(result) && result > 0 ? result : 0;
+}
+
+async function probeStickerMedia(filePath, signal) {
+  const ffprobe = resolveFfprobe(import.meta.url);
+  const { stdout } = await runMediaCommand(ffprobe, [
+    "-v", "error",
+    "-show_entries", "format=duration,size:stream=codec_type,codec_name,width,height,avg_frame_rate,duration,pix_fmt",
+    "-of", "json",
+    filePath
+  ], { signal, timeoutMs: 20_000 });
+  try {
+    return JSON.parse(stdout || "{}");
+  } catch {
+    throw new Error("ffprobe returned invalid sticker media metadata");
+  }
+}
+
+function summarizeVideoStickerProbe(probe = {}) {
+  const streams = Array.isArray(probe.streams) ? probe.streams : [];
+  const video = streams.find((stream) => stream.codec_type === "video") || {};
+  const durationSeconds = Number(probe?.format?.duration || video.duration || 0);
+  return {
+    codec: String(video.codec_name || ""),
+    width: Number(video.width || 0),
+    height: Number(video.height || 0),
+    fps: parseFrameRate(video.avg_frame_rate),
+    durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : 0,
+    hasAudio: streams.some((stream) => stream.codec_type === "audio"),
+    pixelFormat: String(video.pix_fmt || "")
+  };
+}
+
+function validateVideoStickerProbe(probe = {}, sizeBytes = 0) {
+  const summary = summarizeVideoStickerProbe(probe);
+  const errors = [];
+  if (summary.codec !== "vp9") errors.push("codec must be VP9");
+  if (summary.hasAudio) errors.push("audio streams are not allowed");
+  if (!summary.width || !summary.height || summary.width > STICKER_SIZE || summary.height > STICKER_SIZE || (summary.width !== STICKER_SIZE && summary.height !== STICKER_SIZE)) {
+    errors.push("one side must be 512px and the other side must be 512px or less");
+  }
+  if (summary.durationSeconds <= 0 || summary.durationSeconds > VIDEO_STICKER_MAX_SECONDS + 0.05) errors.push("duration must be at most 3 seconds");
+  if (summary.fps > VIDEO_STICKER_MAX_FPS + 0.01) errors.push("frame rate must be at most 30 FPS");
+  if (sizeBytes > VIDEO_STICKER_BYTES) errors.push("file must be at most 256 KB");
+  return { ok: errors.length === 0, errors, ...summary, sizeBytes };
 }
 
 function mediaRoot(config = {}) {
@@ -503,10 +599,113 @@ async function writeStaticSticker(inputPath, outputPath, params = {}) {
   });
 }
 
-async function prepareSticker(config = {}, params = {}) {
+async function sourceStickerFormat(inputPath, params = {}) {
+  const requested = readString(params, "stickerFormat") || readString(params, "format");
+  const ext = path.extname(inputPath).toLowerCase();
+  if (ext === ".tgs") return "animated";
+  let movingSource = VIDEO_SOURCE_EXTS.has(ext);
+  if (ext === ".webp" || ext === ".png") {
+    try {
+      const sharp = await getSharp();
+      const metadata = await sharp(inputPath, { animated: true, limitInputPixels: 72_000_000 }).metadata();
+      movingSource = Number(metadata.pages || 1) > 1;
+    } catch {
+      // Static preparation below will provide the useful decode error when needed.
+    }
+  }
+  if (movingSource) {
+    if (normalizeStickerFormat(requested, inputPath) === "animated") {
+      throw new Error("animated means Telegram TGS; GIF and ordinary video sources must use video/WEBM");
+    }
+    return "video";
+  }
+  if (requested) return normalizeStickerFormat(requested, inputPath);
+  return "static";
+}
+
+async function writeVideoSticker(inputPath, outputPath, previewPath, { signal } = {}) {
+  const ffmpeg = resolveFfmpeg(import.meta.url);
+  const attempts = [
+    { crf: 38, fps: 30 },
+    { crf: 46, fps: 30 },
+    { crf: 52, fps: 24 },
+    { crf: 58, fps: 20 },
+    { crf: 63, fps: 15 }
+  ];
+  let lastValidation = null;
+  for (const attempt of attempts) {
+    await fs.rm(outputPath, { force: true });
+    const videoFilter = [
+      `fps=${attempt.fps}`,
+      "scale=512:512:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos",
+      "format=yuva420p"
+    ].join(",");
+    await runMediaCommand(ffmpeg, [
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-i", inputPath,
+      "-t", String(VIDEO_STICKER_MAX_SECONDS),
+      "-an",
+      "-map_metadata", "-1",
+      "-vf", videoFilter,
+      "-c:v", "libvpx-vp9",
+      "-pix_fmt", "yuva420p",
+      "-auto-alt-ref", "0",
+      "-deadline", "good",
+      "-cpu-used", "4",
+      "-row-mt", "1",
+      "-b:v", "0",
+      "-crf", String(attempt.crf),
+      outputPath
+    ], { signal });
+    const stat = await fs.stat(outputPath);
+    const probe = await probeStickerMedia(outputPath, signal);
+    const validation = validateVideoStickerProbe(probe, stat.size);
+    lastValidation = { ...validation, crf: attempt.crf, targetFps: attempt.fps };
+    if (validation.ok) break;
+  }
+  if (!lastValidation?.ok) {
+    await fs.rm(outputPath, { force: true });
+    throw new Error(`could not create a compliant Telegram WEBM sticker: ${(lastValidation?.errors || ["unknown conversion error"]).join("; ")}`);
+  }
+  await runMediaCommand(ffmpeg, [
+    "-hide_banner", "-loglevel", "error", "-y",
+    "-i", outputPath,
+    "-frames:v", "1",
+    "-vf", "scale=512:512:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos",
+    previewPath
+  ], { signal, timeoutMs: 30_000 });
+  return lastValidation;
+}
+
+async function prepareSticker(config = {}, params = {}, signal) {
   const input = await resolveAllowedFile(config, readString(params, "input") || readString(params, "image") || readString(params, "media"));
   const outDir = mediaRoot(config);
   await fs.mkdir(outDir, { recursive: true });
+  const format = await sourceStickerFormat(input.path, params);
+  if (format === "video") {
+    const suffix = `${Date.now()}-${hash(input.path)}`;
+    const outputPath = path.join(outDir, `sticker-${suffix}.webm`);
+    const previewPath = path.join(outDir, `sticker-${suffix}-preview.png`);
+    const rendered = await writeVideoSticker(input.path, outputPath, previewPath, { signal });
+    return {
+      input: path.basename(input.path),
+      outputPath,
+      previewPath,
+      sizeBytes: rendered.sizeBytes,
+      width: rendered.width,
+      height: rendered.height,
+      durationSeconds: rendered.durationSeconds,
+      fps: rendered.fps,
+      codec: rendered.codec,
+      hasAudio: rendered.hasAudio,
+      quality: rendered.crf,
+      stickerFormat: "video",
+      mimeType: "video/webm"
+    };
+  }
+  if (format === "animated") {
+    throw new Error("prepare does not synthesize TGS; pass an existing compliant .tgs file directly");
+  }
   const outputPath = path.join(outDir, `sticker-${Date.now()}-${hash(input.path)}.webp`);
   const rendered = await writeStaticSticker(input.path, outputPath, params);
   return {
@@ -538,7 +737,7 @@ async function buildContactSheet(config = {}, stickers = []) {
     outputPath,
     width,
     height,
-    items: ok.map((item) => ({ outputPath: item.outputPath, index: item.index }))
+    items: ok.map((item) => ({ outputPath: item.previewPath || item.outputPath, index: item.index }))
   }, async () => {
     const sharp = await getSharp();
     const composites = [];
@@ -548,7 +747,7 @@ async function buildContactSheet(config = {}, stickers = []) {
       const row = Math.floor(index / columns);
       const left = CONTACT_SHEET_PADDING + col * CONTACT_SHEET_TILE;
       const top = CONTACT_SHEET_PADDING + row * CONTACT_SHEET_TILE;
-      const sticker = await sharp(item.outputPath)
+      const sticker = await sharp(item.previewPath || item.outputPath)
         .resize(128, 128, { fit: "contain", background: transparentBackground() })
         .png()
         .toBuffer();
@@ -598,7 +797,7 @@ async function buildReviewSheet(config = {}, draft = {}) {
     width,
     height,
     items: stickers.map((item, index) => ({
-      outputPath: item.outputPath || "",
+      outputPath: item.previewPath || item.outputPath || "",
       index: Number.isInteger(item.index) ? item.index : index,
       status: item.status || "",
       decision: item.decision || "",
@@ -622,9 +821,9 @@ async function buildReviewSheet(config = {}, draft = {}) {
   <text x="14" y="${CONTACT_SHEET_TILE - 16}" font-family="Arial, sans-serif" font-size="13" fill="#3f3f46">${escapeXml(emojiState)}</text>
 </svg>`);
       composites.push({ input: label, left, top });
-      if (item.outputPath) {
+      if (item.previewPath || item.outputPath) {
         try {
-          const sticker = await sharp(item.outputPath)
+          const sticker = await sharp(item.previewPath || item.outputPath)
             .resize(128, 128, { fit: "contain", background: transparentBackground() })
             .png()
             .toBuffer();
@@ -650,19 +849,20 @@ async function buildReviewSheet(config = {}, draft = {}) {
   });
 }
 
-async function prepareStickerBatch(config = {}, params = {}) {
+async function prepareStickerBatch(config = {}, params = {}, signal) {
   const items = readInputItems(params, { limit: MAX_PREPARE_BATCH_ITEMS, label: "prepare_batch" });
   if (!items.length) throw new Error("inputs/items are required for prepare_batch");
   const concurrency = readNumber(params, "concurrency", 3, 1, MAX_BATCH_CONCURRENCY);
   const startedAt = Date.now();
   const stickers = await mapLimit(items, concurrency, async (item, index) => {
     try {
-      const prepared = await prepareSticker(config, { ...params, framing: readString(params, "framing", "smart"), ...item, input: item.input });
+      const prepared = await prepareSticker(config, { ...params, framing: readString(params, "framing", "smart"), ...item, input: item.input }, signal);
       return {
         status: "ok",
         index,
         input: prepared.input,
         outputPath: prepared.outputPath,
+        previewPath: prepared.previewPath,
         sizeBytes: prepared.sizeBytes,
         width: prepared.width,
         height: prepared.height,
@@ -670,6 +870,11 @@ async function prepareStickerBatch(config = {}, params = {}) {
         framing: prepared.framing,
         padding: prepared.padding,
         trimmed: prepared.trimmed,
+        durationSeconds: prepared.durationSeconds,
+        fps: prepared.fps,
+        codec: prepared.codec,
+        stickerFormat: prepared.stickerFormat,
+        mimeType: prepared.mimeType,
         emojiList: normalizeEmojiList(item),
         keywords: normalizeKeywords(item)
       };
@@ -1985,16 +2190,51 @@ async function stickerFileForInput(config, params) {
     file = await resolveAllowedFile(config, rawPath, { sticker: true });
   } catch (error) {
     if (readBoolean(params, "autoPrepare", true)) {
-      const prepared = await prepareSticker(config, { input: rawPath });
+      const prepared = await prepareSticker(config, { ...params, input: rawPath });
       file = await resolveAllowedFile(config, prepared.outputPath, { sticker: true });
     } else {
       throw error;
     }
   }
+  const autoPrepare = readBoolean(params, "autoPrepare", true);
+  const detectedFormat = await sourceStickerFormat(file.path, params);
+  const ext = path.extname(file.path).toLowerCase();
+  if (detectedFormat === "animated" && ext !== ".tgs") {
+    throw new Error("animated stickers must already be compliant .tgs files");
+  }
+  if (detectedFormat === "video") {
+    if (ext === ".webm") {
+      const probe = await probeStickerMedia(file.path);
+      const validation = validateVideoStickerProbe(probe, file.stat.size);
+      if (validation.ok) {
+        return {
+          path: file.path,
+          fileName: path.basename(file.path),
+          format: "video",
+          source: "upload"
+        };
+      }
+      if (!autoPrepare) {
+        throw new Error(`non-compliant Telegram WEBM sticker: ${validation.errors.join("; ")}`);
+      }
+    } else if (!autoPrepare) {
+      throw new Error("GIF and ordinary video inputs must be converted to a compliant Telegram WEBM sticker");
+    }
+    const prepared = await prepareSticker(config, { ...params, input: file.path, format: "video" });
+    return {
+      path: prepared.outputPath,
+      fileName: path.basename(prepared.outputPath),
+      format: "video",
+      source: "prepared_video"
+    };
+  }
+  if (detectedFormat === "static" && ext !== ".webp" && ext !== ".png") {
+    throw new Error("static stickers must be PNG or WEBP; use video format for moving media");
+  }
   return {
     path: file.path,
     fileName: path.basename(file.path),
-    format: stickerFormatFromParams(params, file.path),
+    format: detectedFormat,
     source: "upload"
   };
 }
@@ -2290,12 +2530,18 @@ function draftItemsFromPrepared(batch, sourceItems = []) {
       sourceUrl: readString(source, "sourceUrl") || readString(source, "url"),
       sourceTitle: readString(source, "sourceTitle") || readString(source, "title"),
       outputPath: item.outputPath,
+      previewPath: item.previewPath,
       sizeBytes: item.sizeBytes,
       width: item.width,
       height: item.height,
       framing: item.framing,
       padding: item.padding,
       quality: item.quality,
+      durationSeconds: item.durationSeconds,
+      fps: item.fps,
+      codec: item.codec,
+      stickerFormat: item.stickerFormat,
+      mimeType: item.mimeType,
       emojiList,
       keywords: normalizeKeywords(source),
       notes: readString(source, "notes") || readString(source, "note")
@@ -2303,10 +2549,10 @@ function draftItemsFromPrepared(batch, sourceItems = []) {
   });
 }
 
-async function createStickerDraft(config = {}, params = {}, ctx) {
+async function createStickerDraft(config = {}, params = {}, ctx, signal) {
   const sourceItems = readInputItems(params, { limit: MAX_PREPARE_BATCH_ITEMS, label: "draft" });
   if (!sourceItems.length) throw new Error("inputs/items are required for draft");
-  const batch = await prepareStickerBatch(config, { ...params, contactSheet: true });
+  const batch = await prepareStickerBatch(config, { ...params, contactSheet: true }, signal);
   const botUsername = readString(params, "botUsername") || String(config.botUsername || "").trim() || "YOUR_BOT_USERNAME";
   const name = normalizeSetName(readString(params, "name") || readString(params, "setName") || readString(params, "title") || "sticker_draft", botUsername);
   const now = new Date().toISOString();
@@ -2553,6 +2799,7 @@ async function publishStickerDraft(config = {}, params = {}, ctx) {
   }
   const items = selected.slice(0, MAX_DRAFT_STICKERS).map((item) => ({
     input: item.outputPath,
+    format: item.stickerFormat,
     emojiList: item.emojiList?.length ? item.emojiList : ["\uD83D\uDE42"],
     keywords: item.keywords || []
   }));
@@ -2940,6 +3187,7 @@ function formatResult(action, result) {
   if (result.outputDir) lines.push(`output_dir: ${result.outputDir}`);
   if (result.manifestPath) lines.push(`manifest: ${result.manifestPath}`);
   if (result.outputPath) lines.push(`MEDIA: \`${result.outputPath}\``);
+  if (result.stickerFormat) lines.push(`format: ${result.stickerFormat}`);
   if (result.contactSheet?.outputPath) lines.push(`contact_sheet: MEDIA: \`${result.contactSheet.outputPath}\``);
   if (result.reviewSheet?.outputPath && result.reviewSheet.outputPath !== result.contactSheet?.outputPath) lines.push(`review_sheet: MEDIA: \`${result.reviewSheet.outputPath}\``);
   if (result.fileId) lines.push(`file_id: ${clip(result.fileId, 160)}`);
@@ -2976,7 +3224,8 @@ function formatResult(action, result) {
       } else if (item.status === "ok" || item.status === "prepared") {
         const decision = item.decision ? ` decision=${item.decision}` : "";
         const emoji = item.emojiList?.length ? item.emojiList.join(" ") : "(needs emoji)";
-        lines.push(`${item.index + 1}. ${item.status}${decision} ${item.input} ${Math.ceil((item.sizeBytes || 0) / 1024)}KB framing=${item.framing || ""} emoji=${emoji}`);
+        const format = item.stickerFormat || item.format || "static";
+        lines.push(`${item.index + 1}. ${item.status}${decision} format=${format} ${item.input} ${Math.ceil((item.sizeBytes || 0) / 1024)}KB framing=${item.framing || ""} emoji=${emoji}`);
         lines.push(`MEDIA: \`${item.outputPath}\``);
       } else {
         lines.push(`${item.index + 1}. failed ${item.input || "(input)"} error=${item.error}`);
@@ -3022,11 +3271,13 @@ function formatResult(action, result) {
 function mediaPathsForResult(result = {}) {
   const paths = [];
   if (result.outputPath) paths.push(result.outputPath);
+  if (result.previewPath) paths.push(result.previewPath);
   if (result.contactSheet?.outputPath) paths.push(result.contactSheet.outputPath);
   if (result.reviewSheet?.outputPath) paths.push(result.reviewSheet.outputPath);
   if (Array.isArray(result.stickers)) {
     for (const item of result.stickers) {
       if (item?.outputPath) paths.push(item.outputPath);
+      if (item?.previewPath) paths.push(item.previewPath);
     }
   }
   return [...new Set(paths)];
@@ -3053,7 +3304,7 @@ async function imageBlockForPath(filePath, mimeType = "image/webp") {
 const stickerPackTool = {
   name: TOOL_NAME,
   label: "Sticker Pack",
-  description: "Telegram sticker-set workbench: prepare files, draft/review/publish bot-created sets, inspect/download known sets, copy/import on request, add ordinary image media, and add already sent Telegram stickers by file_id.",
+  description: "Telegram sticker-set workbench: prepare static images as WEBP, convert GIF/video media to compliant VP9 WEBM video stickers, draft/review/publish bot-created sets, inspect/download known sets, and add already sent Telegram stickers by file_id.",
   parameters: {
     type: "object",
     additionalProperties: true,
@@ -3062,7 +3313,7 @@ const stickerPackTool = {
       targetAction: { type: "string", description: "For action=plan, the Telegram mutation action to confirm. Prefer this only for delete_sticker." },
       plan_id: { type: "string", description: "Sticker mutation plan id returned by action=plan." },
       confirmation_text: { type: "string", description: "Legacy hint only; confirmation is inferred from the trusted chat turn, not from this field." },
-      input: { type: "string", description: "Bot-local image/sticker path, MEDIA line, media:// URI, or current/reply media handle resolved by runtime." },
+      input: { type: "string", description: "Bot-local image/GIF/video/sticker path, MEDIA line, media:// URI, or current/reply media handle resolved by runtime. Moving raster/video media is auto-converted to Telegram VP9 WEBM." },
       inputs: { type: "array", items: { type: "string" }, description: "Bot-local paths, MEDIA lines, media:// URIs, or current/reply media handles for batch operations." },
       items: {
         type: "array",
@@ -3104,7 +3355,7 @@ const stickerPackTool = {
       emoji: { type: "string", description: "Primary emoji list string." },
       emojiList: { type: "array", items: { type: "string" }, description: "Emoji list." },
       keywords: { type: "string", description: "Sticker search keywords." },
-      format: { type: "string", enum: ["static", "animated", "video"], description: "Sticker file format." },
+      format: { type: "string", enum: ["static", "animated", "video"], description: "Sticker file format. animated means an existing TGS asset; GIF and ordinary video use video/WEBM." },
       stickerType: { type: "string", enum: ["regular", "mask", "custom_emoji"], description: "Sticker set type." },
       botUsername: { type: "string", description: "Bot username for set-name suffix." },
       framing: { type: "string", enum: ["smart", "contain", "cover"], description: "Static-sticker framing." },
@@ -3117,7 +3368,7 @@ const stickerPackTool = {
       downloadDir: { type: "string", description: "download_set output directory under sticker downloads." },
       mode: { type: "string", enum: ["create", "add"], description: "Create new set or add to existing set." },
       contactSheet: { type: "boolean", description: "Return contact sheet where supported." },
-      autoPrepare: { type: "boolean", description: "Prepare ordinary images before upload." },
+      autoPrepare: { type: "boolean", description: "Prepare ordinary images and convert moving media/non-compliant WEBM before upload." },
       dryRun: { type: "boolean", description: "Do not mutate Telegram when true. For user-aligned add/add_from_sticker/add_batch, omit or set false to perform the requested add; set true for preview only." }
     },
     required: ["action"]
@@ -3129,9 +3380,9 @@ const stickerPackTool = {
       const runtimeCtx = resolveStickerToolContext(_toolCallId, ctx);
       let result;
       if (action === "plan") result = await planStickerMutation(config, params, runtimeCtx);
-      else if (action === "prepare") result = await prepareSticker(config, params);
-      else if (action === "prepare_batch") result = await prepareStickerBatch(config, params);
-      else if (action === "draft") result = await createStickerDraft(config, params, runtimeCtx);
+      else if (action === "prepare") result = await prepareSticker(config, params, _signal);
+      else if (action === "prepare_batch") result = await prepareStickerBatch(config, params, _signal);
+      else if (action === "draft") result = await createStickerDraft(config, params, runtimeCtx, _signal);
       else if (action === "get_draft") result = await getStickerDraft(config, params);
       else if (action === "review_brief") result = await getStickerReviewBrief(config, params);
       else if (action === "review_draft") result = await reviewStickerDraft(config, params);
@@ -3161,7 +3412,7 @@ const stickerPackTool = {
       } else {
         throw new Error("unknown sticker_pack action");
       }
-      const previewPath = result.contactSheet?.outputPath || result.outputPath || "";
+      const previewPath = result.contactSheet?.outputPath || result.previewPath || result.outputPath || "";
       const preview = await imageBlockForPath(previewPath, result.mimeType || "image/webp");
       return {
         content: [{ type: "text", text: formatResult(action, result) }, ...(preview ? [preview] : [])],
@@ -3218,6 +3469,10 @@ export const __testing = {
   imageBlockForPath,
   stickerByteLimit,
   stickerMimeType,
+  sourceStickerFormat,
+  probeStickerMedia,
+  summarizeVideoStickerProbe,
+  validateVideoStickerProbe,
   normalizeStickerFormat,
   stickerFormatFromParams,
   normalizeSetName,
@@ -3236,7 +3491,7 @@ export const __testing = {
 export default {
   id: "imagebot-sticker-pack",
   name: "Imagebot Sticker Pack",
-  description: "Telegram sticker-file preparation and bot-created sticker-set management for selected Telegram/bot media. Sent sticker copying uses Telegram file_id directly; ordinary images use local media paths or handles.",
+  description: "Telegram sticker preparation and bot-created set management for selected media. Local GIF/video inputs become compliant VP9 WEBM video stickers; sent sticker copying reuses Telegram file_id directly.",
   register(api) {
     stickerPackTool.config = api.config || {};
     api.registerTool(stickerPackTool, { name: TOOL_NAME });

@@ -20,6 +20,12 @@ const CHUNK_OVERLAP = 120;
 const MAX_CHUNKS_PER_DOC = 48;
 const AUTO_RECALL_TRIGGER_RE =
   /\b(?:remember|memory|previous|before|last time|nickname|inside joke|group lore|meme|impression)\b|(?:记得|记忆|上次|之前|以前|前面|外号|绰号|印象|群友|群里|老梗|烂梗|什么梗|啥梗|梗|典|名场面|怎么回事|什么来着|是谁|谁是|叫法)/iu;
+const EXPLICIT_RECALL_TRIGGER_RE =
+  /\b(?:remember|memory|previous|before|last time)\b|(?:记得|记忆|回忆|上次|之前|以前|前面|刚才|那次)/iu;
+const CURRENT_MEDIA_CONTEXT_RE =
+  /"source_modality"\s*:\s*"(?:image|video|animation)"|\[media attached:|\[Imagebot 媒体句柄\]|<media:(?:image|sticker|video|animation)>/iu;
+const CURRENT_MEDIA_IDENTITY_RE =
+  /(?:这|這|图里|圖裏|图中|圖中|画面里|畫面裏).{0,8}(?:是谁|是誰|哪(?:里|儿)?|什么|甚麼)|(?:这是谁|這是誰|这是哪|這是哪|这是什么|這是什麼)/iu;
 
 const LEGACY_TELEGRAM_ROUTING_CONTEXT = ["[Telegram", "routing context]"].join(" ");
 
@@ -683,6 +689,11 @@ function extractRecallQueryText(prompt = "") {
 function shouldOpenRecallGate(prompt) {
   const text = extractRecallQueryText(prompt);
   if (!text) return false;
+  if (
+    CURRENT_MEDIA_CONTEXT_RE.test(String(prompt || "")) &&
+    CURRENT_MEDIA_IDENTITY_RE.test(text) &&
+    !EXPLICIT_RECALL_TRIGGER_RE.test(text)
+  ) return false;
   if (AUTO_RECALL_TRIGGER_RE.test(text)) return true;
   return false;
 }
@@ -753,8 +764,7 @@ const memorySearchTool = {
   name: TOOL_NAME,
   label: "Memory Search",
   description:
-    "Search detailed bot-visible user, group, and window memories. " +
-    "Use when the user asks about prior conversations, group-member impressions, preferences, recurring jokes, or 'what did we say before'.",
+    "Search bot-visible user, group, and window memories for prior conversations, preferences, member impressions, and recurring jokes. Do not use current-turn media as a memory-identification shortcut unless the user explicitly asks about an earlier conversation.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -794,6 +804,15 @@ const memorySearchTool = {
             text: "MEMORY_SEARCH skipped: query is required. Do not retry memory_search in this turn unless you can form a concrete query from the user's current message."
           }],
           details: { status: "skipped", reason: "missing_query" }
+        };
+      }
+      if (CURRENT_MEDIA_IDENTITY_RE.test(query) && !EXPLICIT_RECALL_TRIGGER_RE.test(query)) {
+        return {
+          content: [{
+            type: "text",
+            text: "MEMORY_SEARCH skipped: a deictic identity question about 'this' belongs to current visual/context evidence, not stored memory. Do not retry memory_search unless the user explicitly asks about an earlier conversation."
+          }],
+          details: { status: "skipped", reason: "current_identity_query" }
         };
       }
       const target = readString(params, "target");

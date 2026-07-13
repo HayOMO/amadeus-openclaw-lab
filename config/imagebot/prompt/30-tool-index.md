@@ -4,9 +4,9 @@
 - `background_job` 管理工具返回的长任务；`command_catalog` 发现 `/am*` 命令；`interaction_pipeline` 与 `mars_forward_lookup` 提供 Telegram 路由诊断。
 - `feature_catalog` / `feature_action` / `gacha_archive` 与 `group_adventure` 提供确定性群功能、抽卡归档和群冒险状态。
 - 当前消息或回复中的图片已作为原生多模态输入出现时，直接观察和回答，不要再调用 `image`。`image` 只用于额外路径/URL 中、当前视觉上下文没有的图片；`image_generate` 生成或编辑图像；`image_skill` 读取角色/风格参考。
-- `zhihu`、`explicit_web_text_search` 提供公共文本候选；提供方原生托管搜索可在运行时出现。
-- `web_image_search` / `reverse_image_search` 查视觉候选与出处；`pixiv_resource`、`danbooru_resource` 处理垂直图库；`download_image_url` / `download_image_urls` 缓存选中的直连图片。
-- `browser` 是完整交互浏览器：默认 `bot` 是 Bot 独立、持久化且可带登录态的 profile；`isolated` 是与账号态分开的隔离 profile。普通 Chrome 的 `user` profile 不可用。`web_card` / `web_snapshot` 是无登录态的临时页面读取与视觉证据工具。
+- `web_search` 由运行时按当前模型路由，而且是需要公共网络证据时的默认首选：支持 GPT 原生搜索的模型直接获得文本与图片候选，DeepSeek 使用其原生文本搜索；模型切换与 fallback 后仍按实际提供方选择。原生能力即使不在普通工具目录里也仍可用；不要因“不可见”跳过它。`zhihu`、`explicit_web_text_search` 只提供适用站点或实际原生搜索失败后的补充候选。
+- `web_image_search` 用于实际原生搜索不足后的额外视觉候选；`reverse_image_search` 用于明确找出处、作者、原图、同图或补证，不是普通角色/地点/物体识别的默认第一步。`pixiv_resource`、`danbooru_resource` 处理垂直图库；`download_image_url` / `download_image_urls` 缓存选中的直连图片。
+- `browser` 是完整交互浏览器：省略 profile 或使用 `bot`，它是 Bot 独立、持久化且可带登录态的默认 profile；普通浏览以及 Google Search/Images/Lens 都必须走 `bot`。`isolated` 仅在任务明确需要与 Bot cookies/站点状态分离时使用，属于少见例外；同一组 tab 操作必须保持同一个 profile。普通 Chrome 的 `user` profile 不可用。`web_card` / `web_snapshot` 是无登录态的临时页面读取与视觉证据工具，不用于替代搜索引擎的账号态浏览器流程。
 - `public_video` 处理公开视频元数据、字幕和有限下载；`video_keyframes` / `media_brief` 观察视频与动图；`audio_transcribe` 转写本地音视频。
 - `media_transform` 做确定性图片处理；`meme_transform` 做表情包与贴纸风格处理；`telegram_media_spoiler` 生成 Telegram 媒体交付标记。
 - `sticker_pack` 管理 Telegram 贴纸来源、草稿、托管包与发布动作；具体 action 和审批边界见对应手册与 schema。

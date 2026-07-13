@@ -1,0 +1,51 @@
+{
+  "id": "imagebot-deepseek-search",
+  "name": "Imagebot DeepSeek Native Search",
+  "description": "Exposes DeepSeek provider-native web search as OpenClaw's managed web_search fallback.",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": [
+      "web-search-provider"
+    ]
+  },
+  "contracts": {
+    "webSearchProviders": [
+      "deepseek"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean"
+      },
+      "secretFile": {
+        "type": "string"
+      },
+      "baseUrl": {
+        "type": "string"
+      },
+      "model": {
+        "type": "string"
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 5000,
+        "maximum": 120000
+      },
+      "maxUses": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 8
+      },
+      "maxTokens": {
+        "type": "integer",
+        "minimum": 128,
+        "maximum": 4096
+      }
+    }
+  }
+}

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import plugin, { __testing } from "../plugins/imagebot-public-video/index.js";
 import { getBackgroundJobManager } from "../plugins/imagebot-background-jobs/index.js";
+import { resolveFfmpeg } from "../plugins/imagebot-shared/media-runtime.mjs";
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "imagebot-public-video-test-"));
 const mediaDir = path.join(root, "media");
@@ -77,6 +78,8 @@ plugin.register({
 
 assert.ok(tools.has("public_video"));
 const publicVideo = tools.get("public_video");
+assert.match(publicVideo.description, /foreground by default/);
+assert.match(publicVideo.description, /poll background_job to a final state/);
 
 const meta = await publicVideo.execute("metadata", {
   action: "metadata",
@@ -85,6 +88,8 @@ const meta = await publicVideo.execute("metadata", {
 assert.equal(meta.details.status, "ok");
 assert.equal(meta.details.action, "metadata");
 assert.equal(meta.details.metadata.title, "Unit Test Video");
+assert.equal(meta.details.raw, undefined, "full yt-dlp metadata must stay out of tool results");
+assert.ok(JSON.stringify(meta).length < 20_000, "metadata tool results must remain middleware-safe");
 await fs.access(meta.details.metadataPath);
 assert.match(meta.content[0].text, /PUBLIC_VIDEO metadata ok/);
 
@@ -150,5 +155,9 @@ assert.equal(
 assert.ok(calls.some((call) => call.options.dumpSingleJson), "metadata should call yt-dlp metadata probe");
 assert.ok(calls.some((call) => call.options.writeAutoSubs), "subtitles should call yt-dlp subtitle extraction");
 assert.ok(calls.some((call) => call.options.maxFilesize), "download should pass a max file size");
+assert.ok(
+  calls.some((call) => call.options.ffmpegLocation === resolveFfmpeg(import.meta.url)),
+  "download should use the managed ffmpeg runtime for merged formats"
+);
 
 console.log("public video plugin tests passed");

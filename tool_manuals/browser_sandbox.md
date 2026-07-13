@@ -25,9 +25,15 @@ Xiaohongshu, Weibo, Bilibili, Baidu/Tieba, Zhihu, and Pixiv. Google and
 LOFTER are not verified as logged in. Login state can expire, so a login
 prompt means that capability is temporarily unavailable.
 
-Use `profile="isolated"` for the isolated OpenClaw-managed browser state when the
-task should not share the Bot account profile's cookies or site state. It has no
-login guarantee. This is the project's isolation-browser feature.
+Ordinary browsing, public-site interaction, and Google Search/Images/Lens use
+`profile="bot"`. Keep that same profile on every open/tabs/snapshot/screenshot/
+act/navigate call in one tab sequence.
+
+Use `profile="isolated"` only for the rare task that explicitly requires clean,
+separate cookies/site state and must not share the Bot profile. It has no login
+guarantee. Do not choose it merely because a page is public, unfamiliar, or a
+search engine; in particular, do not use it for Google. This is the project's
+isolation-browser exception, not its ordinary browsing default.
 
 Do not use `profile="user"`. It refers to an ordinary Chrome session and is
 blocked by the imagebot browser guard.
@@ -64,6 +70,12 @@ require a Google login. SauceNAO/IQDB is faster and more specialized for
 anime, game, illustration, and source/artist lookup. These are capability
 differences, not a required order. Similar-looking results are leads, not proof
 that the depicted subject, place, or source is identical.
+
+If Google visual search is blocked after using `profile="bot"`, prefer Yandex
+Images as the browser-search alternate. Do not silently switch to Bing. Search
+engine result pages must stay in the full persistent browser rather than
+`web_snapshot`/`web_card`, whose fresh contexts are more likely to trigger
+anti-abuse checks and cannot use the Bot profile's state.
 
 Compare an original image with a browser or `web_snapshot` screenshot directly
 when both are already visible to the multimodal model. Use `image` only to load

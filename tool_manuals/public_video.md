@@ -27,10 +27,13 @@ when_to_read: Before public video URL metadata, subtitle/transcript extraction, 
 
 ## Workflow
 
+- When an exact YouTube/public-video URL is available, copy it exactly into `public_video`; do not retype its video id from memory.
 - For a YouTube/public-video question, start with `metadata` or `brief`.
 - If captions exist and the user asks for summary/content, use `subtitles` or `brief`.
 - If visual frames matter, use `download`, then pass the returned `MEDIA` path to `media_brief`.
 - If speech matters and captions are missing, use `download`, then pass the returned media path to `audio_transcribe`.
-- For slow downloads or transcript extraction, pass `background:true` and check with `background_job`.
+- Keep normal bounded downloads in the foreground so their `MEDIA` result can be returned in the same turn.
+- Use `background:true` only when a genuinely slow operation should be queued. After queueing, poll that job with `background_job` until it reaches a final state, then return its media/result; do not promise later delivery and end the turn while the job is still open.
+- If `public_video` reports a concrete extractor/network error, report it or verify the URL. Do not switch to browser download sites unless the user explicitly asks for that fallback.
 
 Keep facts from the tool exact. Natural commentary is fine around the returned facts.

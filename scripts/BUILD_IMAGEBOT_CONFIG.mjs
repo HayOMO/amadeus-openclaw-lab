@@ -106,7 +106,7 @@ async function buildPrompt(settings) {
     const raw = await readText(repoPath(...segment.split("/")));
     parts.push(raw.trim());
   }
-  let prompt = parts.join("\n\n").trim();
+  let prompt = [buildAddressingPrompt(settings.mentionPatterns), ...parts].filter(Boolean).join("\n\n").trim();
   if (prompt.includes("{{PERSONA_CARD}}")) {
     assert.ok(settings.personaPath, "prompt uses {{PERSONA_CARD}} but settings.personaPath is not configured");
     const persona = (await readText(repoPath(...settings.personaPath.split("/")))).trim();
@@ -114,6 +114,26 @@ async function buildPrompt(settings) {
   }
   lintPrompt(prompt, settings.promptLint);
   return prompt;
+}
+
+function mentionPatternLabel(pattern) {
+  return String(pattern || "")
+    .replace(/^\^/, "")
+    .replace(/^@\?/, "")
+    .replace(/\\s\+/g, " ")
+    .replace(/\\b$/, "")
+    .trim();
+}
+
+function buildAddressingPrompt(mentionPatterns = []) {
+  const labels = [...new Set(mentionPatterns.map(mentionPatternLabel).filter(Boolean))];
+  if (labels.length === 0) return "";
+  return [
+    "称呼与唤醒：",
+    `- 消息开头的这些词通常是在称呼或唤醒你：${labels.join("、")}。`,
+    "- 例如“助手今天吃什么”是在叫你并问“今天吃什么”；“助手你觉得呢”是在叫你并问“你觉得呢”。称呼不是句子的主语，也不是在询问这个称呼所指对象自身的经历。",
+    "- 这条解释只用于句首唤醒；句中出现、引用或讨论这些词时，按普通文本理解。称呼本身不改变当前持久化人设。"
+  ].join("\n");
 }
 
 function lintPrompt(prompt, lintConfig = {}) {
@@ -444,6 +464,19 @@ function webSearchConfig(settings) {
   return result;
 }
 
+function deepSeekSearchPluginConfig(settings) {
+  const cfg = settings.webSearch?.deepseek || {};
+  return {
+    enabled: cfg.enabled !== false,
+    secretFile: statePath("secrets", "deepseek-api-key.token"),
+    baseUrl: "https://api.deepseek.com/anthropic",
+    model: String(cfg.model || "deepseek-v4-flash"),
+    timeoutMs: boundedInteger(settings.webSearch?.timeoutSeconds, 30, 5, 120) * 1000,
+    maxUses: boundedInteger(cfg.maxUses, 2, 1, 8),
+    maxTokens: boundedInteger(cfg.maxTokens, 800, 128, 4096)
+  };
+}
+
 function toolSearchConfig(settings) {
   const cfg = settings.toolSearch || {};
   const mode = ["directory", "tools", "code"].includes(cfg.mode) ? cfg.mode : "directory";
@@ -571,6 +604,8 @@ function buildConfigOps(settings, customCommands) {
     { path: "plugins.entries.browser.enabled", value: true },
     { path: "plugins.entries.web-image-search.enabled", value: true },
     { path: "plugins.entries.web-image-search.config", value: { openclawMediaRoot: statePath("media"), backgroundJobs: backgroundJobsSharedConfig(settings, "web"), browserPool: browserPoolConfig(settings), danbooru: { baseUrl: "https://danbooru.donmai.us", secretFile: statePath("secrets", "danbooru-imagebot.json") } } },
+    { path: "plugins.entries.imagebot-deepseek-search.enabled", value: true },
+    { path: "plugins.entries.imagebot-deepseek-search.config", value: deepSeekSearchPluginConfig(settings) },
     { path: "plugins.entries.imagebot-browser-guard.enabled", value: true },
     { path: "plugins.entries.imagebot-browser-guard.hooks", value: lifecycleHookPolicy() },
     { path: "plugins.entries.imagebot-browser-guard.config", value: browserGuardConfig() },

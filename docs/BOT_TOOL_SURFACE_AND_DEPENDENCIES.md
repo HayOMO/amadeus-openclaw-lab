@@ -6,11 +6,11 @@ or plugin-to-plugin imports change.
 
 ## Snapshot
 
-- Active local plugins: 25.
-- Allowed tools: 63 total.
-- Built-in allowed tools: 4 (`browser`, `image`, `image_generate`, `message`).
+- Active local plugins: 26.
+- Allowed tools: 64 total.
+- Built-in allowed tools: 5 (`browser`, `image`, `image_generate`, `message`, `web_search`).
 - Plugin-owned allowed tools: 59.
-- Ordinary chat tools: 43.
+- Ordinary chat tools: 44.
 - Operator-only tools: 20.
 - Provider-visible schema mode: OpenClaw `tools.toolSearch` `directory` mode.
   The allowed surface stays the same, but most heavyweight schemas are deferred
@@ -52,6 +52,9 @@ Operator-only tools are marked with `*` below.
 
 ### Public Search And Sources
 
+- `web_search`: provider-native search surface. OpenAI/Codex models use their
+  native text/image search route; DeepSeek text models use the registered
+  DeepSeek server-side search provider.
 - `zhihu`: Zhihu Open Platform search/content lookup.
 - `zhihu_search`, `zhihu_global_search`, `zhihu_hot_list`: manifest-only split
   routes behind `zhihu`.
@@ -136,6 +139,7 @@ Operator-only tools are marked with `*` below.
 | Plugin | Exposed tools | Role | Direct dependencies |
 | --- | --- | --- | --- |
 | `web-image-search` | `explicit_web_text_search`, `web_image_search`, `danbooru_resource`, `download_image_url`, `download_image_urls`, `telegram_media_spoiler`, `reverse_image_search` | Public web/image collection and download. | `imagebot-background-jobs`, `imagebot-shared/browser-context-pool`, `imagebot-shared/public-network-guard` |
+| `imagebot-deepseek-search` | host `web_search` provider | DeepSeek provider-native server-side text search. | none |
 | `imagebot-browser-guard` | none | Browser lifecycle/risk guard. | `imagebot-shared/openclaw-lifecycle-hooks`, `imagebot-shared/public-network-guard` |
 | `imagebot-video-utils` | `video_keyframes`, `media_brief` | Video/keyframe utilities. | `imagebot-background-jobs` |
 | `imagebot-audio-transcribe` | `audio_transcribe` | Audio transcription. | `imagebot-background-jobs` |

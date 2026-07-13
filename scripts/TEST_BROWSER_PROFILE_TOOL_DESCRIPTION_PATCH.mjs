@@ -17,7 +17,9 @@ for (const file of files) {
   assert.match(source, /profile=\\\"user\\\" is blocked/);
   assert.doesNotMatch(source, /known logged-in services/);
   assert.match(source, /Google Lens\/Images is the broadest general visual-search capability/);
-  assert.match(source, /profile=\\\"isolated\\\" for separate cookies and site state/);
+  assert.match(source, /Use the bot profile for ordinary browsing and Google Search\/Images\/Lens/);
+  assert.match(source, /profile=\\\"isolated\\\" is a rare exception/);
+  assert.match(source, /Keep the same profile throughout a tab sequence/);
   assert.doesNotMatch(source, /omit profile by default for the isolated OpenClaw-managed browser/);
 }
 

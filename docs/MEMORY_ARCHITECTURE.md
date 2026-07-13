@@ -50,7 +50,7 @@ memory and Honcho are recorded in
      transcripts into user, group, and window memory files.
    - The curator keeps raw window notes separate from stable user/group memory.
    - The curator runs with a neutral no-persona instruction and defaults to the
-     `deep` profile (`openai/gpt-5.5` with high reasoning) unless overridden
+     `deep` profile (`openai/gpt-5.6-sol` with high reasoning) unless overridden
      for a run.
    - Semantic index prewarm supports fuzzy recall, while keyword recall remains
      available immediately.

@@ -63,6 +63,7 @@
     "duckduckgo",
     "document-extract",
     "web-image-search",
+    "imagebot-deepseek-search",
     "imagebot-browser-guard",
     "imagebot-video-utils",
     "imagebot-audio-transcribe",
@@ -90,6 +91,7 @@
   ],
   "localPluginDirs": [
     "plugins/web-image-search",
+    "plugins/imagebot-deepseek-search",
     "plugins/imagebot-browser-guard",
     "plugins/imagebot-video-utils",
     "plugins/imagebot-audio-transcribe",
@@ -120,6 +122,7 @@
     "image_generate",
     "zhihu",
     "explicit_web_text_search",
+    "web_search",
     "web_image_search",
     "danbooru_resource",
     "download_image_url",
@@ -271,6 +274,12 @@
       "enabled": true,
       "mode": "live",
       "contextSize": "medium"
+    },
+    "deepseek": {
+      "enabled": true,
+      "model": "deepseek-v4-flash",
+      "maxUses": 2,
+      "maxTokens": 800
     }
   },
   "toolSearch": {

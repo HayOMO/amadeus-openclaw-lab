@@ -143,7 +143,7 @@ const readText = (relativePath) => fs.readFile(path.join(repoRoot, relativePath)
 
 const readme = await readText("README.md");
 assert.ok(
-  readme.includes("docs\\AGENT_ARCHITECTURE_ALIGNMENT.md"),
+  /docs[\\/]AGENT_ARCHITECTURE_ALIGNMENT\.md/.test(readme),
   "README must point future feature work at the agent architecture alignment anchor",
 );
 

@@ -453,7 +453,7 @@ assert.doesNotMatch(bot.source, /const modelLines = getTelegramImagebotAmmodelMo
 assert.match(bot.source, /untrustedCallback/);
 assert.match(bot.source, /blocked non-owner/);
 assert.match(bot.source, /resolveTelegramImagebotActiveWindowId/);
-assert.match(bot.source, /TELEGRAM_IMAGEBOT_WINDOW_IDLE_CLOSE_MS = 10 \* 60 \* 1000/);
+assert.match(bot.source, /TELEGRAM_IMAGEBOT_WINDOW_IDLE_CLOSE_MS = 30 \* 60 \* 1000/);
 assert.match(bot.source, /TELEGRAM_IMAGEBOT_ACTIVE_WINDOW_TRIGGER_MAX_AGE_MS = TELEGRAM_IMAGEBOT_WINDOW_IDLE_CLOSE_MS/);
 assert.match(bot.source, /resolveTelegramImagebotRecentActiveWindowId/);
 assert.match(bot.source, /closedReason = normalizeOptionalString\(params\.closedReason\)\?\.trim\(\) \|\| "replaced-by-amnew"/);

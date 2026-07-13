@@ -44,11 +44,11 @@ assert.ok(!Object.hasOwn(tools.get("reverse_image_search").parameters.properties
 const pluginSource = await fs.readFile(path.resolve("plugins/web-image-search/index.js"), "utf8");
 assert.match(pluginSource, /withEphemeralPage/, "browser-backed image downloads should use ephemeral contexts");
 assert.match(pluginSource, /const REVERSE_REQUEST_TIMEOUT_MS = 12_000;/, "ordinary reverse search should keep a bounded fast timeout");
-assert.match(tools.get("reverse_image_search").description, /Fast reverse search/);
+assert.match(tools.get("reverse_image_search").description, /Find the source, artist, or original post/);
 assert.match(tools.get("reverse_image_search").description, /SauceNAO\/IQDB/);
-assert.match(tools.get("reverse_image_search").description, /not general photo identification/);
-assert.match(tools.get("reverse_image_search").description, /similar-only results are not identity proof/);
-assert.match(tools.get("reverse_image_search").description, /Full-browser Google Lens\/Images is broader for general photos/);
+assert.match(tools.get("reverse_image_search").description, /Do not use as the default/);
+assert.match(tools.get("reverse_image_search").description, /Similar results alone do not prove identity/);
+assert.match(tools.get("reverse_image_search").description, /after native search lacks evidence/);
 assert.doesNotMatch(tools.get("reverse_image_search").description, /natural follow-up/);
 assert.match(pluginSource, /Similar-only or low-confidence candidates do not establish the input image's identity or source/);
 assert.match(tools.get("reverse_image_search").parameters.properties.providers.description, /Omit for the default fast path: SauceNAO \+ IQDB/);

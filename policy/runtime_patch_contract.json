@@ -330,14 +330,14 @@
       "ownerClass": "host-agent-bridge",
       "maintenanceRisk": "low",
       "publicSurfaceChecked": ["browser tool schema", "tool_search browser description", "configured browser default profile"],
-      "whyRuntimePatch": "The built-in browser tool description must match imagebot's Bot-owned default and isolated alternate profile, and must not steer imagebot into profile=user, which attaches to an ordinary Chrome session. Prompt files cannot reliably override a tool's own schema description after tool_search returns it.",
+      "whyRuntimePatch": "The built-in browser tool description must match imagebot's Bot-owned ordinary/Google-search default, keep isolated use as an explicit rare exception, preserve profile continuity across a tab sequence, and must not steer imagebot into profile=user, which attaches to an ordinary Chrome session. Prompt files cannot reliably override a tool's own schema description after tool_search returns it.",
       "retireWhen": "OpenClaw renders browser tool descriptions from the resolved browser.defaultProfile or uses profile-neutral wording that tells agents omitted profile means configured default."
     },
     "browser-profile-tool-description-service": {
       "ownerClass": "host-agent-bridge",
       "maintenanceRisk": "low",
       "publicSurfaceChecked": ["browser tool schema", "deferred browser tool loading", "configured browser default profile"],
-      "whyRuntimePatch": "The plugin service has a second browser tool description copy used by deferred loading. It also hardcoded the isolated openclaw default and can reintroduce the same wrong steering even after the registration copy is patched.",
+      "whyRuntimePatch": "The plugin service has a second browser tool description copy used by deferred loading. It also hardcoded the isolated openclaw default and can reintroduce wrong ordinary/Google profile steering or lose profile-continuity guidance even after the registration copy is patched.",
       "retireWhen": "OpenClaw deduplicates browser tool description generation and uses the resolved configured default profile in the single source of truth."
     },
     "browser-screenshot-observation-media": {

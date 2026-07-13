@@ -25,10 +25,11 @@ Do not force a global `tools.web.search.provider`.
 Search routing:
 
 1. Keep the current model/provider's native or hosted search route open when
-   available. Do not put `web_search` in `tools.allow` unless OpenClaw exposes
-   it as an actual callable tool in the active runtime; native/provider search
-   can be configured without being a normal tool. Treat native search as
-   successful only when sources/citations or trace evidence show it ran.
+   available, and keep `web_search` permitted where the active OpenClaw runtime
+   uses that policy entry to activate provider-native search. Native/provider
+   search can be configured without appearing as a normal catalog tool. Catalog
+   invisibility is not a fallback condition. Treat native search as successful
+   only when sources/citations or trace evidence show it ran.
 2. Use the Zhihu OpenAPI tools as a first-class route for Zhihu, Chinese
    community, Chinese-web, hot-list, and answer/article lookup. They are not a
    last-resort fallback.
@@ -48,8 +49,9 @@ Reason:
   `tools.web.search.openaiCodex` route suppresses the managed `web_search`
   tool, but an embedded `openclaw agent` run did not expose an observable native
   hosted search call when explicit search tools were disallowed. Therefore the
-  prompt should prefer native search but fall back to explicit search tools when
-  native search is unavailable, unobservable, empty, or insufficient.
+   prompt should prefer native search and fall back to explicit search tools only
+   when the current model lacks it or an actual native attempt errors, is empty,
+   or supplies insufficient evidence.
 - DeepSeek supports OpenAI-compatible models in OpenClaw. If DeepSeek-native
   search is exposed through the current provider/config, integrate it as a
   native route without overriding other providers globally.
@@ -57,8 +59,9 @@ Reason:
 Regression guard:
 
 - `scripts/TEST_IMAGEBOT_CONFIG_SOURCE.mjs` asserts that generated
-  `tools.web.search` does not force a global provider and that `web_search` is
-  not exposed as a fake callable tool.
+  `tools.web.search` does not force a global provider and that policy permits
+  `web_search` without pretending the provider-native surface must appear in
+  the ordinary Tool Search catalog.
 
 ## 2026-06-23: Group Bot Performance Defaults
 
